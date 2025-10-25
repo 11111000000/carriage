@@ -7,30 +7,145 @@
 (require 'carriage-utils)
 (require 'carriage-git)
 
-(defun carriage--report-ok (op &key file path details)
-  "Build a simple ok report item alist."
-  (list :op op :status 'ok :file (or file path) :details (or details "ok")))
+(defun carriage--report-ok (op &rest kv)
+  "Build ok report alist with OP and extra KV plist."
+  (append (list :op op :status 'ok) kv))
 
-(defun carriage--report-fail (op &key file path details extra)
-  "Build a simple fail report item alist."
-  (append (list :op op :status 'fail :file (or file path) :details (or details "fail"))
-          (when extra (list :extra extra))))
+(defun carriage--report-fail (op &rest kv)
+  "Build fail report alist with OP and extra KV plist."
+  (append (list :op op :status 'fail) kv))
 
 ;;; SRE
 
+(defun carriage--sre-make-regexp (from match-kind)
+  "Return regexp for FROM according to MATCH-KIND ('literal or 'regex)."
+  (if (eq match-kind 'regex) from (regexp-quote (or from ""))))
+
+(defun carriage--sre-count-nonoverlapping (text regexp)
+  "Count non-overlapping matches of REGEXP in TEXT."
+  (let ((pos 0) (cnt 0))
+    (while (and (< pos (length text)) (string-match regexp text pos))
+      (setq cnt (1+ cnt))
+      (setq pos (match-end 0)))
+    cnt))
+
+(defun carriage--sre-slice-by-lines (text range-plist)
+  "Return (PRE REGION POST) for TEXT restricted by RANGE-PLIST (:start-line N :end-line M).
+Lines are 1-based; END-LINE inclusive. If RANGE-PLIST is nil, REGION = TEXT and PRE/POST empty."
+  (if (not range-plist)
+      (list "" text "")
+    (let* ((start (plist-get range-plist :start-line))
+           (end   (plist-get range-plist :end-line)))
+      (with-temp-buffer
+        (insert text)
+        (goto-char (point-min))
+        (let* ((start-line (max 1 (or start 1)))
+               (end-line (max start-line (or end (line-number-at-pos (point-max)))))
+               (beg (progn (goto-char (point-min)) (forward-line (1- start-line)) (point)))
+               (endp (progn (goto-char (point-min)) (forward-line end-line) (point))))
+          (list (buffer-substring-no-properties (point-min) beg)
+                (buffer-substring-no-properties beg endp)
+                (buffer-substring-no-properties endp (point-max))))))))
+
+(defun carriage--sre-replace-first (text regexp to replacement-literal-p)
+  "Replace first match of REGEXP in TEXT with TO. Return (NEW . COUNT)."
+  (if (not (string-match regexp text))
+      (cons text 0)
+    (cons (replace-match to nil replacement-literal-p text) 1)))
+
+(defun carriage--sre-replace-all (text regexp to replacement-literal-p)
+  "Replace all matches of REGEXP in TEXT with TO. Return (NEW . COUNT)."
+  (let ((count (carriage--sre-count-nonoverlapping text regexp))
+        (new (replace-regexp-in-string regexp to text nil replacement-literal-p)))
+    (cons new count)))
+
+(defun carriage--sre-count-matches (text from opts)
+  "Count matches of FROM in TEXT honoring OPTS (:match, :occur)."
+  (let* ((match-kind (or (plist-get opts :match) 'literal))
+         (occur (or (plist-get opts :occur) 'first))
+         (rx (carriage--sre-make-regexp from match-kind)))
+    (cond
+     ((eq occur 'first)
+      (if (string-match rx text) 1 0))
+     ((eq occur 'all)
+      (carriage--sre-count-nonoverlapping text rx))
+     (t (carriage--sre-count-nonoverlapping text rx)))))
+
 (defun carriage-dry-run-sre (plan-item repo-root)
-  "Dry-run SRE: count matches per plan-item. Minimal stub for v1."
+  "Dry-run SRE: count matches per pair; check :expect for :occur all."
   (let* ((file (alist-get :file plan-item))
-         (abs (ignore-errors (carriage-normalize-path (or repo-root default-directory) file)))
-         (exists (and abs (file-exists-p abs))))
-    (if (not exists)
+         (abs (ignore-errors (carriage-normalize-path (or repo-root default-directory) file))))
+    (if (not (and abs (file-exists-p abs)))
         (carriage--report-fail 'sre :file file :details "File not found")
-      (carriage--report-ok (alist-get :op plan-item) :file file :details "SRE dry-run stub: ok"))))
+      (let* ((text (carriage-read-file-string abs))
+             (pairs (or (alist-get :pairs plan-item) '()))
+             (total-matches 0)
+             (errors nil))
+        (dolist (p pairs)
+          (let* ((from (alist-get :from p))
+                 (opts (alist-get :opts p))
+                 (range (plist-get opts :range))
+                 (occur (or (plist-get opts :occur) 'first))
+                 (expect (plist-get opts :expect))
+                 (region (if range (cadr (carriage--sre-slice-by-lines text range)) text))
+                 (count (condition-case e
+                            (carriage--sre-count-matches region from opts)
+                          (error
+                           (push (format "Regex error: %s" (error-message-string e)) errors)
+                           -1))))
+            (when (>= count 0)
+              (setq total-matches (+ total-matches count))
+              (when (and (eq occur 'all) (integerp expect) (not (= count expect)))
+                (push (format "Expect mismatch: have %d, expect %d" count expect) errors))
+              (when (and (eq occur 'first) (= count 0))
+                (push "No matches for :occur first" errors)))))
+        (if errors
+            (carriage--report-fail 'sre :file file
+                                   :details (format "fail: pairs:%d matches:%d; %s"
+                                                    (length pairs) total-matches
+                                                    (mapconcat #'identity (nreverse errors) "; ")))
+          (carriage--report-ok 'sre :file file
+                               :details (format "ok: pairs:%d matches:%d"
+                                                (length pairs) total-matches)))))))
 
 (defun carriage-apply-sre (plan-item repo-root)
-  "Apply SRE pairs by rewriting file. Minimal stub for v1."
-  (let* ((file (alist-get :file plan-item)))
-    (carriage--report-ok (alist-get :op plan-item) :file file :details "SRE apply stub: noop")))
+  "Apply SRE pairs by rewriting file and committing via Git."
+  (let* ((file (alist-get :file plan-item))
+         (abs (carriage-normalize-path (or repo-root default-directory) file)))
+    (unless (file-exists-p abs)
+      (cl-return-from carriage-apply-sre
+        (carriage--report-fail 'sre :file file :details "File not found")))
+    (let* ((text (carriage-read-file-string abs))
+           (pairs (or (alist-get :pairs plan-item) '()))
+           (changed 0)
+           (new-text text))
+      (dolist (p pairs)
+        (let* ((from (alist-get :from p))
+               (to   (alist-get :to p))
+               (opts (alist-get :opts p))
+               (range (plist-get opts :range))
+               (match-kind (or (plist-get opts :match) 'literal))
+               (occur (or (plist-get opts :occur) 'first))
+               (rx (carriage--sre-make-regexp from match-kind))
+               (slice (carriage--sre-slice-by-lines new-text range))
+               (pre (car slice))
+               (region (cadr slice))
+               (post (caddr slice))
+               (rep (pcase occur
+                      ('first (carriage--sre-replace-first region rx to (not (eq match-kind 'regex))))
+                      ('all   (carriage--sre-replace-all region rx to (not (eq match-kind 'regex))))
+                      (_      (carriage--sre-replace-all region rx to (not (eq match-kind 'regex))))))
+               (region-new (car rep))
+               (cnt (cdr rep)))
+          (setq changed (+ changed cnt))
+          (setq new-text (concat pre region-new post))))
+      (if (<= changed 0)
+          (carriage--report-fail 'sre :file file :details "No changes")
+        (progn
+          (carriage-write-file-string abs new-text t)
+          (carriage-git-add repo-root file)
+          (carriage-git-commit repo-root (format "carriage: sre %s (replaced %d)" file changed))
+          (carriage--report-ok 'sre :file file :details (format "Applied %d replacements" changed)))))))
 
 ;;; PATCH (unified diff)
 
