@@ -1,0 +1,133 @@
+#+title: File Ops v1 — create/delete/rename
+#+author: Peter Kosov <11111000000@email.com>
+#+language: ru
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+* Назначение и охват
+- Норматив форматов блоков =patch= для операций над файлами:
+  - :op "create" — создать файл с содержимым.
+  - :op "delete" — удалить файл.
+  - :op "rename" — переименовать/переместить файл.
+- Цель v1: минимальная и надёжная спецификация, совместимая с общим пайплайном (dry-run → применить → git).
+
+* Общие нормы
+- Имя спец-блока: только =begin_patch/end_patch=.
+- Пути — только относительные, внутри корня репозитория; запрет абсолютов и «..».
+- Один блок = одна операция.
+- Dry-run обязателен; подтверждение перед применением — по настройке UI.
+
+* Блок :op "create"
+** Заголовок
+- #+begin_patch (:version "1" :op "create" :file "relative/path" :delim "TOKEN" [:mkdir t|nil])
+- #+end_patch
+
+Ключи:
+- :version — "1".
+- :op — "create".
+- :file — относительный путь создаваемого файла.
+- :delim — обязателен; ровно 6 hex-символов (см. ./index.org, секция FREEZE)
+- :mkdir — t для создания недостающих каталогов (по умолчанию t).
+
+** Тело
+- Ровно один сегмент с содержимым:
+  - <<DELIM
+    …содержимое файла…
+    :DELIM
+
+** Валидация (create)
+- Путь внутри репозитория; каталоги допускается создать при :mkdir t.
+- Файл не должен существовать; иначе OPS_E_EXISTS (если не предусмотрена политика overwrite в будущих версиях).
+
+** Dry-run (create)
+- Проверить доступность пути и отсутствие файла.
+- Предпросмотр: показать размер создаваемого содержимого (байт).
+
+** Применение (create)
+- Создать каталоги при необходимости (:mkdir t).
+- Записать файл как есть.
+- git add путь; коммит: "carriage: create <path>".
+
+** Пример (create)
+#+begin_patch (:version "1" :op "create" :file "docs/intro.md" :delim "cafe01")
+<<cafe01
+* Intro
+Welcome to Carriage.
+:cafe01
+#+end_patch
+
+* Блок :op "delete"
+** Заголовок
+- #+begin_patch (:version "1" :op "delete" :file "relative/path")
+- #+end_patch
+
+** Тело
+- Пусто.
+
+** Валидация (delete)
+- Путь внутри репозитория; файл должен существовать (иначе OPS_E_NOT_FOUND).
+- Дополнительные проверки (по политике безопасности): запрет удаления вне списка разрешённых директорий (опционально, не в v1).
+
+** Dry-run (delete)
+- Сообщить о намерении удалить файл; показать размер и последнее изменение (по желанию инструмента).
+
+** Применение (delete)
+- git rm --cached --force <path> (или git rm, в зависимости от состояния).
+- Коммит: "carriage: delete <path>".
+
+** Пример (delete)
+#+begin_patch (:version "1" :op "delete" :file "tmp/old.log")
+#+end_patch
+
+* Блок :op "rename"
+** Заголовок
+- #+begin_patch (:version "1" :op "rename" :from "old/relpath" :to "new/relpath")
+- #+end_patch
+
+Ключи:
+- :from — исходный относительный путь.
+- :to — целевой относительный путь.
+
+** Тело
+- Пусто.
+
+** Валидация (rename)
+- Оба пути внутри репозитория; :from существует; :to не должен существовать (иначе OPS_E_EXISTS).
+- Переименование между разными файловыми системами не поддерживается (локальная операция Git).
+
+** Dry-run (rename)
+- Отобразить старый и новый путь; отметить, что последующие блоки должны использовать :to как новый путь.
+
+** Применение (rename)
+- git mv :from :to
+- Коммит: "carriage: rename <from> → <to>"
+
+** Пример (rename)
+#+begin_patch (:version "1" :op "rename" :from "lib/legacy.c" :to "src/core/legacy.c")
+#+end_patch
+
+* Формальная грамматика (EBNF)
+#+begin_src text
+patch-block   := patch-header newline patch-body patch-footer
+patch-header  := "#+begin_patch" ws plist newline
+patch-footer  := "#+end_patch" newline?
+plist         := "(" ws kv-pair (ws kv-pair)* ws ")"
+kv-pair       := ":"symbol ws value
+value         := string | number | symbol | list
+
+; create
+create-required := :version "1" :op "create" :file "relative/path" :delim "TOKEN"
+create-optional := (:mkdir t|nil)
+create-body     := segment
+
+; delete
+delete-required := :version "1" :op "delete" :file "relative/path"
+delete-body     := ε
+
+; rename
+rename-required := :version "1" :op "rename" :from "old" :to "new"
+rename-body     := ε
+
+segment-open    := "<<" TOKEN newline
+segment-close   := ":" TOKEN newline
+segment         := segment-open payload segment-close

@@ -1,0 +1,116 @@
+#+title: Data Structures v1 — План, операции, отчёты
+#+author: Peter Kosov <11111000000@email.com>
+#+language: ru
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+* Назначение
+- Норматив представления внутренних структур данных:
+  - План операций (Plan)
+  - Элементы плана для SRE, PATCH и файловых операций
+  - Отчёты dry-run и диагностика
+- Цель: единый контракт между парсерами, пайплайном и UI.
+
+* Общие требования
+- Структуры — plist/алисты с ключами-символами (Emacs Lisp).
+- Обязательные поля должны присутствовать; лишние поля игнорируются с предупреждением.
+- Все пути относительные к корню репозитория.
+
+* План операций (Plan)
+- Представляет собой список блоков (элементов плана). Порядок — как в ответе (до упорядочения пайплайном).
+- Элемент плана (Block Item), общий каркас:
+  - (:version "1"
+     :op OP                       ; 'sre | 'sre-batch | 'patch | 'create | 'delete | 'rename
+     :file "relative/path"        ; для ops, где применимо
+     :meta (:source-range (start end) :origin 'last-iteration ...)) ; опциональные метаданные
+- Для разных :op добавляются профильные поля, см. ниже.
+
+* Элемент плана: SRE (одна пара)
+- Каркас:
+  - (:version "1" :op 'sre :file "path"
+     :pairs ((:from STRING :to STRING :opts OPTS)))
+- Где:
+  - OPTS — plist опций пары (:occur, :match, :range); при отсутствии применяются встроенные дефолты (:occur first, :match literal, без :range).
+
+* Элемент плана: SRE-BATCH (несколько пар)
+- Каркас:
+  - (:version "1" :op 'sre-batch :file "path"
+     :pairs ((:from STRING :to STRING :opts OPTS) ... ))
+
+* Элемент плана: PATCH (unified diff одного файла)
+- Каркас:
+  - (:version "1" :op 'patch
+     :apply 'git-apply
+     :strip 1
+     :path "relative/path"         ; путь, извлечённый из ---/+++
+     :diff STRING)                 ; исходный unified diff тела блока
+
+* Элемент плана: CREATE
+- Каркас:
+  - (:version "1" :op 'create :file "path"
+     :content STRING               ; содержимое файла
+     :mkdir t)                     ; по умолчанию t
+
+* Элемент плана: DELETE
+- Каркас:
+  - (:version "1" :op 'delete :file "path")
+
+* Элемент плана: RENAME
+- Каркас:
+  - (:version "1" :op 'rename :from "old/path" :to "new/path")
+
+* Опции SRE (OPTS)
+- Ключи и значения:
+  - :occur 'first | 'all
+  - :expect K(целое≥0)             ; обязательно при :occur 'all
+  - :match 'literal | 'regex
+  - :range (:start-line N :end-line M) ; включительно
+
+* Отчёт dry-run (Report)
+- Структура:
+  - (:plan PLAN
+     :summary (:ok N :fail M :skipped K)
+     :items ((:op OP :file "path" :status 'ok|'fail|'skip
+              :details STRING
+              :diff PREVIEW-DIFF-STRING ; для SRE
+              :matches K) ... )
+     :messages ((:code SYMBOL :severity 'info|'warn|'error
+                 :file "path" :details STRING :hint STRING? ) ... ))
+- Требования:
+  - Каждый элемент items соответствует блоку плана (в порядке применения).
+  - messages — единый список диагностики.
+
+* Диагностическое сообщение (Diagnostic)
+- (:code SYMBOL :severity 'info|'warn|'error
+   :file "path"? :op OP? :details STRING :hint STRING?)
+- Примеры :code:
+  - 'SRE_E_SEGMENTS_COUNT, 'SRE_E_OCCUR_EXPECT
+  - 'PATCH_E_GIT_CHECK, 'PATCH_E_MULTI_FILE
+  - 'MODE_E_DISPATCH, 'IO_E_PATH
+
+* Мини-примеры (Elisp)
+#+begin_src emacs-lisp
+(setq example-sre-plan
+      '((:version "1" :op 'sre :file "src/foo.el"
+         :pairs ((:from "(defun foo" :to "(defun foo-v2" :opts (:occur first))))))
+
+(setq example-batch-plan
+      '((:version "1" :op 'sre-batch :file "src/app.py"
+         :pairs ((:from "LOGGER.info(" :to "LOGGER.debug(" :opts (:occur first))
+                 (:from "\\btimeout\\s/=\\s*30\\b" :to "timeout=60" :opts (:match regex :occur all :expect 3))))))
+
+(setq example-patch-plan
+      '((:version "1" :op 'patch :apply 'git-apply :strip 1
+         :path "src/foo.el" :diff "--- a/src/foo.el\n+++ b/src/foo.el\n@@ ...")))
+
+(setq example-create-plan
+      '((:version "1" :op 'create :file "docs/intro.md"
+         :content "* Intro\nWelcome.\n" :mkdir t)))
+
+(setq example-report
+      '(:plan nil
+        :summary (:ok 2 :fail 1 :skipped 0)
+        :items ((:op 'sre :file "src/foo.el" :status 'ok :matches 1 :details "ok")
+                (:op 'patch :path "src/app.py" :status 'fail :details "git apply --check failed"))
+        :messages ((:code 'PATCH_E_GIT_CHECK :severity 'error :file "src/app.py" :details "context not found"))))
+

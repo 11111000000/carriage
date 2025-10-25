@@ -1,0 +1,82 @@
+#+title: Parser/Applier Impl v1 — Контракты и скелеты
+#+author: Peter Kosov <11111000000@email.com>
+#+language: ru
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+* Назначение
+- Нормативные интерфейсы функций parse/dry-run/apply для всех :op v1.
+- Скелеты Emacs Lisp для унификации реализации.
+
+* Общие интерфейсы
+- parse(op, header-plist, body-text, repo-root) → plan-item | error
+  - На вход: plist заголовка, тело блока (между begin/end), корень репо.
+  - На выход: элемент плана (см. ./data-structures-v1.org) или ошибка.
+- dry-run(PLAN-ITEM, REPO) → REPORT-ITEM[, DIFF]
+- apply(PLAN-ITEM, REPO) → RESULT
+- Все функции должны сигнализировать условия (define-error) с кодами из ./errors-v1.org.
+
+* Генерация и ресинхронизация DELIM (SRE)
+- DELIM генерирует инструмент до запроса к LLM.
+- При обнаружении коллизии внутри блока (строка равна ":DELIM"):
+  - Выполнить пересинхронизацию: заменить все "<<DELIM"/":DELIM" на новый токен; повторно валидировать.
+  - Повторять до 8 попыток с новыми 6-hex токенами; при каждой пересинхронизации добавлять предупреждение SRE_E_COLLISION_DELIM в отчёт.
+  - Если после 8 попыток коллизия не устранена — отказ с ошибкой SRE_E_COLLISION_DELIM.
+
+* Скелеты (Elisp)
+#+begin_src emacs-lisp
+(cl-defgeneric carriage-parse (op header-plist body-text repo-root))
+(cl-defgeneric carriage-dry-run (plan-item repo-root))
+(cl-defgeneric carriage-apply (plan-item repo-root))
+
+(defun carriage-generate-delim ()
+  "Вернуть случайный токен длиной ровно 6 нижних hex-символов ([0-9a-f])."
+  (let* ((b1 (random 256))
+         (b2 (random 256))
+         (b3 (random 256)))
+    (format "%02x%02x%02x" b1 b2 b3)))
+
+(defun carriage-parse-sre (header body repo-root)
+  "Парсинг SRE/SRE-BATCH по спецификации v1."
+  ;; 1) проверить :version, :op, :file, :delim
+  ;; 2) разобрать #+pair; собрать сегменты <<DELIM ... :DELIM
+  ;; 3) сгруппировать пары (FROM,TO), собрать :pairs
+  ;; 4) вернуть элемент плана
+  )
+
+(defun carriage-dry-run-sre (plan-item repo-root)
+  "Подсчитать совпадения, собрать мини-диффы и отчёт."
+  ;; учитывать :occur, :expect, :match, :range
+  )
+
+(defun carriage-apply-sre (plan-item repo-root)
+  "Применить пары по порядку, затем git add/commit."
+  )
+
+(defun carriage-parse-diff (header body repo-root)
+  "Парсинг unified diff одного файла."
+  ;; извлечь ---/+++ пути; проверить одиночность файла; подготовить :diff и :path
+  )
+
+(defun carriage-dry-run-diff (plan-item repo-root)
+  "Выполнить git apply --check и собрать вывод."
+  )
+
+(defun carriage-apply-diff (plan-item repo-root)
+  "git apply --index; git add; commit."
+  )
+
+(defun carriage-parse-create (header body repo-root)
+  "Парсинг create: один сегмент CONTENT."
+  )
+
+(defun carriage-parse-delete (header body repo-root) )
+(defun carriage-parse-rename (header body repo-root) )
+
+(defun carriage-dry-run-create (plan-item repo-root) )
+(defun carriage-dry-run-delete (plan-item repo-root) )
+(defun carriage-dry-run-rename (plan-item repo-root) )
+
+(defun carriage-apply-create (plan-item repo-root) )
+(defun carriage-apply-delete (plan-item repo-root) )
+(defun carriage-apply-rename (plan-item repo-root) )

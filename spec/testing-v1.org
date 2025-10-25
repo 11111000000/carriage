@@ -1,0 +1,77 @@
+#+title: Testing v1 — План тестирования
+#+author: Peter Kosov <11111000000@email.com>
+#+language: ru
+#+options: toc:2 num:t
+
+* Цели
+- Гарантировать корректность парсеров, dry-run и применения.
+- Покрыть позитивные и негативные сценарии, краевые случаи.
+
+* Наборы тестов
+** Юнит-тесты (ERT)
+- Парсеры:
+  - SRE: корректные/некорректные сегменты, директивы #+pair.
+  - PATCH: многофайловый diff → отказ, /dev/null create/delete, :strip логика.
+  - FILE OPS: create/delete/rename — предусловия, :mkdir, конфликты путей и существование/отсутствие файлов.
+- Валидаторы regexp (Emacs flavor): неподдерживаемые конструкции → ошибка.
+- Нормализация путей: запрет абсолютов и «..».
+- TRAMP/remote: отказ при (file-remote-p) t.
+
+** Интеграционные
+- Тестовый git-репозиторий (временный каталог).
+- Apply pipeline:
+  - delete → rename → create → patch → sre/sre-batch порядок.
+  - Сбой в середине группы → остановка без автоматического отката.
+  - Dry-run отчёты и подтверждение.
+- gptel-mock: имитация ответа LLM с блоками.
+
+** Золотые документы (golden files)
+- Набор org-файлов с известными блоками и ожидаемыми результатами.
+- Тесты «без изменений» (идемпотентность).
+
+* Как запускать
+- emacs -Q -batch -l ert -l test/run.el -f ert-run-tests-batch-and-exit
+
+* Метрики качества
+- Покрытие веток в парсерах и апплаерах.
+- Время на dry-run и применение больших файлов (пороговые значения).
+
+* Примитивные фикстуры (elisp-скелеты)
+#+begin_src emacs-lisp
+(require 'ert)
+
+;; SRE
+(ert-deftest carriage-sre-parse-basic ()
+  (should (fboundp 'carriage-parse-sre)))
+
+(ert-deftest carriage-sre-occur-all-expect-required ()
+  (let ((plan '((:version "1" :op 'sre-batch :file "x"
+                  :pairs ((:from "a" :to "b" :opts (:occur all)))))))
+    ;; skeleton: expect error on dry-run without :expect
+    (should t)))
+
+;; Unified diff
+(ert-deftest carriage-diff-parse-one-file ()
+  (should (fboundp 'carriage-parse-diff)))
+
+(ert-deftest carriage-diff-git-check-fails ()
+  ;; skeleton: simulate git apply --check failure
+  (should t))
+
+;; File ops
+(ert-deftest carriage-create-validate-and-apply ()
+  (should (fboundp 'carriage-parse-create)))
+
+(ert-deftest carriage-delete-validate-and-apply ()
+  (should (fboundp 'carriage-parse-delete)))
+
+(ert-deftest carriage-rename-validate-and-apply ()
+  (should (fboundp 'carriage-parse-rename)))
+
+;; Security and env
+(ert-deftest carriage-path-normalization ()
+  (should t))
+
+(ert-deftest carriage-tramp-detected-and-refused ()
+  (should t))
+#+end_src

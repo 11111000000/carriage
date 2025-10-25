@@ -1,0 +1,92 @@
+#+title: UI v1 — Клавиши, header-line, mode-line, отчёты
+#+author: Peter Kosov <11111000000@email.com>
+#+language: ru
+#+options: toc:2 num:t
+
+* Назначение
+- Норматив интерфейса пользователя: навигация, применение, визуализация.
+
+* Keymap (org-mode только)
+- C-c M-RET — отправить весь документ (Ask/Code зависит от профиля).
+- C-c RET — отправить текущее поддерево.
+- C-c C-c — dry-run → подтверждение → применить блок =patch= под точкой.
+- C-c ! — применить все блоки из «последней итерации».
+- C-c ? — только dry-run текущего блока (или всей «последней итерации» при префикс-аргументе).
+- M-n / M-p — навигация по блокам =patch=.
+- C-c b c — создать/перейти на ветку carriage/WIP.
+- C-c b l — показать лог применений (буфер отчёта).
+- C-c b r — откат последнего коммита (soft reset).
+
+* Header-line
+- Состав: project-name → buffer-name → org-outline-path.
+- Сокращение длинных сегментов многоточием в середине.
+- Клики (опционально): переход к заголовку, раскрытие/сворачивание узла.
+
+* Mode-line
+- Сегменты и кнопки (кликабельно; без мыши — дублируются командами/клавишами):
+  - Профиль: [Ask|Code] — переключение профиля (toggle).
+  - Модель: [gptel:MODEL] — выбор модели.
+  - Состояние: [idle|sending|streaming|dry-run|apply|error] + индикатор-спиннер для sending/streaming.
+  - Управление циклом:
+    - [Dry] — запустить dry-run под точкой (C-c ?).
+    - [Apply] — dry-run → подтверждение → применить под точкой (C-c C-c).
+    - [All] — применить все блоки «последней итерации» (C-c !).
+    - [Abort] — отменить текущий запрос/применение (отмена запроса к LLM/пайплайна).
+    - [Report] — открыть буфер отчёта (C-c b l).
+  - Просмотр:
+    - [Diff] — показать мини-дифф текущего блока (если доступен).
+    - [Ediff] — открыть ediff для текущего файла/патча.
+  - Git/WIP:
+    - [WIP] — создать/переключиться на ветку carriage/WIP (C-c b c).
+    - [Reset] — soft reset последнего коммита (C-c b r).
+
+- Переключатели (тумблеры в модлайне):
+  - [AutoRpt] — carriage-mode-auto-open-report (t/nil) — автооткрытие отчёта после dry-run.
+  - [ShowDiffs] — carriage-mode-show-diffs (t/nil) — требовать предпросмотр диффов перед применением.
+  - [ConfirmAll] — carriage-mode-confirm-apply-all (t/nil) — подтверждение перед C-c !.
+  - [Icons] — carriage-mode-use-icons (t/nil) — использовать иконки.
+
+- Иконки (при наличии all-the-icons; иначе — текстовые метки в [скобках]):
+  - Профиль: Ask — material "chat" | Code — material "code".
+  - Модель: octicon "cpu" или material "memory".
+  - Состояния: sending — spinner, streaming — waves, dry-run — faicon "flask", apply — material "check_circle", error — material "error".
+  - Кнопки:
+    - Dry — faicon "flask".
+    - Apply — material "check_circle".
+    - All — octicon "rocket" или "play".
+    - Abort — octicon "stop".
+    - Report — octicon "file-text".
+    - Diff — octicon "git-compare".
+    - Ediff — octicon "diff".
+    - WIP — octicon "git-branch".
+    - Reset — octicon "history".
+  - Фоллбэк: если шрифт иконок недоступен — используются короткие текстовые ярлыки: [Dry], [Apply], [All], [Abort], [Report], [Diff], [Ediff], [WIP], [Reset].
+
+- Событийная модель (gptel → UI):
+  - idle → sending (запрос отправлен).
+  - sending → streaming (получение частичного ответа).
+  - streaming → idle (если блоки не распознаны) | dry-run (если запущено C-c ?/C-c C-c над «последней итерацией»).
+  - dry-run → apply → idle | error.
+  - Любая стадия → error при тайм-ауте/исключении.
+
+* Буфер отчёта (Report)
+- Содержимое:
+  - Заголовок операции, время, модель.
+  - Таблица блоков: №, op, file/path, статус dry-run (ok/fail), детали.
+  - Кнопки (text-button): Apply/Abort/Show Diff/Ediff.
+- Открытие автоматически при dry-run группы, по настройке — при одиночном применении.
+
+* Подсветка и лица (faces)
+- carriage-patch-valid-face — окантовка/фон валидного блока.
+- carriage-patch-warning-face — для подозрительных блоков.
+- carriage-patch-error-face — для ошибочных блоков.
+- carriage-report-ok-face, carriage-report-warn-face, carriage-report-err-face — для отчётов.
+
+* Без мыши (доступность)
+- Все кликабельные элементы дублируются командами/клавишами.
+- В отчёте навигация по кнопкам клавишами [TAB]/[RET].
+
+* Поведение по умолчанию (Customize)
+- Открывать отчёт: carriage-mode-auto-open-report (t).
+- Показывать диффы перед применением: carriage-mode-show-diffs (t).
+- Требовать подтверждение перед C-c !: carriage-mode-confirm-apply-all (t).

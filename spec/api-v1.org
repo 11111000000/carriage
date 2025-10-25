@@ -1,0 +1,70 @@
+#+title: API v1 — Публичные команды, переменные, лица
+#+author: Peter Kosov <11111000000@email.com>
+#+language: ru
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+* Назначение
+- Нормативный публичный API Carriage-mode v1: интерактивные команды, переменные, лица (faces).
+
+* Интерактивные команды (stable)
+- carriage-mode
+  - Минор-режим; включает функциональность только в org-mode буферах.
+- carriage-send-buffer (C-c M-RET)
+  - Отправить весь документ в LLM с активным профилем (Ask/Code).
+- carriage-send-subtree (C-c RET)
+  - Отправить текущее поддерево org.
+- carriage-apply-at-point (C-c C-c)
+  - Dry-run → подтверждение → применить блок =patch= под точкой.
+- carriage-apply-last-iteration (C-c !)
+  - Применить все блоки последнего ответа.
+- carriage-dry-run-at-point (C-c ?)
+  - Только dry-run блока под точкой (или всей итерации с C-u).
+- carriage-wip-checkout (C-c b c)
+  - Создать/перейти на ветку carriage/WIP.
+- carriage-show-log (C-c b l)
+  - Показать лог применений.
+- carriage-wip-reset-soft (C-c b r)
+  - Откат последнего коммита (soft reset).
+- carriage-toggle-profile
+  - Переключить Ask/Code.
+- carriage-select-model
+  - Выбрать модель gptel.
+
+* Программный интерфейс (Elisp)
+- Парсинг/применение:
+  - carriage-parse-blocks-in-region (beg end) → PLAN
+  - carriage-collect-last-iteration-blocks () → PLAN
+  - carriage-dry-run-plan (PLAN) → REPORT
+  - carriage-apply-plan (PLAN) → RESULT
+- Служебные:
+  - carriage-project-root () → DIR
+  - carriage-generate-delim () → STRING
+  - carriage-report-buffer () → BUFFER
+  - carriage-log-buffer () → BUFFER
+  - carriage-traffic-buffer () → BUFFER
+  - carriage-clear-logs () → t
+
+* Переменные Customize
+- carriage-mode-default-profile (symbol) — 'Ask | 'Code
+- carriage-mode-default-model (string) — имя модели gptel
+- carriage-mode-wip-branch (string) — "carriage/WIP"
+- carriage-mode-confirm-apply-all (boolean) — t
+- carriage-mode-auto-open-report (boolean) — t
+- carriage-mode-show-diffs (boolean) — t
+- carriage-mode-allow-patch-binary (boolean) — nil (v1)
+- carriage-mode-max-batch-pairs (integer) — лимит пар в SRE-BATCH
+- carriage-mode-log-max-lines (integer) — предел строк для *carriage-log*/*carriage-report*.
+- carriage-mode-traffic-max-lines (integer) — предел строк для *carriage-traffic*.
+
+* Лица (faces)
+- carriage-patch-valid-face
+- carriage-patch-warning-face
+- carriage-patch-error-face
+- carriage-report-ok-face
+- carriage-report-warn-face
+- carriage-report-err-face
+
+* Стабильность API
+- Символы и сигнатуры в этом файле считаются стабильными для v1.
+- Изменения возможны только добавлением новых опций/команд без ломки существующих.

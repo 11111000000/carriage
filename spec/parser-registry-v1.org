@@ -1,0 +1,52 @@
+#+title: Parser Registry v1
+#+author: Peter Kosov <11111000000@email.com>
+#+language: ru
+#+options: toc:2 num:t
+
+* Назначение
+- Единая таблица сопоставления (:version, :op) → parser/dry-run/apply.
+- Централизованное правило имени блока: используется только =patch=.
+
+* Имя спец-блока
+- Норматив: использовать и принимать только =begin_patch/end_patch=.
+- Алиасы не поддерживаются в v1.
+
+* Операции и версии
+- "sre" v1 — одиночная пара FROM→TO в блоке =patch=.
+- "sre-batch" v1 — несколько пар для одного файла в блоке =patch=.
+- "patch" v1 — unified diff одного файла в блоке =patch=.
+- "create" v1 — создать файл с содержимым (см. ./file-ops-v1.org).
+- "delete" v1 — удалить файл (см. ./file-ops-v1.org).
+- "rename" v1 — переименовать файл (см. ./file-ops-v1.org).
+
+* Интерфейсы
+- parse(op, header-plist, body-text, repo-root) → plan-item | error
+- dry-run(plan-item, repo-root) → report
+- apply(plan-item, repo-root) → result
+
+* Эталонные символы (референсные имена функций)
+- sre / sre-batch (общая реализация):
+  - parse: carriage-parse-sre
+  - dry-run: carriage-dry-run-sre
+  - apply: carriage-apply-sre
+- patch:
+  - parse: carriage-parse-diff
+  - dry-run: carriage-dry-run-diff
+  - apply: carriage-apply-diff
+- create:
+  - parse: carriage-parse-create
+  - dry-run: carriage-dry-run-create
+  - apply: carriage-apply-create
+- delete:
+  - parse: carriage-parse-delete
+  - dry-run: carriage-dry-run-delete
+  - apply: carriage-apply-delete
+- rename:
+  - parse: carriage-parse-rename
+  - dry-run: carriage-dry-run-rename
+  - apply: carriage-apply-rename
+
+* Ошибки и совместимость
+- Неизвестная :version или :op → отказ с кодом MODE_E_DISPATCH.
+- Несоответствие имени блока → отказ (в v1 алиасы не поддерживаются).
+- Логирование всех ошибок в единый канал диагностики.
