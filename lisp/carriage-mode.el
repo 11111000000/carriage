@@ -121,14 +121,34 @@
 
 ;;;###autoload
 (defun carriage-apply-last-iteration ()
-  "Apply all blocks from the last iteration (stub)."
+  "Dry-run → подтверждение → применение всех блоков «последней итерации».
+В v1 эта команда берёт все блоки в текущем буфере как «последнюю итерацию»."
   (interactive)
-  (when (and carriage-mode-confirm-apply-all
-             (not (y-or-n-p "Apply all blocks from last iteration? ")))
-    (user-error "Aborted"))
-  (carriage-ui-set-state 'apply)
-  (message "Carriage: apply-last-iteration (stub)")
-  (carriage-ui-set-state 'idle))
+  (let* ((root (or (carriage-project-root) default-directory))
+         (plan (carriage-collect-last-iteration-blocks root)))
+    (when (null plan)
+      (user-error "Нет patch-блоков в текущем буфере"))
+    (when (and carriage-mode-confirm-apply-all
+               (not (y-or-n-p (format "Применить все блоки (%d)? " (length plan)))))
+      (user-error "Отменено"))
+    ;; Dry-run
+    (carriage-ui-set-state 'dry-run)
+    (let* ((dry (carriage-dry-run-plan plan root)))
+      (when carriage-mode-auto-open-report
+        (carriage-report-open dry))
+      (let* ((sum (plist-get dry :summary))
+             (fails (or (plist-get sum :fail) 0)))
+        (if (> fails 0)
+            (progn
+              (carriage-ui-set-state 'error)
+              (user-error "Dry-run провалился для части блоков; смотрите отчёт"))
+          ;; Apply
+          (when (or (not carriage-mode-show-diffs)
+                    (y-or-n-p "Применить группу блоков? "))
+            (carriage-ui-set-state 'apply)
+            (let ((ap (carriage-apply-plan plan root)))
+              (carriage-report-open ap))
+            (carriage-ui-set-state 'idle)))))))
 
 ;;;###autoload
 (defun carriage-wip-checkout ()

@@ -301,5 +301,40 @@ Move point is not changed. Return nil if not found."
                      (buffer-substring-no-properties body-beg (line-beginning-position))))))
       (carriage-parse (plist-get header-plist :op) header-plist body repo-root))))
 
+;;;; Region/group parsing
+
+(defun carriage-parse-blocks-in-region (beg end repo-root)
+  "Parse all #+begin_patch blocks between BEG and END into a PLAN under REPO-ROOT.
+Return a list of plan items in buffer order."
+  (save-excursion
+    (goto-char beg)
+    (let ((plan '()))
+      (while (and (< (point) end)
+                  (re-search-forward "^[ \t]*#\\+begin_patch\\b" end t))
+        (let* ((start (match-beginning 0))
+               (header-plist (carriage--read-patch-header-at start))
+               (body-beg (progn (goto-char (match-end 0))
+                                (forward-line 1)
+                                (point)))
+               (block-end (save-excursion
+                            (goto-char body-beg)
+                            (unless (re-search-forward "^[ \t]*#\\+end_patch\\b" end t)
+                              (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT)
+                                      (list "Unclosed #+begin_patch block")))
+                            (line-beginning-position)))
+               (body (buffer-substring-no-properties body-beg block-end))
+               (op (plist-get header-plist :op))
+               (item (carriage-parse op header-plist body repo-root)))
+          (push item plan)
+          (goto-char block-end)))
+      (nreverse plan))))
+
+(defun carriage-collect-last-iteration-blocks (&optional repo-root)
+  "Collect blocks of the 'last iteration' in current buffer and parse to a PLAN.
+For v1 stub, this returns ALL patch blocks in the buffer.
+If REPO-ROOT is nil, detect via =carriage-project-root' or use =default-directory'."
+  (let* ((root (or repo-root (carriage-project-root) default-directory)))
+    (carriage-parse-blocks-in-region (point-min) (point-max) root)))
+
 (provide 'carriage-parser)
 ;;; carriage-parser.el ends here
