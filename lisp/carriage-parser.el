@@ -257,5 +257,49 @@
     (carriage-normalize-path repo-root to)
     (list (cons :version "1") (cons :op 'rename) (cons :from from) (cons :to to))))
 
+;;;; Org buffer helpers
+
+(defun carriage--bounds-of-patch-block-at-point ()
+  "Return (BEG . END) bounds of the current #+begin_patch ... #+end_patch block.
+Move point is not changed. Return nil if not found."
+  (save-excursion
+    (let ((beg (save-excursion
+                 (when (re-search-backward "^[ \t]*#\\+begin_patch\\b" nil t)
+                   (point))))
+          (end (save-excursion
+                 (when (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
+                   (line-beginning-position)))))
+      (when (and beg end (> end beg))
+        (cons beg end)))))
+
+(defun carriage--read-patch-header-at (pos)
+  "Parse patch header plist at line around POS. Return plist or signal error."
+  (save-excursion
+    (goto-char pos)
+    (let* ((line (buffer-substring-no-properties (line-beginning-position)
+                                                 (line-end-position))))
+      (unless (string-match "#\\+begin_patch\\s-+\\((.*)\\)\\s-*$" line)
+        (signal (carriage-error-symbol 'MODE_E_DISPATCH) (list "Invalid begin_patch header")))
+      (car (read-from-string (match-string 1 line))))))
+
+(defun carriage-parse-block-at-point (repo-root)
+  "Parse current org patch block at point into a plan item under REPO-ROOT."
+  (let* ((bounds (carriage--bounds-of-patch-block-at-point)))
+    (unless bounds
+      (signal (carriage-error-symbol 'MODE_E_DISPATCH) (list "No patch block at point")))
+    (let* ((beg (car bounds))
+           (end (cdr bounds))
+           (header-plist (save-excursion
+                           (goto-char beg)
+                           (carriage--read-patch-header-at beg)))
+           (body (save-excursion
+                   (goto-char beg)
+                   (forward-line 1)
+                   (let ((body-beg (point)))
+                     (goto-char end)
+                     ;; end points to beginning of #+end_patch line
+                     (buffer-substring-no-properties body-beg (line-beginning-position))))))
+      (carriage-parse (plist-get header-plist :op) header-plist body repo-root))))
+
 (provide 'carriage-parser)
 ;;; carriage-parser.el ends here

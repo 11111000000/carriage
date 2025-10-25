@@ -235,5 +235,84 @@ Lines are 1-based; END-LINE inclusive. If RANGE-PLIST is nil, REGION = TEXT and 
     (carriage-git-commit repo-root (format "carriage: rename %s -> %s" from to))
     (carriage--report-ok 'rename :file (format "%s -> %s" from to) :details "Renamed")))
 
+;;; Plan-level pipeline
+
+(defun carriage--op-rank (op)
+  "Return rank for OP to sort plan: delete→rename→create→patch→sre."
+  (pcase op
+    ('delete 1)
+    ('rename 2)
+    ('create 3)
+    ('patch  4)
+    (_       5)))
+
+(defun carriage--plan-sort (plan)
+  "Return PLAN items sorted by operation type according to v1 order."
+  (seq-sort (lambda (a b)
+              (< (carriage--op-rank (alist-get :op a))
+                 (carriage--op-rank (alist-get :op b))))
+            plan))
+
+(defun carriage--dry-run-dispatch (item repo-root)
+  "Dispatch dry-run for a single ITEM with REPO-ROOT."
+  (pcase (alist-get :op item)
+    ((or 'sre 'sre-batch) (carriage-dry-run-sre item repo-root))
+    ('patch  (carriage-dry-run-diff item repo-root))
+    ('create (carriage-dry-run-create item repo-root))
+    ('delete (carriage-dry-run-delete item repo-root))
+    ('rename (carriage-dry-run-rename item repo-root))
+    (_ (carriage--report-fail (or (alist-get :op item) 'unknown)
+                              :details "Unknown op"))))
+
+(defun carriage--apply-dispatch (item repo-root)
+  "Dispatch apply for a single ITEM with REPO-ROOT."
+  (pcase (alist-get :op item)
+    ((or 'sre 'sre-batch) (carriage-apply-sre item repo-root))
+    ('patch  (carriage-apply-diff item repo-root))
+    ('create (carriage-apply-create item repo-root))
+    ('delete (carriage-apply-delete item repo-root))
+    ('rename (carriage-apply-rename item repo-root))
+    (_ (carriage--report-fail (or (alist-get :op item) 'unknown)
+                              :details "Unknown op"))))
+
+(defun carriage-dry-run-plan (plan repo-root)
+  "Dry-run PLAN (list of plan items) under REPO-ROOT.
+Return report alist: (:plan PLAN :summary (:ok N :fail M :skipped K) :items ...)."
+  (let* ((sorted (carriage--plan-sort plan))
+         (items '())
+         (ok 0) (fail 0) (skip 0))
+    (dolist (it sorted)
+      (let* ((res (carriage--dry-run-dispatch it repo-root))
+             (status (plist-get res :status)))
+        (push res items)
+        (pcase status
+          ('ok   (setq ok (1+ ok)))
+          ('fail (setq fail (1+ fail)))
+          (_     (setq skip (1+ skip))))))
+    (list :plan plan
+          :summary (list :ok ok :fail fail :skipped skip)
+          :items (nreverse items))))
+
+(defun carriage-apply-plan (plan repo-root)
+  "Apply PLAN (list of plan items) under REPO-ROOT sequentially.
+Stops on first failure. Returns report alist as in carriage-dry-run-plan."
+  (let* ((sorted (carriage--plan-sort plan))
+         (items '())
+         (ok 0) (fail 0) (skip 0)
+         (stop nil))
+    (dolist (it sorted)
+      (unless stop
+        (let* ((res (carriage--apply-dispatch it repo-root))
+               (status (plist-get res :status)))
+          (push res items)
+          (pcase status
+            ('ok   (setq ok (1+ ok)))
+            ('fail (setq fail (1+ fail))
+                   (setq stop t))
+            (_     (setq skip (1+ skip)))))))
+    (list :plan plan
+          :summary (list :ok ok :fail fail :skipped skip)
+          :items (nreverse items))))
+
 (provide 'carriage-apply)
 ;;; carriage-apply.el ends here

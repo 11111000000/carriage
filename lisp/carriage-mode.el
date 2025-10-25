@@ -77,23 +77,47 @@
 
 ;;;###autoload
 (defun carriage-dry-run-at-point ()
-  "Run dry-run for the patch block at point (stub)."
+  "Run dry-run for the patch block at point and open report."
   (interactive)
   (carriage-ui-set-state 'dry-run)
-  (let ((report '(:summary (:ok 0 :fail 0 :skipped 0) :items ())))
+  (let* ((root (or (carriage-project-root) default-directory))
+         (plan-item (condition-case e
+                        (carriage-parse-block-at-point root)
+                      (error
+                       (carriage-ui-set-state 'error)
+                       (user-error "Carriage parse error: %s" (error-message-string e)))))
+         (report (carriage-dry-run-plan (list plan-item) root)))
     (when carriage-mode-auto-open-report
-      (carriage-report-open report)))
-  (carriage-ui-set-state 'idle))
+      (carriage-report-open report))
+    (carriage-ui-set-state 'idle)))
 
 ;;;###autoload
 (defun carriage-apply-at-point ()
-  "Dry-run → confirm → apply for the patch block at point (stub)."
+  "Dry-run → confirm → apply for the patch block at point."
   (interactive)
-  (carriage-ui-set-state 'dry-run)
-  ;; Here would be parse → dry-run → confirm → apply
-  (carriage-ui-set-state 'apply)
-  (message "Carriage: apply-at-point (stub)")
-  (carriage-ui-set-state 'idle))
+  (let* ((root (or (carriage-project-root) default-directory))
+         (plan-item (condition-case e
+                        (carriage-parse-block-at-point root)
+                      (error
+                       (carriage-ui-set-state 'error)
+                       (user-error "Carriage parse error: %s" (error-message-string e)))))
+         (dry (progn
+                (carriage-ui-set-state 'dry-run)
+                (carriage-dry-run-plan (list plan-item) root))))
+    (when carriage-mode-auto-open-report
+      (carriage-report-open dry))
+    (let* ((sum (plist-get dry :summary))
+           (fails (or (plist-get sum :fail) 0)))
+      (if (> fails 0)
+          (progn
+            (carriage-ui-set-state 'error)
+            (user-error "Dry-run failed; see report for details"))
+        (when (or (not carriage-mode-show-diffs)
+                  (y-or-n-p "Apply this block? "))
+          (carriage-ui-set-state 'apply)
+          (let ((ap (carriage-apply-plan (list plan-item) root)))
+            (carriage-report-open ap))
+          (carriage-ui-set-state 'idle))))))
 
 ;;;###autoload
 (defun carriage-apply-last-iteration ()
