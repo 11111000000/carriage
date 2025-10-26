@@ -12,7 +12,7 @@
 (require 'carriage-ui)
 
 (defcustom carriage-mode-default-profile 'Code
-  "Default profile for Carriage: 'Ask or 'Code."
+  "Default profile for Carriage: `Ask' or `Code'."
   :type '(choice (const Ask) (const Code))
   :group 'carriage)
 
@@ -53,11 +53,11 @@ as a “(+N more)” tail."
   :type 'integer :group 'carriage)
 
 (defcustom carriage-mode-max-batch-pairs 200
-  "Maximum number of pairs allowed in an :op 'sre-batch block."
+  "Maximum number of pairs allowed in an :op `sre-batch' block."
   :type 'integer :group 'carriage)
 
 (defvar-local carriage-mode-profile carriage-mode-default-profile
-  "Current Carriage profile for this buffer: 'Ask or 'Code.")
+  "Current Carriage profile for this buffer: `Ask' or `Code'.")
 
 (defvar-local carriage-mode-model carriage-mode-default-model
   "Current Carriage model string for this buffer.")
@@ -194,7 +194,7 @@ as a “(+N more)” tail."
 
 ;;;###autoload
 (defun carriage-toggle-profile ()
-  "Toggle profile between 'Ask and 'Code."
+  "Toggle profile between `Ask' and `Code'."
   (interactive)
   (setq carriage-mode-profile (if (eq carriage-mode-profile 'Ask) 'Code 'Ask))
   (message "Carriage profile: %s" carriage-mode-profile))

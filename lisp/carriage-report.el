@@ -8,8 +8,6 @@
 (require 'ediff)
 ;; Byte-compile hygiene: declare external function used conditionally.
 (declare-function carriage-sre-simulate-apply "carriage-apply" (plan-item repo-root))
-;; Avoid byte-compiler complaints when checking batch mode.
-(eval-when-compile (defvar noninteractive))
 
 (defconst carriage--report-buffer-name "*carriage-report*"
   "Name of the Carriage report buffer.")

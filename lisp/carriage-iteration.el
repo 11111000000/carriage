@@ -4,9 +4,9 @@
 (require 'subr-x)
 
 (defvar-local carriage--last-iteration-id nil
-  "Buffer-local identifier of the last iteration. When set, only blocks with
-text property 'carriage-iteration-id equal to this value are considered by
-=carriage-collect-last-iteration-blocks'.")
+  "Buffer-local identifier of the last iteration.
+When set, only blocks whose text property `carriage-iteration-id' equals this value
+are considered by `carriage-collect-last-iteration-blocks'.")
 
 (defun carriage-iteration--generate-id ()
   "Generate a reasonably unique iteration id."
@@ -15,11 +15,11 @@ text property 'carriage-iteration-id equal to this value are considered by
 
 ;;;###autoload
 (defun carriage-mark-last-iteration (beg end)
-  "Mark all #+begin_patch blocks between BEG and END as the 'last iteration'.
+  "Mark all #+begin_patch blocks between BEG and END as the “last iteration”.
 
-If called interactively without an active region, marks the whole buffer.
-Sets (or regenerates) =carriage--last-iteration-id' and writes it as a
-text property 'carriage-iteration-id on the begin line of each block."
+If called interactively without an active region, mark the whole buffer.
+Sets (or regenerates) `carriage--last-iteration-id' and writes it
+as text property `carriage-iteration-id' on the begin line of each block."
   (interactive (if (use-region-p)
                    (list (region-beginning) (region-end))
                  (list (point-min) (point-max))))

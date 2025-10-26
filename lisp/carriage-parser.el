@@ -30,7 +30,7 @@
 ;;;; SRE parsing
 
 (defun carriage--sre-validate-header (hdr op)
-  "Validate SRE HDR plist for OP ('sre or 'sre-batch)."
+  "Validate SRE HDR plist for OP (`sre' or `sre-batch')."
   (let ((version (plist-get hdr :version))
         (file (plist-get hdr :file))
         (delim (plist-get hdr :delim)))
@@ -526,7 +526,7 @@ greater number of segments to maximize robustness."
 
 (defun carriage-parse-diff (header body repo-root)
   "Parse unified diff block BODY with HEADER under REPO-ROOT."
-  (declare (ignore repo-root))
+  (ignore repo-root)
   (let* ((version (plist-get header :version))
          (op (plist-get header :op))
          (strip (if (plist-member header :strip)
@@ -697,12 +697,12 @@ Return a list of plan items in buffer order."
       (nreverse plan))))
 
 (defun carriage-collect-last-iteration-blocks (&optional repo-root)
-  "Collect blocks of the 'last iteration' in current buffer and parse to a PLAN.
-If a buffer-local =carriage--last-iteration-id' is set, collect only blocks
-annotated with that id (text property 'carriage-iteration-id on #+begin_patch line).
-Otherwise, return ALL patch blocks in the buffer.
+  "Collect blocks of the last iteration in current buffer and parse to a PLAN.
+If the buffer-local variable `carriage--last-iteration-id' is set, collect only blocks
+annotated with that id (text property `carriage-iteration-id' on the #+begin_patch line).
+Otherwise, return all patch blocks in the buffer.
 
-If REPO-ROOT is nil, detect via =carriage-project-root' or use =default-directory'."
+If REPO-ROOT is nil, detect via `carriage-project-root' or use `default-directory'."
   (let* ((root (or repo-root (carriage-project-root) default-directory))
          (id   (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)))
     (message "Carriage: collect-last-iteration root=%s id=%s"
