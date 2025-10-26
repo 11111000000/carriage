@@ -294,20 +294,20 @@ Populate :diff with a short preview (first match per pair, ±0 lines)."
           (when (and (eq occur 'all) (integerp expect) (not (= count expect)))
             (push (format "Expect mismatch: have %d, expect %d" count expect) errors))
           (when (and (eq occur 'first) (= count 0))
-            (push "No matches for :occur first" errors))))))
-  (let ((preview (when previews (mapconcat #'identity (nreverse previews) "\n\n"))))
-    (if errors
-        (carriage--report-fail 'sre :file file
-                               :matches total-matches
-                               :details (format "fail: pairs:%d matches:%d; %s"
-                                                (length pairs) total-matches
-                                                (mapconcat #'identity (nreverse errors) "; "))
-                               :diff (or preview ""))
-      (carriage--report-ok 'sre :file file
-                           :matches total-matches
-                           :details (format "ok: pairs:%d matches:%d"
-                                            (length pairs) total-matches)
-                           :diff (or preview "")))))
+            (push "No matches for :occur first" errors)))))
+    (let ((preview (when previews (mapconcat #'identity (nreverse previews) "\n\n"))))
+      (if errors
+          (carriage--report-fail 'sre :file file
+                                 :matches total-matches
+                                 :details (format "fail: pairs:%d matches:%d; %s"
+                                                  (length pairs) total-matches
+                                                  (mapconcat #'identity (nreverse errors) "; "))
+                                 :diff (or preview ""))
+        (carriage--report-ok 'sre :file file
+                             :matches total-matches
+                             :details (format "ok: pairs:%d matches:%d"
+                                              (length pairs) total-matches)
+                             :diff (or preview ""))))))
 
 (defun carriage-apply-sre (plan-item repo-root)
   "Apply SRE pairs by rewriting file and committing via Git."
@@ -450,7 +450,12 @@ Does not write to disk or run git. Signals on invalid path."
          (content (alist-get :content plan-item))
          (mkdir (alist-get :mkdir plan-item))
          (abs (carriage-normalize-path repo-root file)))
-    (carriage-write-file-string abs (or content "") mkdir)
+    ;; Ensure created file ends with newline if content is non-empty.
+    (let ((payload (or content "")))
+      (when (and (> (length payload) 0)
+                 (not (eq (aref payload (1- (length payload))) ?\n)))
+        (setq payload (concat payload "\n")))
+      (carriage-write-file-string abs payload mkdir))
     (carriage-git-add repo-root file)
     (carriage-git-commit repo-root (format "carriage: create %s" file))
     (carriage--report-ok 'create :file file :details "Created")))

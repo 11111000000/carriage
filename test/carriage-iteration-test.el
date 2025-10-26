@@ -40,6 +40,40 @@
                                    ":deadbe"
                                    "#+end_patch")
                                  "\n")))
+            ;; Debug logs: extract SRE body and log open-count and extractor outcomes
+            (let ((sre-body (with-temp-buffer
+                              (insert org "\n")
+                              (goto-char (point-min))
+                              (re-search-forward "^[ \t]*#\\+begin_patch\\b.*:op \"sre\".*$" nil t)
+                              (forward-line 1)
+                              (let ((beg (point)))
+                                (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
+                                (buffer-substring-no-properties beg (line-beginning-position))))))
+              (ignore-errors
+                (carriage-log "iter-order test: opens=%d idx2=%d naive2=%d body=%s"
+                              (cl-loop for ln in (split-string sre-body "\n" nil nil)
+                                       count (string-prefix-p "<<" (string-trim ln)))
+                              (length (carriage--sre--extract-first-two-by-indices sre-body))
+                              (length (carriage--sre--extract-first-two sre-body))
+                              (let ((s (substring sre-body 0 (min 160 (length sre-body)))))
+                                (replace-regexp-in-string "\n" "\\n" s))))))
+          (let* ((org (mapconcat #'identity
+                                 '(
+                                   "#+begin_patch (:version \"1\" :op \"create\" :file \"x.txt\" :delim \"cafe01\")"
+                                   "<<cafe01"
+                                   "hello"
+                                   ":cafe01"
+                                   "#+end_patch"
+                                   ""
+                                   "#+begin_patch (:version \"1\" :op \"sre\" :file \"x.txt\" :delim \"deadbe\")"
+                                   "<<deadbe"
+                                   "hello"
+                                   ":deadbe"
+                                   "<<deadbe"
+                                   "world"
+                                   ":deadbe"
+                                   "#+end_patch")
+                                 "\n")))
             (with-temp-buffer
               (insert org "\n")
               (goto-char (point-min))
@@ -59,7 +93,7 @@
                 ;; apply
                 (let* ((ap (carriage-apply-plan plan dir)))
                   (should (eq (plist-get (plist-get ap :summary) :fail) 0))
-                  (should (string= (carriage-iteration-test--read dir "x.txt") "world\n"))))))))
-    (ignore-errors (delete-directory dir t))))
+                  (should (string= (carriage-iteration-test--read dir "x.txt") "world\n")))))))))
+  (ignore-errors (delete-directory dir t)))
 
 ;;; carriage-iteration-test.el ends here

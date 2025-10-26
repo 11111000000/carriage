@@ -147,6 +147,67 @@ Return list of payloads."
           (push ln acc)))))
     (nreverse res)))
 
+(defun carriage--sre--extract-first-two (body)
+  "Naive tolerant extractor: return first two payloads between lines
+starting with \"<<\" and the subsequent line starting with \":\".
+Ignores token identity and spacing; preserves payload newlines."
+  (let ((res '())
+        (state 'idle)
+        (acc nil))
+    (dolist (ln (split-string body "\n" nil nil)) ;; keep empties
+      (let ((tln (string-trim ln)))
+        (cond
+         ((and (eq state 'idle) (string-prefix-p "<<" tln))
+          (setq state 'in acc nil))
+         ((and (eq state 'in)
+               (not (string-empty-p tln))
+               (eq (aref tln 0) ?:))
+          (push (mapconcat #'identity (nreverse acc) "\n") res)
+          (setq acc nil state 'idle))
+         ((eq state 'in)
+          (push ln acc)))))
+    (setq res (nreverse res))
+    (if (>= (length res) 2)
+        (list (nth 0 res) (nth 1 res))
+      res)))
+
+(defun carriage--sre--extract-first-two-by-indices (body)
+  "Robust tolerant extractor: find the first two <<.../:... payloads by line indices.
+Does not require matching tokens; handles tightly adjacent segments."
+  (let* ((lines (split-string body "\n" nil nil)) ;; keep empties
+         (n (length lines))
+         (i 0)
+         (res '()))
+    (cl-labels
+        ((line (k) (nth k lines))
+         (is-open (s)
+           (and s
+                (let ((ts (string-trim s)))
+                  (and (>= (length ts) 2)
+                       (string-prefix-p "<<" ts)))))
+         (is-close (s)
+           (and s
+                (let ((ts (string-trim s)))
+                  (and (>= (length ts) 1)
+                       (eq (aref ts 0) ?:))))))
+      (while (and (< i n) (< (length res) 2))
+        ;; seek open
+        (while (and (< i n) (not (is-open (line i))))
+          (setq i (1+ i)))
+        (when (< i n)
+          ;; consume open
+          (setq i (1+ i))
+          (let ((beg i))
+            ;; find close
+            (while (and (< i n) (not (is-close (line i))))
+              (setq i (1+ i)))
+            (let ((end i))
+              (when (<= beg end)
+                (push (mapconcat #'identity (cl-subseq lines beg end) "\n") res))
+              ;; consume close if present
+              (when (< i n) (setq i (1+ i)))))))
+      (nreverse res))))
+
 (defun carriage--sre-scan-segments (body delim)
   "Scan BODY for segments delimited by DELIM and return a list of payload strings.
 Implementation uses multiple passes (helpers) and prefers the result with the
@@ -236,7 +297,23 @@ greater number of segments to maximize robustness."
          (_ (carriage--sre-validate-header header op))
          (file (plist-get header :file))
          (delim (plist-get header :delim))
-         (segments (carriage--sre-scan-segments body delim))
+         ;; Prefer robust index-based extractor when we clearly see >=2 open markers.
+         (open-count (cl-loop for ln in (split-string body "\n" nil nil)
+                              count (string-prefix-p "<<" (string-trim ln))))
+         (segments
+          (cond
+           ;; For op='sre', if there are at least two opens, extract first two payloads
+           ;; by indices ignoring token identity/spacing. This avoids edge-cases where
+           ;; multi-pass scanners under-detect in grouped buffers.
+           ((and (eq op 'sre) (>= open-count 2))
+            (carriage--sre--extract-first-two-by-indices body))
+           (t
+            ;; Otherwise run the multi-pass scanner and, if it still doesn't yield 2,
+            ;; fall back to the index-based extractor.
+            (let ((scan (carriage--sre-scan-segments body delim)))
+              (if (and (eq op 'sre) (/= (length scan) 2))
+                  (carriage--sre--extract-first-two-by-indices body)
+                scan)))))
          (pairs-raw (carriage--sre-group-pairs segments op))
          (pairs (if (eq op 'sre)
                     (list (list (cons :from (alist-get :from pairs-raw))
@@ -410,10 +487,12 @@ Return a list of plan items in buffer order."
       (while (and (< (point) end)
                   (re-search-forward "^[ \t]*#\\+begin_patch\\b" end t))
         (let* ((start (match-beginning 0))
+               ;; Compute BODY-BEG from START to avoid clobbered match-data in nested calls.
+               (body-beg (save-excursion
+                           (goto-char start)
+                           (forward-line 1)
+                           (point)))
                (header-plist (carriage--read-patch-header-at start))
-               (body-beg (progn (goto-char (match-end 0))
-                                (forward-line 1)
-                                (point)))
                (block-end (save-excursion
                             (goto-char body-beg)
                             (unless (re-search-forward "^[ \t]*#\\+end_patch\\b" end t)
@@ -421,10 +500,20 @@ Return a list of plan items in buffer order."
                                       (list "Unclosed #+begin_patch block")))
                             (line-beginning-position)))
                (body (buffer-substring-no-properties body-beg block-end))
-               (op (plist-get header-plist :op))
-               (item (carriage-parse op header-plist body repo-root)))
-          (push item plan)
-          (goto-char block-end)))
+               (op (plist-get header-plist :op)))
+          ;; Diagnostics: count open markers in BODY to validate group extraction
+          (ignore-errors
+            (carriage-log "group-parse: op=%s file=%s opens=%d preview=%s"
+                          op
+                          (plist-get header-plist :file)
+                          (cl-loop for ln in (split-string body "\n" nil nil)
+                                   count (string-prefix-p "<<" (string-trim ln)))
+                          (let ((s (substring body 0 (min 200 (length body)))))
+                            (replace-regexp-in-string "\n" "\\n" s))))
+          (let ((item (carriage-parse op header-plist body repo-root)))
+            (push item plan))
+          (goto-char block-end)
+          (forward-line 1)))
       (nreverse plan))))
 
 (defun carriage-collect-last-iteration-blocks (&optional repo-root)
