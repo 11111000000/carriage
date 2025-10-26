@@ -12,19 +12,20 @@
   :group 'carriage)
 
 (defun carriage--call-git (default-dir &rest args)
-  "Call git with ARGS in DEFAULT-DIR, return (:exit :stdout :stderr)."
+  "Call git with ARGS in DEFAULT-DIR, return (:exit :stdout :stderr).
+Capture stderr via a temporary file to avoid DEST type issues."
   (let ((default-directory (file-name-as-directory (expand-file-name default-dir))))
-    (with-temp-buffer
-      (let ((out (current-buffer))
-            (err (generate-new-buffer " *carriage-git-stderr*"))
-            (status nil))
-        (unwind-protect
-            (progn
-              (setq status (apply #'call-process "git" nil (list out err) nil args))
+    (let ((stderr-file (make-temp-file "carriage-git-stderr-")))
+      (unwind-protect
+          (with-temp-buffer
+            (let* ((out (current-buffer))
+                   (status (apply #'call-process "git" nil (list out stderr-file) nil args)))
               (list :exit status
-                    :stdout (with-current-buffer out (buffer-string))
-                    :stderr (with-current-buffer err (buffer-string))))
-          (when (buffer-live-p err) (kill-buffer err)))))))
+                    :stdout (buffer-string)
+                    :stderr (with-temp-buffer
+                              (insert-file-contents stderr-file)
+                              (buffer-string)))))
+        (ignore-errors (delete-file stderr-file))))))
 
 (defun carriage-project-root ()
   "Detect project root directory. Return absolute path or nil."

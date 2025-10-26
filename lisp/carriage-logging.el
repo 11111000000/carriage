@@ -42,15 +42,17 @@
       (delete-region (point-min) (point)))))
 
 (defun carriage--append-line-capped (buffer string max-lines)
-  "Append STRING and newline to BUFFER, cap to MAX-LINES."
-  (with-current-buffer buffer
-    (goto-char (point-max))
-    (insert string)
-    (unless (or (string-empty-p string)
-                (eq (aref string (1- (length string))) ?\n))
-      (insert "\n")))
-  (carriage--trim-buffer-lines buffer max-lines)
-  buffer)
+  "Append STRING and newline to BUFFER, cap to MAX-LINES.
+STRING may be any object; it will be coerced to a string via `format'."
+  (let ((s (if (stringp string) string (format "%s" string))))
+    (with-current-buffer buffer
+      (goto-char (point-max))
+      (insert s)
+      (unless (or (string-empty-p s)
+                  (eq (aref s (1- (length s))) ?\n))
+        (insert "\n")))
+    (carriage--trim-buffer-lines buffer max-lines)
+    buffer))
 
 (defun carriage-log (fmt &rest args)
   "Log a formatted message FMT with ARGS to the general log."

@@ -31,14 +31,16 @@
     (should (zerop (carriage-diff-test--git dir "add" "--" "a.txt")))
     (should (zerop (carriage-diff-test--git dir "commit" "-m" "init")))
     ;; make a simple unified diff (old -> new)
-    (let* ((diff (mapconcat #'identity
-                            '("--- a/a.txt"
-                              "+++ b/a.txt"
-                              "@@ -1 +1 @@"
-                              "-old"
-                              "+new")
-                            "\n"))
-           (item =(:version "1" :op 'patch :apply 'git-apply :strip 1
+    (let* ((diff (concat
+                  (mapconcat #'identity
+                             '("--- a/a.txt"
+                               "+++ b/a.txt"
+                               "@@ -1,1 +1,1 @@"
+                               "-old"
+                               "+new")
+                             "\n")
+                  "\n"))
+           (item `(:version "1" :op 'patch :apply 'git-apply :strip 1
                             :path "a.txt" :diff ,diff)))
       ;; dry-run should be ok
       (let ((rep (carriage-dry-run-diff item dir)))
@@ -47,5 +49,6 @@
       (let ((ap (carriage-apply-diff item dir)))
         (should (eq (plist-get ap :status) 'ok))
         (should (string= (carriage-diff-test--read dir "a.txt") "new\n"))))))
+
 
 ;;; carriage-diff-test.el ends here

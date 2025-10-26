@@ -15,6 +15,13 @@
   "Build fail report alist with OP and extra KV plist."
   (append (list :op op :status 'fail) kv))
 
+(defun carriage--plan-get (item key)
+  "Get KEY from ITEM supporting both plist and alist representations."
+  (if (plist-member item key) (plist-get item key) (alist-get key item)))
+
+(defvar carriage-mode-sre-preview-max 3
+  "Default maximum number of SRE preview chunks when Customize is not loaded.")
+
 ;;; SRE
 
 (defun carriage--sre-make-regexp (from match-kind)
@@ -71,8 +78,144 @@ Lines are 1-based; END-LINE inclusive. If RANGE-PLIST is nil, REGION = TEXT and 
       (carriage--sre-count-nonoverlapping text rx))
      (t (carriage--sre-count-nonoverlapping text rx)))))
 
+(defun carriage--sre-first-match-pos (text regexp)
+  "Return cons of (START . END) for first match of REGEXP in TEXT, or nil."
+  (let ((p (string-match regexp text)))
+    (and p (cons p (match-end 0)))))
+
+(defun carriage--sre-line-bounds-at (text pos)
+  "Return cons (LINE-START . LINE-END) bounds around POS in TEXT (without newline)."
+  (let ((start pos) (end pos)
+        (len (length text)))
+    (while (and (> start 0) (not (eq (aref text (1- start)) ?\n)))
+      (setq start (1- start)))
+    (while (and (< end len) (not (eq (aref text end) ?\n)))
+      (setq end (1+ end)))
+    (cons start end)))
+
+(defun carriage--sre-mini-diff (region rx to match-kind)
+  "Build tiny preview diff for first match in REGION using RX and TO.
+MATCH-KIND is 'literal or 'regex. Returns a preview string or nil."
+  (let ((mpos (carriage--sre-first-match-pos region rx)))
+    (when mpos
+      (let* ((lb (carriage--sre-line-bounds-at region (car mpos)))
+             (ls (car lb)) (le (cdr lb))
+             (line (substring region ls le))
+             (after (with-temp-buffer
+                      (insert line)
+                      (goto-char (point-min))
+                      (when (re-search-forward rx nil t)
+                        (replace-match to nil (not (eq match-kind 'regex))))
+                      (buffer-string))))
+        (format "-%s\n+%s" line after)))))
+
+(defun carriage--sre-all-match-positions (text regexp limit)
+  "Return list of up to LIMIT non-overlapping match positions (START . END) for REGEXP in TEXT."
+  (let ((pos 0) (acc '()))
+    (while (and (< pos (length text)) (string-match regexp text pos) (< (length acc) (max 0 (or limit 0))))
+      (push (cons (match-beginning 0) (match-end 0)) acc)
+      (setq pos (match-end 0)))
+    (nreverse acc)))
+
+(defun carriage--sre-prev-line-bounds (text ls)
+  "Return bounds (START . END) of the previous line before LS in TEXT, or nil."
+  (when (> ls 0)
+    (let ((i (1- ls)))
+      (while (and (>= i 0) (not (eq (aref text i) ?\n)))
+        (setq i (1- i)))
+      (when (>= i 0)
+        (let ((j (1- i)))
+          (while (and (>= j 0) (not (eq (aref text j) ?\n)))
+            (setq j (1- j)))
+          (cons (1+ j) i))))))
+
+(defun carriage--sre-next-line-bounds (text le)
+  "Return bounds (START . END) of the next line after LE in TEXT, or nil."
+  (let ((len (length text)))
+    (when (< le len)
+      (let ((i le))
+        (when (and (< i len) (eq (aref text i) ?\n))
+          (setq i (1+ i)))
+        (when (< i len)
+          (let ((j i))
+            (while (and (< j len) (not (eq (aref text j) ?\n)))
+              (setq j (1+ j)))
+            (cons i j)))))))
+
+(defun carriage--sre-build-preview-at (region start end to match-kind)
+  "Build a single-line preview for REGION by replacing the match [START,END) with TO.
+MATCH-KIND affects literal vs regex backrefs; for preview we substitute TO verbatim."
+  (let* ((lb (carriage--sre-line-bounds-at region start))
+         (ls (car lb)) (le (cdr lb))
+         (line (substring region ls le))
+         (s (- start ls))
+         (e (- end ls))
+         (before (substring line 0 s))
+         (mid (substring line s e))
+         (after (substring line e))
+         (mid-rep to))
+    (format "-%s\n+%s" line (concat before mid-rep after))))
+
+(defun carriage--sre-build-preview-with-context (region start end to match-kind context-lines)
+  "Build preview with CONTEXT-LINES above and below the replaced line."
+  (let* ((lb (carriage--sre-line-bounds-at region start))
+         (ls (car lb)) (le (cdr lb))
+         (line (substring region ls le))
+         ;; Reuse single-line replacement for +/- lines
+         (plus-minus (carriage--sre-build-preview-at region start end to match-kind))
+         (before-bounds '())
+         (after-bounds '())
+         (prev-ls ls)
+         (next-le le))
+    ;; Collect previous lines
+    (dotimes (_ context-lines)
+      (let ((pb (carriage--sre-prev-line-bounds region prev-ls)))
+        (when pb
+          (push pb before-bounds)
+          (setq prev-ls (car pb)))))
+    ;; Collect next lines
+    (dotimes (_ context-lines)
+      (let ((nb (carriage--sre-next-line-bounds region next-le)))
+        (when nb
+          (push nb after-bounds)
+          (setq next-le (cdr nb)))))
+    (let ((parts '()))
+      ;; before (in correct top-down order)
+      (dolist (b (nreverse before-bounds))
+        (push (buffer-substring-no-properties 0 0) parts) ;; noop to use buffer-substring-no-properties safely
+        (setq parts (cons (substring region (car b) (cdr b)) parts)))
+      ;; -old/+new lines
+      (setq parts (append (nreverse parts) (list plus-minus)))
+      ;; after
+      (dolist (b (nreverse after-bounds))
+        (setq parts (append parts (list (substring region (car b) (cdr b))))))
+      ;; Join; ensure we don't introduce trailing spaces
+      (mapconcat #'identity parts "\n"))))
+
+(defun carriage--sre-previews-for-region (region rx to match-kind occur count)
+  "Return list of preview chunks for REGION using RX/TO with MATCH-KIND and OCCUR.
+COUNT is the number of matches in REGION. For :occur first, returns at most 1 preview.
+For :occur all, returns up to =carriage-mode-sre-preview-max' previews."
+  (let ((maxn (or (and (boundp 'carriage-mode-sre-preview-max) carriage-mode-sre-preview-max) 3))
+        (ctx (or (and (boundp 'carriage-mode-sre-preview-context-lines)
+                      carriage-mode-sre-preview-context-lines)
+                 0)))
+    (pcase occur
+      ('first
+       (let* ((mpos (carriage--sre-first-match-pos region rx))
+              (pv (when mpos
+                    (carriage--sre-build-preview-with-context region (car mpos) (cdr mpos) to match-kind ctx))))
+         (if pv (list pv) '())))
+      (_
+       (let* ((pos-list (carriage--sre-all-match-positions region rx maxn))
+              (previews (mapcar (lambda (p)
+                                  (carriage--sre-build-preview-with-context region (car p) (cdr p) to match-kind ctx))
+                                pos-list)))
+         previews)))))
+
 (defun carriage-dry-run-sre (plan-item repo-root)
-  "Dry-run SRE: count matches per pair; check :expect for :occur all."
+  "Dry-run SRE: count matches per pair; check :expect for :occur all.
+Populate :diff with a short preview (first match per pair, ±0 lines)."
   (let* ((file (alist-get :file plan-item))
          (abs (ignore-errors (carriage-normalize-path (or repo-root default-directory) file))))
     (if (not (and abs (file-exists-p abs)))
@@ -80,14 +223,18 @@ Lines are 1-based; END-LINE inclusive. If RANGE-PLIST is nil, REGION = TEXT and 
       (let* ((text (carriage-read-file-string abs))
              (pairs (or (alist-get :pairs plan-item) '()))
              (total-matches 0)
-             (errors nil))
+             (errors nil)
+             (previews '()))
         (dolist (p pairs)
           (let* ((from (alist-get :from p))
+                 (to   (alist-get :to p))
                  (opts (alist-get :opts p))
                  (range (plist-get opts :range))
                  (occur (or (plist-get opts :occur) 'first))
                  (expect (plist-get opts :expect))
+                 (match-kind (or (plist-get opts :match) 'literal))
                  (region (if range (cadr (carriage--sre-slice-by-lines text range)) text))
+                 (rx (carriage--sre-make-regexp from match-kind))
                  (count (condition-case e
                             (carriage--sre-count-matches region from opts)
                           (error
@@ -95,18 +242,28 @@ Lines are 1-based; END-LINE inclusive. If RANGE-PLIST is nil, REGION = TEXT and 
                            -1))))
             (when (>= count 0)
               (setq total-matches (+ total-matches count))
+              ;; preview only for first match in this pair
+              (let ((pvs (carriage--sre-previews-for-region region rx to match-kind occur count)))
+                (dolist (pv pvs) (push pv previews))
+                (when (and (eq occur 'all) (> count (length pvs)))
+                  (push (format "(+%d more)" (- count (length pvs))) previews)))
               (when (and (eq occur 'all) (integerp expect) (not (= count expect)))
                 (push (format "Expect mismatch: have %d, expect %d" count expect) errors))
               (when (and (eq occur 'first) (= count 0))
                 (push "No matches for :occur first" errors)))))
-        (if errors
-            (carriage--report-fail 'sre :file file
-                                   :details (format "fail: pairs:%d matches:%d; %s"
-                                                    (length pairs) total-matches
-                                                    (mapconcat #'identity (nreverse errors) "; ")))
-          (carriage--report-ok 'sre :file file
-                               :details (format "ok: pairs:%d matches:%d"
-                                                (length pairs) total-matches)))))))
+        (let ((preview (when previews (mapconcat #'identity (nreverse previews) "\n\n"))))
+          (if errors
+              (carriage--report-fail 'sre :file file
+                                     :matches total-matches
+                                     :details (format "fail: pairs:%d matches:%d; %s"
+                                                      (length pairs) total-matches
+                                                      (mapconcat #'identity (nreverse errors) "; "))
+                                     :diff (or preview ""))
+            (carriage--report-ok 'sre :file file
+                                 :matches total-matches
+                                 :details (format "ok: pairs:%d matches:%d"
+                                                  (length pairs) total-matches)
+                                 :diff (or preview ""))))))))
 
 (defun carriage-apply-sre (plan-item repo-root)
   "Apply SRE pairs by rewriting file and committing via Git."
@@ -151,13 +308,14 @@ Lines are 1-based; END-LINE inclusive. If RANGE-PLIST is nil, REGION = TEXT and 
 
 (defun carriage-dry-run-diff (plan-item repo-root)
   "Run git apply --check for unified diff."
-  (let* ((diff (alist-get :diff plan-item))
-         (strip (alist-get :strip plan-item))
+  (let* ((diff  (carriage--plan-get plan-item :diff))
+         (strip (carriage--plan-get plan-item :strip))
+         (path  (carriage--plan-get plan-item :path))
          (res (carriage-git-apply-check repo-root diff :strip strip)))
     (if (and (plist-get res :exit) (zerop (plist-get res :exit)))
-        (carriage--report-ok 'patch :path (alist-get :path plan-item) :details "git apply --check ok")
+        (carriage--report-ok 'patch :path path :details "git apply --check ok")
       (carriage--report-fail 'patch
-                             :path (alist-get :path plan-item)
+                             :path path
                              :details "git apply --check failed"
                              :extra (list :exit (plist-get res :exit)
                                           :stderr (plist-get res :stderr)
@@ -165,9 +323,9 @@ Lines are 1-based; END-LINE inclusive. If RANGE-PLIST is nil, REGION = TEXT and 
 
 (defun carriage-apply-diff (plan-item repo-root)
   "Apply unified diff with git apply --index; then git add/commit."
-  (let* ((diff (alist-get :diff plan-item))
-         (strip (alist-get :strip plan-item))
-         (path (alist-get :path plan-item))
+  (let* ((diff  (carriage--plan-get plan-item :diff))
+         (strip (carriage--plan-get plan-item :strip))
+         (path  (carriage--plan-get plan-item :path))
          (apply-res (carriage-git-apply-index repo-root diff :strip strip)))
     (if (and (plist-get apply-res :exit) (zerop (plist-get apply-res :exit)))
         (progn
@@ -229,11 +387,28 @@ Lines are 1-based; END-LINE inclusive. If RANGE-PLIST is nil, REGION = TEXT and 
 
 (defun carriage-apply-rename (plan-item repo-root)
   "Rename file via git mv and commit."
-  (let* ((from (alist-get :from plan-item))
-         (to   (alist-get :to plan-item)))
-    (carriage-git-mv repo-root from to)
-    (carriage-git-commit repo-root (format "carriage: rename %s -> %s" from to))
-    (carriage--report-ok 'rename :file (format "%s -> %s" from to) :details "Renamed")))
+  (let* ((from (carriage--plan-get plan-item :from))
+         (to   (carriage--plan-get plan-item :to))
+         ;; Ensure target directory exists
+         (abs-to (carriage-normalize-path repo-root to))
+         (to-dir (file-name-directory abs-to)))
+    (when (and to-dir (not (file-directory-p to-dir)))
+      (make-directory to-dir t))
+    (let ((mvres (carriage-git-mv repo-root from to)))
+      (if (not (and (plist-get mvres :exit) (zerop (plist-get mvres :exit))))
+          (carriage--report-fail 'rename :file (format "%s -> %s" from to)
+                                 :details "git mv failed"
+                                 :extra (list :exit (plist-get mvres :exit)
+                                              :stderr (plist-get mvres :stderr)
+                                              :stdout (plist-get mvres :stdout)))
+        (let ((cres (carriage-git-commit repo-root (format "carriage: rename %s -> %s" from to))))
+          (if (and (plist-get cres :exit) (zerop (plist-get cres :exit)))
+              (carriage--report-ok 'rename :file (format "%s -> %s" from to) :details "Renamed")
+            (carriage--report-fail 'rename :file (format "%s -> %s" from to)
+                                   :details "Commit failed"
+                                   :extra (list :exit (plist-get cres :exit)
+                                                :stderr (plist-get cres :stderr)
+                                                :stdout (plist-get cres :stdout)))))))))
 
 ;;; Plan-level pipeline
 

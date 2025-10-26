@@ -36,6 +36,17 @@
   "Use all-the-icons in mode-line if available."
   :type 'boolean :group 'carriage)
 
+(defcustom carriage-mode-sre-preview-max 3
+  "Maximum number of SRE preview chunks (mini-diffs) to show per pair in dry-run.
+For :occur all, at most this many previews are included; the rest are summarized
+as a “(+N more)” tail."
+  :type 'integer :group 'carriage)
+
+(defcustom carriage-mode-sre-preview-context-lines 1
+  "Number of context lines to include above and below each SRE mini-diff preview.
+0 means no context (only -old/+new lines)."
+  :type 'integer :group 'carriage)
+
 (defvar-local carriage-mode-profile carriage-mode-default-profile
   "Current Carriage profile for this buffer: 'Ask or 'Code.")
 
