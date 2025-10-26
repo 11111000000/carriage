@@ -5,6 +5,10 @@
 (require 'carriage-logging)
 (require 'carriage-errors)
 
+;; Fallback default for WIP branch name (overridden by defcustom in carriage-mode.el if loaded)
+(defvar carriage-mode-wip-branch "carriage/WIP"
+  "Default WIP branch name for Carriage.")
+
 (defun carriage-git--run (root &rest args)
   "Run git ARGS in ROOT. Return plist (:exit :stdout :stderr)."
   (apply #'carriage--call-git root args))

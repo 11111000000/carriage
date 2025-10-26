@@ -7,6 +7,10 @@
 (require 'carriage-utils)
 (require 'carriage-git)
 
+(defcustom carriage-apply-require-wip-branch t
+  "If non-nil, ensure and checkout WIP branch before applying a plan."
+  :type 'boolean :group 'carriage)
+
 (defun carriage--report-ok (op &rest kv)
   "Build ok report alist with OP and extra KV plist."
   (append (list :op op :status 'ok) kv))
@@ -53,6 +57,24 @@ Lines are 1-based; END-LINE inclusive. If RANGE-PLIST is nil, REGION = TEXT and 
           (list (buffer-substring-no-properties (point-min) beg)
                 (buffer-substring-no-properties beg endp)
                 (buffer-substring-no-properties endp (point-max))))))))
+
+(defun carriage--sre-effective-range (text range-plist)
+  "Return normalized range plist (:start-line N :end-line M :clamped t/nil) within TEXT.
+Clamp to [1..TOTAL-LINES]; mark :clamped non-nil when input RANGE-PLIST was adjusted."
+  (if (not range-plist)
+      nil
+    (let* ((start0 (plist-get range-plist :start-line))
+           (end0   (plist-get range-plist :end-line))
+           (total-lines (with-temp-buffer
+                          (insert text)
+                          (goto-char (point-max))
+                          (line-number-at-pos (point-max))))
+           (s (max 1 (or start0 1)))
+           (e (or end0 total-lines))
+           (s1 (min s (max 1 total-lines)))
+           (e1 (min (max s1 e) total-lines))
+           (clamped (or (not (equal s1 s)) (not (equal e1 e)))))
+      (list :start-line s1 :end-line e1 :clamped (and clamped t)))))
 
 (defun carriage--sre-replace-first (text regexp to replacement-literal-p)
   "Replace first match of REGEXP in TEXT with TO. Return (NEW . COUNT)."
@@ -213,7 +235,8 @@ For :occur all, returns up to =carriage-mode-sre-preview-max' previews."
 
 (defun carriage-dry-run-sre (plan-item repo-root)
   "Dry-run SRE: count matches per pair; check :expect for :occur all.
-Populate :diff with a short preview (first match per pair, ±0 lines)."
+Populate :diff with a short preview (first match per pair, ±0 lines).
+If :range lies outside file bounds, clamp to [1..N] and append a warning to :details."
   (let* ((file (alist-get :file plan-item))
          (abs (ignore-errors (carriage-normalize-path (or repo-root default-directory) file))))
     (if (not (and abs (file-exists-p abs)))
@@ -222,6 +245,7 @@ Populate :diff with a short preview (first match per pair, ±0 lines)."
              (pairs (or (alist-get :pairs plan-item) '()))
              (total-matches 0)
              (errors nil)
+             (warns nil)
              (previews '()))
         (dolist (p pairs)
           (let* ((from (alist-get :from p))
@@ -231,16 +255,26 @@ Populate :diff with a short preview (first match per pair, ±0 lines)."
                  (occur (or (plist-get opts :occur) 'first))
                  (expect (plist-get opts :expect))
                  (match-kind (or (plist-get opts :match) 'literal))
-                 (region (if range (cadr (carriage--sre-slice-by-lines text range)) text))
+                 (eff-range (and range (carriage--sre-effective-range text range)))
+                 (region (cond
+                          (eff-range (cadr (carriage--sre-slice-by-lines text eff-range)))
+                          (range     (cadr (carriage--sre-slice-by-lines text range)))
+                          (t         text)))
                  (rx (carriage--sre-make-regexp from match-kind))
                  (count (condition-case e
                             (carriage--sre-count-matches region from opts)
                           (error
                            (push (format "Regex error: %s" (error-message-string e)) errors)
                            -1))))
+            ;; record clamped range warning (once per pair)
+            (when (and eff-range (plist-get eff-range :clamped))
+              (push (format "range clamped to %d..%d"
+                            (plist-get eff-range :start-line)
+                            (plist-get eff-range :end-line))
+                    warns))
             (when (>= count 0)
               (setq total-matches (+ total-matches count))
-              ;; preview only for first match in this pair
+              ;; preview chunks
               (let ((pvs (carriage--sre-previews-for-region region rx to match-kind occur count)))
                 (dolist (pv pvs) (push pv previews))
                 (when (and (eq occur 'all) (> count (length pvs)))
@@ -249,26 +283,33 @@ Populate :diff with a short preview (first match per pair, ±0 lines)."
                 (push (format "Expect mismatch: have %d, expect %d" count expect) errors))
               (when (and (eq occur 'first) (= count 0))
                 (push "No matches for :occur first" errors)))))
-        (let ((preview (when previews (mapconcat #'identity (nreverse previews) "\n\n"))))
+        (let* ((preview (when previews (mapconcat #'identity (nreverse previews) "\n\n")))
+               (warn-tail (when warns (format "; %s" (mapconcat #'identity (nreverse warns) "; ")))))
           (if errors
               (carriage--report-fail 'sre :file file
                                      :matches total-matches
-                                     :details (format "fail: pairs:%d matches:%d; %s"
-                                                      (length pairs) total-matches
-                                                      (mapconcat #'identity (nreverse errors) "; "))
+                                     :details (concat
+                                               (format "fail: pairs:%d matches:%d; %s"
+                                                       (length pairs) total-matches
+                                                       (mapconcat #'identity (nreverse errors) "; "))
+                                               (or warn-tail ""))
                                      :diff (or preview ""))
             (carriage--report-ok 'sre :file file
                                  :matches total-matches
-                                 :details (format "ok: pairs:%d matches:%d"
-                                                  (length pairs) total-matches)
+                                 :details (concat
+                                           (format "ok: pairs:%d matches:%d"
+                                                   (length pairs) total-matches)
+                                           (or warn-tail ""))
                                  :diff (or preview ""))))))))
 
 (defun carriage--dry-run-sre-on-text (plan-item text)
-  "Dry-run SRE as if FILE had TEXT content. Returns a report alist like carriage-dry-run-sre."
+  "Dry-run SRE as if FILE had TEXT content. Returns a report alist like carriage-dry-run-sre.
+If :range lies outside text bounds, clamp and append a warning to :details."
   (let* ((file (alist-get :file plan-item))
          (pairs (or (alist-get :pairs plan-item) '()))
          (total-matches 0)
          (errors nil)
+         (warns nil)
          (previews '()))
     (dolist (p pairs)
       (let* ((from (alist-get :from p))
@@ -278,13 +319,22 @@ Populate :diff with a short preview (first match per pair, ±0 lines)."
              (occur (or (plist-get opts :occur) 'first))
              (expect (plist-get opts :expect))
              (match-kind (or (plist-get opts :match) 'literal))
-             (region (if range (cadr (carriage--sre-slice-by-lines text range)) text))
+             (eff-range (and range (carriage--sre-effective-range text range)))
+             (region (cond
+                      (eff-range (cadr (carriage--sre-slice-by-lines text eff-range)))
+                      (range     (cadr (carriage--sre-slice-by-lines text range)))
+                      (t         text)))
              (rx (carriage--sre-make-regexp from match-kind))
              (count (condition-case e
                         (carriage--sre-count-matches region from opts)
                       (error
                        (push (format "Regex error: %s" (error-message-string e)) errors)
                        -1))))
+        (when (and eff-range (plist-get eff-range :clamped))
+          (push (format "range clamped to %d..%d"
+                        (plist-get eff-range :start-line)
+                        (plist-get eff-range :end-line))
+                warns))
         (when (>= count 0)
           (setq total-matches (+ total-matches count))
           (let ((pvs (carriage--sre-previews-for-region region rx to match-kind occur count)))
@@ -295,18 +345,23 @@ Populate :diff with a short preview (first match per pair, ±0 lines)."
             (push (format "Expect mismatch: have %d, expect %d" count expect) errors))
           (when (and (eq occur 'first) (= count 0))
             (push "No matches for :occur first" errors)))))
-    (let ((preview (when previews (mapconcat #'identity (nreverse previews) "\n\n"))))
+    (let* ((preview (when previews (mapconcat #'identity (nreverse previews) "\n\n")))
+           (warn-tail (when warns (format "; %s" (mapconcat #'identity (nreverse warns) "; ")))))
       (if errors
           (carriage--report-fail 'sre :file file
                                  :matches total-matches
-                                 :details (format "fail: pairs:%d matches:%d; %s"
-                                                  (length pairs) total-matches
-                                                  (mapconcat #'identity (nreverse errors) "; "))
+                                 :details (concat
+                                           (format "fail: pairs:%d matches:%d; %s"
+                                                   (length pairs) total-matches
+                                                   (mapconcat #'identity (nreverse errors) "; "))
+                                           (or warn-tail ""))
                                  :diff (or preview ""))
         (carriage--report-ok 'sre :file file
                              :matches total-matches
-                             :details (format "ok: pairs:%d matches:%d"
-                                              (length pairs) total-matches)
+                             :details (concat
+                                       (format "ok: pairs:%d matches:%d"
+                                               (length pairs) total-matches)
+                                       (or warn-tail ""))
                              :diff (or preview ""))))))
 
 (defun carriage-apply-sre (plan-item repo-root)
@@ -573,6 +628,10 @@ Return report alist: (:plan PLAN :summary (:ok N :fail M :skipped K) :items ...)
 (defun carriage-apply-plan (plan repo-root)
   "Apply PLAN (list of plan items) under REPO-ROOT sequentially.
 Stops on first failure. Returns report alist as in carriage-dry-run-plan."
+  ;; Ensure WIP branch if policy enabled
+  (when carriage-apply-require-wip-branch
+    (carriage-git-ensure-repo repo-root)
+    (carriage-git-checkout-wip repo-root))
   (let* ((sorted (carriage--plan-sort plan))
          (items '())
          (ok 0) (fail 0) (skip 0)

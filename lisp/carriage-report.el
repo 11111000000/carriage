@@ -4,6 +4,7 @@
 (require 'subr-x)
 (require 'button)
 (require 'carriage-utils)
+(require 'carriage-apply)
 (require 'ediff)
 
 (defconst carriage--report-buffer-name "*carriage-report*"
@@ -38,6 +39,68 @@
     (when face
       (add-text-properties (- (point) (1+ (length line))) (point) `(face ,face)))))
 
+(defun carriage--report-summary-line (report)
+  "Build a summary header line for REPORT."
+  (let* ((summary (plist-get report :summary))
+         (ok      (plist-get summary :ok))
+         (fail    (plist-get summary :fail))
+         (skipped (plist-get summary :skipped)))
+    (format "Carriage report  ok:%s  fail:%s  skipped:%s\n\n"
+            (or ok 0) (or fail 0) (or skipped 0))))
+
+(defun carriage--report-row-face (status)
+  "Return face symbol for STATUS."
+  (pcase status
+    ('ok   'carriage-report-ok-face)
+    ('fail 'carriage-report-err-face)
+    ('warn 'carriage-report-warn-face)
+    (_     nil)))
+
+(defun carriage--report-insert-header ()
+  "Insert table header lines."
+  (carriage--report-insert-line '("#" "op" "path" "status" "matches" "details" "preview" "actions"))
+  (carriage--report-insert-line '("---" "---" "---" "---" "---" "---" "---" "---")))
+
+(defun carriage--report-attach-row (row-beg row-end it has-preview)
+  "Attach item IT to row [ROW-BEG, ROW-END) and create buttons. HAS-PREVIEW gates [Diff]."
+  ;; Attach item payload to the whole row for RET activation.
+  (add-text-properties row-beg row-end (list 'carriage-report-item it))
+  ;; [Diff]
+  (when has-preview
+    (save-excursion
+      (goto-char row-beg)
+      (when (search-forward "[Diff]" row-end t)
+        (make-text-button (- (point) 6) (point)
+                          'help-echo "Show full diff preview"
+                          'follow-link t
+                          'action (lambda (_btn) (carriage-report-show-diff-at-point))))))
+  ;; [Ediff]
+  (save-excursion
+    (goto-char row-beg)
+    (when (search-forward "[Ediff]" row-end t)
+      (make-text-button (- (point) 7) (point)
+                        'help-echo "Open Ediff for this item"
+                        'follow-link t
+                        'action (lambda (_btn) (carriage-report-ediff-at-point)))))
+  ;; [Apply]
+  (save-excursion
+    (goto-char row-beg)
+    (when (search-forward "[Apply]" row-end t)
+      (make-text-button (- (point) 7) (point)
+                        'help-echo "Apply this item"
+                        'follow-link t
+                        'action (lambda (_btn) (carriage-report-apply-at-point))))))
+
+(defun carriage--report-install-keys ()
+  "Install local keymap for report interactions."
+  (let* ((base (or (current-local-map) (make-sparse-keymap)))
+         (map  (make-sparse-keymap)))
+    (set-keymap-parent map base)
+    (define-key map (kbd "RET") #'carriage-report-show-diff-at-point)
+    (define-key map (kbd "e")   #'carriage-report-ediff-at-point)
+    (define-key map (kbd "a")   #'carriage-report-apply-at-point)
+    (use-local-map map)))
+
 (defun carriage-report-render (report)
   "Render REPORT alist into the report buffer.
 REPORT shape:
@@ -48,64 +111,29 @@ REPORT shape:
     (with-current-buffer buf
       (read-only-mode -1)
       (erase-buffer)
-      (let* ((summary (plist-get report :summary))
-             (ok (plist-get summary :ok))
-             (fail (plist-get summary :fail))
-             (skipped (plist-get summary :skipped)))
-        (insert (format "Carriage report  ok:%s  fail:%s  skipped:%s\n\n"
-                        (or ok 0) (or fail 0) (or skipped 0))))
-      ;; Header with actions column
-      (carriage--report-insert-line '("#" "op" "path" "status" "matches" "details" "preview" "actions"))
-      (carriage--report-insert-line '("---" "---" "---" "---" "---" "---" "---" "---"))
+      (insert (carriage--report-summary-line report))
+      (carriage--report-insert-header)
       (let ((i 0))
         (dolist (it (or (plist-get report :items) '()))
           (setq i (1+ i))
-          (let* ((op (plist-get it :op))
-                 (file (or (plist-get it :file) (plist-get it :path)))
-                 (status (plist-get it :status))
-                 (matches (plist-get it :matches))
-                 (details (or (plist-get it :details) ""))
-                 (preview (or (plist-get it :diff) ""))
+          (let* ((op          (plist-get it :op))
+                 (file        (or (plist-get it :file) (plist-get it :path)))
+                 (status      (plist-get it :status))
+                 (matches     (plist-get it :matches))
+                 (details     (or (plist-get it :details) ""))
+                 (preview     (or (plist-get it :diff) ""))
                  (has-preview (and (stringp preview) (> (length preview) 0)))
                  (preview-short (if has-preview
                                     (truncate-string-to-width preview 60 nil nil t)
                                   ""))
-                 (action (concat (if has-preview "[Diff]" "") " [Ediff]")))
-            (let ((row-beg (point)))
-              (carriage--report-insert-line
-               (list i op file status (or matches "") details preview-short action)
-               (pcase status
-                 ('ok 'carriage-report-ok-face)
-                 ('fail 'carriage-report-err-face)
-                 ('warn 'carriage-report-warn-face)
-                 (_ nil)))
-              (let ((row-end (point)))
-                ;; Attach item payload to the whole row for RET activation.
-                (add-text-properties row-beg row-end (list 'carriage-report-item it))
-                ;; Turn [Diff] into an actual button if present.
-                (when has-preview
-                  (save-excursion
-                    (goto-char row-beg)
-                    (when (search-forward "[Diff]" row-end t)
-                      (make-text-button (- (point) 6) (point)
-                                        'help-echo "Show full diff preview"
-                                        'follow-link t
-                                        'action (lambda (_btn) (carriage-report-show-diff-at-point))))))
-                ;; Add [Ediff] button
-                (save-excursion
-                  (goto-char row-beg)
-                  (when (search-forward "[Ediff]" row-end t)
-                    (make-text-button (- (point) 7) (point)
-                                      'help-echo "Open Ediff for this item"
-                                      'follow-link t
-                                      'action (lambda (_btn) (carriage-report-ediff-at-point)))))))))
-        ;; Keys
-        (let* ((base (or (current-local-map) (make-sparse-keymap)))
-               (map (make-sparse-keymap)))
-          (set-keymap-parent map base)
-          (define-key map (kbd "RET") #'carriage-report-show-diff-at-point)
-          (define-key map (kbd "e")   #'carriage-report-ediff-at-point)
-          (use-local-map map)))
+                 (action (concat (if has-preview "[Diff]" "") " [Ediff] [Apply]"))
+                 (row-beg (point)))
+            (carriage--report-insert-line
+             (list i op file status (or matches "") details preview-short action)
+             (carriage--report-row-face status))
+            (let ((row-end (point)))
+              (carriage--report-attach-row row-beg row-end it has-preview)))))
+      (carriage--report-install-keys)
       (goto-char (point-min))
       (read-only-mode 1))
     buf))
@@ -159,7 +187,8 @@ In noninteractive (batch) mode, prepare buffers or patch file and return without
            (unless (and abs (file-exists-p abs))
              (user-error "File not found: %s" (or file "<nil>")))
            (let* ((before (carriage-read-file-string abs))
-                  (sim    (if plan
+                  ;; In batch, or if simulation function is unavailable, avoid calling it.
+                  (sim    (if (and plan (fboundp 'carriage-sre-simulate-apply) (not (bound-and-true-p noninteractive)))
                               (carriage-sre-simulate-apply plan root)
                             (list :after before :count 0)))
                   (after  (or (plist-get sim :after) before))
@@ -186,6 +215,86 @@ In noninteractive (batch) mode, prepare buffers or patch file and return without
                (ignore-errors (delete-file patch-file))))))
         (_
          (user-error "Ediff not supported for op: %S" op))))))
+
+;;; NEW: apply-at-point
+
+;;;###autoload
+(defun carriage-report-apply-at-point ()
+  "Apply the report item at point using its stored plan and root.
+In batch mode runs non-interactively and refreshes report."
+  (interactive)
+  (let* ((it (carriage-report--item-at-point)))
+    (unless it
+      (user-error "No report item at point"))
+    (let* ((plan-item (plist-get it :_plan))
+           (root      (or (plist-get it :_root) (carriage-project-root) default-directory)))
+      (unless (and plan-item root)
+        (user-error "No plan/root stored on this row"))
+      (let* ((rep (carriage-apply-plan (list plan-item) root)))
+        (carriage-report-open rep)
+        rep))))
+
+(require 'button)
+(require 'ediff)
+
+(unless (boundp 'carriage-report-mode-map)
+  (defvar carriage-report-mode-map
+    (let ((map (make-sparse-keymap)))
+      (set-keymap-parent map special-mode-map)
+      (define-key map (kbd "RET") #'carriage-report-show-diff-at-point)
+      (define-key map (kbd "e")   #'carriage-report-ediff-at-point)
+      (define-key map (kbd "a")   #'carriage-report-apply-at-point)
+      map)
+    "Keymap for Carriage report buffers."))
+
+(unless (fboundp 'carriage-report-mode)
+  (define-derived-mode carriage-report-mode special-mode "Carriage-Report"
+    "Major mode for Carriage report buffer."))
+
+(unless (fboundp 'carriage-report--item-at-point)
+  (defun carriage-report--item-at-point ()
+    "Return report item plist stored as text property on current line, if any."
+    (or (get-text-property (line-beginning-position) 'carriage-report-item)
+        (get-text-property (line-end-position)       'carriage-report-item))))
+
+(unless (fboundp 'carriage-report-show-diff-at-point)
+  (defun carriage-report-show-diff-at-point ()
+    "Show full diff/preview for the report item at point in a separate buffer."
+    (interactive)
+    (let* ((it   (carriage-report--item-at-point))
+           (diff (and it (plist-get it :diff))))
+      (if (and diff (stringp diff) (> (length diff) 0))
+          (let ((buf (get-buffer-create "*Carriage Diff*")))
+            (with-current-buffer buf
+              (read-only-mode -1)
+              (erase-buffer)
+              (insert diff)
+              (goto-char (point-min))
+              (view-mode 1))
+            (pop-to-buffer buf))
+        (message "No diff available at point")))))
+
+(unless (fboundp 'carriage-report-ediff-at-point)
+  (defun carriage-report-ediff-at-point ()
+    "Start Ediff for the report item at point (safe no-op in batch)."
+    (interactive)
+    (let ((it (carriage-report--item-at-point)))
+      (cond
+       (noninteractive
+        (message "Ediff suppressed in batch"))
+       ((null it)
+        (message "No report item at point"))
+       (t
+        ;; Placeholder: SRE/patch-specific ediff can be implemented here.
+        (let ((op (plist-get it :op)))
+          (message "Ediff not implemented for %S yet" op)))))))
+
+;; Ensure report buffer uses our mode/keymap after rendering.
+(when (fboundp 'carriage-report-render)
+  (advice-add 'carriage-report-render :after
+              (lambda (&rest _)
+                (carriage-report-mode)
+                (use-local-map carriage-report-mode-map))))
 
 (provide 'carriage-report)
 ;;; carriage-report.el ends here

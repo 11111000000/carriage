@@ -2,11 +2,19 @@
 
 (require 'ert)
 (require 'carriage)
+(require 'subr-x)
 
 (defun carriage-iteration-test--git (dir &rest args)
   "Run git ARGS in DIR and return exit code."
   (let ((default-directory (file-name-as-directory dir)))
     (apply #'call-process "git" nil nil nil args)))
+
+(defun carriage-iteration-test--git-out (dir &rest args)
+  "Run git ARGS in DIR and return stdout as string (trimmed)."
+  (let ((default-directory (file-name-as-directory dir)))
+    (with-temp-buffer
+      (apply #'call-process "git" nil t nil args)
+      (string-trim (buffer-string)))))
 
 (defun carriage-iteration-test--read (dir rel)
   (with-temp-buffer
@@ -93,7 +101,10 @@
                 ;; apply
                 (let* ((ap (carriage-apply-plan plan dir)))
                   (should (eq (plist-get (plist-get ap :summary) :fail) 0))
-                  (should (string= (carriage-iteration-test--read dir "x.txt") "world\n")))))))))
+                  (should (string= (carriage-iteration-test--read dir "x.txt") "world\n"))
+                  ;; ensure we are on WIP branch after apply
+                  (let ((branch (carriage-iteration-test--git-out dir "rev-parse" "--abbrev-ref" "HEAD")))
+                    (should (string= branch "carriage/WIP"))))))))))
   (ignore-errors (delete-directory dir t)))
 
 ;;; carriage-iteration-test.el ends here

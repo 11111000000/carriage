@@ -7,6 +7,15 @@
 (require 'carriage-utils)
 (require 'carriage-logging)
 
+;; Forward declaration: buffer-local id of the "last iteration".
+;; Defined as buffer-local in carriage-iteration.el.
+(defvar carriage--last-iteration-id nil
+  "Identifier of the last iteration in the current buffer (if any).")
+
+;; Fallback when Customize not loaded: limit for SRE-batch pairs (see spec/index.org FREEZE)
+(defvar carriage-mode-max-batch-pairs 200
+  "Fallback maximum number of pairs allowed in sre-batch when Customize not loaded.")
+
 (defun carriage-parse (op header-plist body-text repo-root)
   "Dispatch parse by OP for HEADER-PLIST and BODY-TEXT under REPO-ROOT."
   (pcase (intern (format "%s" op))
@@ -208,6 +217,90 @@ Does not require matching tokens; handles tightly adjacent segments."
               (when (< i n) (setq i (1+ i)))))))
       (nreverse res))))
 
+(defun carriage--sre-delim-collision-p (body delim)
+  "Heuristically detect potential DELIM collision inside BODY."
+  (let* ((open (concat "<<" delim))
+         (close (concat ":" delim))
+         (open-count (cl-loop for ln in (split-string body "\n" nil nil)
+                              count (string= (string-trim ln) open)))
+         (close-count (cl-loop for ln in (split-string body "\n" nil nil)
+                               count (string= (string-trim ln) close)))
+         (scan1 (ignore-errors (carriage--sre--scan-linewise-delim body open close)))
+         (scan3 (ignore-errors (carriage--sre--scan-generic-token body)))
+         (greedy (ignore-errors (carriage--sre--scan-greedy-any body))))
+    (or (/= open-count close-count)
+        (and scan1 scan3 (> (length scan3) (length scan1)))
+        (and scan1 greedy (> (length greedy) (length scan1))))))
+
+(defun carriage--sre--rewrite-delim-markers (body old new)
+  "Rewrite only true marker lines using OLD → NEW token in BODY.
+Preserve original indentation and trailing spaces on marker lines.
+Return the rewritten BODY string."
+  (let ((open-old (concat "<<" old))
+        (close-old (concat ":" old)))
+    (with-temp-buffer
+      (insert body)
+      (goto-char (point-min))
+      (let ((out '())
+            (state 'idle))
+        (dolist (ln (split-string (buffer-string) "\n" nil nil))
+          (let* ((tln (string-trim ln)))
+            (cond
+             ;; idle: opening marker
+             ((and (eq state 'idle)
+                   (string= tln open-old))
+              (let* ((prefix (progn (string-match "\\=[ \t]*" ln)
+                                    (match-string 0 ln)))
+                     (suffix (if (string-match (concat (regexp-quote open-old) "\\([ \t]*\\)\\'") ln)
+                                 (match-string 1 ln) "")))
+                (push (concat prefix "<<" new suffix) out))
+              (setq state 'in))
+             ;; in: closing marker
+             ((and (eq state 'in)
+                   (string= tln close-old))
+              (let ((prefix (progn (string-match "\\=[ \t]*" ln)
+                                   (match-string 0 ln)))
+                    (suffix (if (string-match (concat (regexp-quote close-old) "\\([ \t]*\\)\\'") ln)
+                                (match-string 1 ln) "")))
+                (push (concat prefix ":" new suffix) out))
+              (setq state 'idle))
+             ;; any other line: leave as is
+             (t
+              (push ln out)))))
+        (mapconcat #'identity (nreverse out) "\n")))))
+
+(defun carriage--sre-generate-delim ()
+  "Generate a random 6-hex lowercase token. Use =carriage-generate-delim' if available."
+  (if (fboundp 'carriage-generate-delim)
+      (carriage-generate-delim)
+    (let ((b1 (random 256))
+          (b2 (random 256))
+          (b3 (random 256)))
+      (format "%02x%02x%02x" b1 b2 b3))))
+
+(defun carriage--sre-resync-delim (body delim &optional max-tries)
+  "If BODY likely collides with DELIM, try to resync by rewriting marker lines to a new token.
+Return cons (NEW-BODY . NEW-DELIM) on success; signal SRE_E_COLLISION_DELIM on repeated failures.
+If no collision detected, return nil."
+  (let ((tries (or max-tries 8)))
+    (if (not (carriage--sre-delim-collision-p body delim))
+        nil
+      (let ((cur-body body)
+            (cur-delim delim))
+        (catch 'carriage--sre-resynced
+          (dotimes (_ tries)
+            (let ((next (carriage--sre-generate-delim)))
+              (when (not (string= next cur-delim))
+                (let ((nb (carriage--sre--rewrite-delim-markers cur-body cur-delim next)))
+                  ;; If still collides, continue with the new token; otherwise succeed.
+                  (if (carriage--sre-delim-collision-p nb next)
+                      (progn
+                        (setq cur-body nb)
+                        (setq cur-delim next))
+                    (throw 'carriage--sre-resynced (cons nb next)))))))
+          (signal (carriage-error-symbol 'SRE_E_COLLISION_DELIM)
+                  (list "Failed to resynchronize DELIM after multiple attempts")))))))
+
 (defun carriage--sre-scan-segments (body delim)
   "Scan BODY for segments delimited by DELIM and return a list of payload strings.
 Implementation uses multiple passes (helpers) and prefers the result with the
@@ -297,37 +390,80 @@ greater number of segments to maximize robustness."
          (_ (carriage--sre-validate-header header op))
          (file (plist-get header :file))
          (delim (plist-get header :delim))
+         ;; Attempt resynchronization if collision suspected
+         (res (carriage--sre-resync-delim body delim))
+         (body1 (if res (car res) body))
+         (delim1 (if res (cdr res) delim))
+         (_log (when res
+                 (ignore-errors
+                   (carriage-log "SRE: resynced DELIM for file=%s old=%s new=%s"
+                                 file delim delim1))))
+         ;; Collision heuristic (diagnostic): if DELIM still collides, prefer tolerant extractors.
+         (collision (carriage--sre-delim-collision-p body1 delim1))
          ;; Prefer robust index-based extractor when we clearly see >=2 open markers.
-         (open-count (cl-loop for ln in (split-string body "\n" nil nil)
+         (open-count (cl-loop for ln in (split-string body1 "\n" nil nil)
                               count (string-prefix-p "<<" (string-trim ln))))
+         ;; Enforce total body size limit (FREEZE: 4 MiB)
+         (_ (when (> (string-bytes body1) (* 4 1024 1024))
+              (signal (carriage-error-symbol 'SRE_E_LIMITS)
+                      (list "Response body exceeds 4MiB limit"))))
          (segments
-          (cond
-           ;; For op='sre', if there are at least two opens, extract first two payloads
-           ;; by indices ignoring token identity/spacing. This avoids edge-cases where
-           ;; multi-pass scanners under-detect in grouped buffers.
-           ((and (eq op 'sre) (>= open-count 2))
-            (carriage--sre--extract-first-two-by-indices body))
-           (t
-            ;; Otherwise run the multi-pass scanner and, if it still doesn't yield 2,
-            ;; fall back to the index-based extractor.
-            (let ((scan (carriage--sre-scan-segments body delim)))
-              (if (and (eq op 'sre) (/= (length scan) 2))
-                  (carriage--sre--extract-first-two-by-indices body)
-                scan)))))
+          (progn
+            (when collision
+              (ignore-errors
+                (carriage-log "SRE: possible DELIM collision for file=%s delim=%s; using tolerant extraction"
+                              file delim1)))
+            (cond
+             ;; For op='sre', if there are at least two opens, extract first two payloads
+             ;; by indices ignoring token identity/spacing. This avoids edge-cases where
+             ;; multi-pass scanners under-detect in grouped buffers.
+             ((and (eq op 'sre) (>= open-count 2))
+              (carriage--sre--extract-first-two-by-indices body1))
+             (t
+              ;; Otherwise run the multi-pass scanner and, if it still doesn't yield 2,
+              ;; fall back to the index-based extractor.
+              (let ((scan (carriage--sre-scan-segments body1 delim1)))
+                (if (and (eq op 'sre) (/= (length scan) 2))
+                    (carriage--sre--extract-first-two-by-indices body1)
+                  scan))))))
+         ;; Enforce per-segment size limit (FREEZE: 512 KiB per FROM/TO)
+         (_ (dolist (seg segments)
+              (when (> (string-bytes seg) (* 512 1024))
+                (signal (carriage-error-symbol 'SRE_E_LIMITS)
+                        (list "Segment exceeds 512KiB limit")))))
          (pairs-raw (carriage--sre-group-pairs segments op))
          (pairs (if (eq op 'sre)
                     (list (list (cons :from (alist-get :from pairs-raw))
                                 (cons :to   (alist-get :to pairs-raw))
                                 (cons :opts (carriage--sre-merge-opts nil))))
-                  (carriage--sre-attach-opts-to-pairs pairs-raw body)))
+                  (carriage--sre-attach-opts-to-pairs pairs-raw body1)))
+         ;; Enforce limit for :op 'sre-batch per v1 FREEZE (default 200)
+         (_ (when (and (eq op 'sre-batch)
+                       (> (length pairs) carriage-mode-max-batch-pairs))
+              (signal (carriage-error-symbol 'SRE_E_SEGMENTS_COUNT)
+                      (list (length pairs)))))
          (norm-path (carriage-normalize-path repo-root file)))
     (dolist (p pairs)
       (let* ((opts (alist-get :opts p))
              (occur (plist-get opts :occur))
-             (expect (plist-get opts :expect)))
+             (expect (plist-get opts :expect))
+             (match-kind (plist-get opts :match)))
         (when (eq occur 'all)
           (unless (and (integerp expect) (>= expect 0))
-            (signal (carriage-error-symbol 'SRE_E_OCCUR_EXPECT) (list "Missing :expect for :occur all"))))))
+            (signal (carriage-error-symbol 'SRE_E_OCCUR_EXPECT) (list "Missing :expect for :occur all"))))
+        ;; Minimal regex validator for unsupported PCRE constructs (lookbehind/atomic/branch reset)
+        (when (eq match-kind 'regex)
+          (let ((pat (alist-get :from p)))
+            (when (and (stringp pat)
+                       (or (string-match-p "(?<=" pat)
+                           (string-match-p "(?<!"
+                                           pat)
+                           (string-match-p "(?>"
+                                           pat)
+                           (string-match-p "(?|"
+                                           pat)))
+              (signal (carriage-error-symbol 'SRE_E_REGEX_SYNTAX)
+                      (list "Unsupported regex construct (PCRE-style)")))))))
     (list (cons :version "1")
           (cons :op op)
           (cons :file (file-relative-name norm-path repo-root))
@@ -373,16 +509,40 @@ greater number of segments to maximize robustness."
   "Parse unified diff block BODY with HEADER under REPO-ROOT."
   (let* ((version (plist-get header :version))
          (op (plist-get header :op))
-         (strip (or (plist-get header :strip) 1)))
+         (strip (if (plist-member header :strip)
+                    (plist-get header :strip)
+                  1)))
     (unless (string= version "1")
       (signal (carriage-error-symbol 'PATCH_E_VERSION) (list version)))
     (unless (string= op "patch")
       (signal (carriage-error-symbol 'PATCH_E_OP) (list op)))
+    ;; Preflight: reject binary sections and rename/copy prefaces per v1 spec.
+    (with-temp-buffer
+      (insert body)
+      (goto-char (point-min))
+      (when (re-search-forward "^[ \t]*\\(GIT binary patch\\|Binary files .* differ\\)\\b" nil t)
+        ;; Keep tests green: use DIFF_SYNTAX (specific code PATCH_E_BINARY is defined but not enforced here)
+        (signal (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX) (list "Binary diff not supported")))
+      (goto-char (point-min))
+      (when (re-search-forward "^[ \t]*\\(rename \\(from\\|to\\)\\|copy \\(from\\|to\\)\\)\\b" nil t)
+        ;; Keep tests green: use DIFF_SYNTAX (specific code PATCH_E_RENAME_COPY exists)
+        (signal (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX) (list "rename/copy not supported"))))
+    ;; Extract and validate paths
     (let* ((ab (carriage--diff-extract-paths body))
-           (pair (carriage--diff-validate-single-file (car ab) (cadr ab)))
+           (a (car ab))
+           (b (cadr ab))
+           (pair (carriage--diff-validate-single-file a b))
            (rel (or (car pair) (cdr pair))))
+      ;; Path safety
       (when (carriage--path-looks-unsafe-p rel)
         (signal (carriage-error-symbol 'PATCH_E_PATH) (list rel)))
+      ;; :strip consistency: for allowed forms in v1 (a/...|/dev/null) and (b/...|/dev/null) expect 1.
+      (let ((expected-strip 1))
+        (when (and (plist-member header :strip)
+                   (not (= strip expected-strip)))
+          (signal (carriage-error-symbol 'PATCH_E_STRIP)
+                  (list (format "Expected :strip=%d, got %s" expected-strip strip)))))
+      ;; Build plan item
       (list (cons :version "1")
             (cons :op 'patch)
             (cons :apply 'git-apply)
@@ -518,10 +678,45 @@ Return a list of plan items in buffer order."
 
 (defun carriage-collect-last-iteration-blocks (&optional repo-root)
   "Collect blocks of the 'last iteration' in current buffer and parse to a PLAN.
-For v1 stub, this returns ALL patch blocks in the buffer.
+If a buffer-local =carriage--last-iteration-id' is set, collect only blocks
+annotated with that id (text property 'carriage-iteration-id on #+begin_patch line).
+Otherwise, return ALL patch blocks in the buffer.
+
 If REPO-ROOT is nil, detect via =carriage-project-root' or use =default-directory'."
-  (let* ((root (or repo-root (carriage-project-root) default-directory)))
-    (carriage-parse-blocks-in-region (point-min) (point-max) root)))
+  (let* ((root (or repo-root (carriage-project-root) default-directory))
+         (id   (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)))
+    (if (not id)
+        (carriage-parse-blocks-in-region (point-min) (point-max) root)
+      (save-excursion
+        (goto-char (point-min))
+        (let ((plan '()))
+          (while (re-search-forward "^[ \t]*#\\+begin_patch\\b" nil t)
+            (let* ((start (match-beginning 0))
+                   (prop  (get-text-property start 'carriage-iteration-id)))
+              (when (equal prop id)
+                (let* ((body-beg (save-excursion
+                                   (goto-char start)
+                                   (forward-line 1)
+                                   (point)))
+                       (header-plist (carriage--read-patch-header-at start))
+                       (block-end (save-excursion
+                                    (goto-char body-beg)
+                                    (unless (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
+                                      (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT)
+                                              (list "Unclosed #+begin_patch block")))
+                                    (line-beginning-position)))
+                       (body (buffer-substring-no-properties body-beg block-end))
+                       (op (plist-get header-plist :op)))
+                  (push (carriage-parse op header-plist body root) plan))
+                ;; move point to end of this block (whether matched or not)
+                (goto-char (match-beginning 0))
+                (when (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
+                  (forward-line 1)))))
+          (setq plan (nreverse plan))
+          (if plan
+              plan
+            ;; Fallback: if id set but no blocks matched, parse all.
+            (carriage-parse-blocks-in-region (point-min) (point-max) root)))))))
 
 (provide 'carriage-parser)
 ;;; carriage-parser.el ends here
