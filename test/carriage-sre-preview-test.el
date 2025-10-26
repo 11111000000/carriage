@@ -30,6 +30,6 @@
             (let ((pv (plist-get rep :diff)))
               (should (stringp pv))
               (should (> (length pv) 0))))))
-    (ignore-errors (delete-directory dir t)))))
+    (ignore-errors (delete-directory dir t))))
 
 ;;; carriage-sre-preview-test.el ends here

@@ -60,6 +60,6 @@
                 (let* ((ap (carriage-apply-plan plan dir)))
                   (should (eq (plist-get (plist-get ap :summary) :fail) 0))
                   (should (string= (carriage-iteration-test--read dir "x.txt") "world\n"))))))))
-    (ignore-errors (delete-directory dir t)))))
+    (ignore-errors (delete-directory dir t))))
 
 ;;; carriage-iteration-test.el ends here

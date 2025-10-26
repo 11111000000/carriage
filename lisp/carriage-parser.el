@@ -31,7 +31,7 @@
       (signal (carriage-error-symbol 'SRE_E_OP) (list op)))
     (unless (and (stringp file) (not (string-empty-p file)))
       (signal (carriage-error-symbol 'SRE_E_PATH) (list file)))
-    (unless (and (stringp delim) (string-match-p "\\=[0-9a-f]\\{6\\}\\'" delim))
+    (unless (and (stringp delim) (string-match-p "\\`[0-9a-f]\\{6\\}\\'" delim))
       (signal (carriage-error-symbol 'SRE_E_OP) (list "Invalid :delim")))
     t))
 
@@ -47,34 +47,132 @@
 
 (defun carriage--sre-parse-pair-directive (line)
   "If LINE is a #+pair directive, return its plist; else nil."
-  (when (string-match "\\=\\s-*#\\+pair\\s-+\\((.*)\\)\\s-*\\'" line)
+  (when (string-match "\\`\\s-*#\\+pair\\s-+\\((.*)\\)\\s-*\\'" line)
     (car (read-from-string (match-string 1 line)))))
 
-(defun carriage--sre-scan-segments (body delim)
-  "Scan BODY for segments delimited by DELIM. Return list of strings."
-  (let* ((open (concat "<<" delim))
-         (close (concat ":" delim))
-         (lines (split-string body "\n" t nil))
-         (segments '())
-         (acc nil)
-         (state 'idle))
-    (dolist (ln lines)
-      (cond
-       ((and (eq state 'idle) (string= ln open))
-        (setq state 'in)
-        (setq acc (list)))
-       ((and (eq state 'in) (string= ln close))
-        (push (mapconcat #'identity (nreverse acc) "\n") segments)
-        (setq acc nil)
-        (setq state 'idle))
-       ((eq state 'in)
-        (push ln acc))
-       (t
-        ;; ignore comments and other lines
-        )))
+;; Internal helpers to scan SRE segments. Each pass focuses on a single strategy
+;; and signals SRE_E_UNCLOSED_SEGMENT on unmatched openers to preserve behavior.
+
+(defun carriage--sre--scan-linewise-delim (body open close)
+  "Scan BODY line-wise using explicit OPEN/CLOSE tokens. Return list of payloads."
+  (let ((segments '())
+        (state 'idle)
+        (acc nil))
+    (dolist (ln (split-string body "\n" nil nil)) ;; keep empty lines
+      (let ((tln (string-trim ln)))
+        (cond
+         ((and (eq state 'idle) (string= tln open))
+          (setq state 'in acc nil))
+         ((and (eq state 'in) (string= tln close))
+          (push (mapconcat #'identity (nreverse acc) "\n") segments)
+          (setq acc nil state 'idle))
+         ((eq state 'in)
+          (push ln acc)))))
     (when (eq state 'in)
       (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT) (list "Unclosed segment")))
     (nreverse segments)))
+
+(defun carriage--sre--scan-regexp-delim (body open close)
+  "Scan BODY using anchored regex with explicit OPEN/CLOSE tokens.
+Return list of payloads."
+  (let ((res '()))
+    (with-temp-buffer
+      (insert body)
+      (goto-char (point-min))
+      (let* ((open-rx  (concat "^[ \t]*" (regexp-quote open)  "[ \t]*$"))
+             (close-rx (concat "^[ \t]*" (regexp-quote close) "[ \t]*$")))
+        (while (re-search-forward open-rx nil t)
+          (forward-line 1)
+          (let ((beg (point)))
+            (unless (re-search-forward close-rx nil t)
+              (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT) (list "Unclosed segment")))
+            (let ((end (line-beginning-position)))
+              (push (buffer-substring-no-properties beg end) res)
+              (forward-line 1))))))
+    (nreverse res)))
+
+(defun carriage--sre--scan-generic-token (body)
+  "Generic scan ignoring header :delim: match any <<TOKEN ... :TOKEN with TOKEN=[0-9a-f]{6}."
+  (let ((res '()))
+    (with-temp-buffer
+      (insert body)
+      (goto-char (point-min))
+      (let ((open-any-rx "^[ \t]*<<\\([0-9a-f]\\{6\\}\\)[ \t]*$"))
+        (while (re-search-forward open-any-rx nil t)
+          (let ((tok (match-string 1)))
+            (forward-line 1)
+            (let ((beg (point)))
+              (unless (re-search-forward (concat "^[ \t]*:" tok "[ \t]*$") nil t)
+                (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT) (list "Unclosed segment")))
+              (let ((end (line-beginning-position)))
+                (push (buffer-substring-no-properties beg end) res)
+                (forward-line 1)))))))
+    (nreverse res)))
+
+(defun carriage--sre--scan-greedy-any (body)
+  "Greedy token-agnostic scan: from a line starting with << until a line starting with :."
+  (let ((greedy '())
+        (gstate 'idle)
+        (acc nil))
+    (dolist (ln (split-string body "\n" nil nil))
+      (let ((tln (string-trim ln)))
+        (cond
+         ((and (eq gstate 'idle) (string-prefix-p "<<" tln))
+          (setq gstate 'in acc nil))
+         ((and (eq gstate 'in)
+               (not (string-empty-p tln))
+               (eq (aref tln 0) ?:))
+          (push (mapconcat #'identity (nreverse acc) "\n") greedy)
+          (setq acc nil gstate 'idle))
+         ((eq gstate 'in)
+          (push ln acc)))))
+    (nreverse greedy)))
+
+(defun carriage--sre--scan-generic-linewise (body)
+  "Line-wise generic scan: any <<[0-9a-f]{6} ... :[0-9a-f]{6} blocks."
+  (let ((res '())
+        (state5 'idle)
+        (acc nil))
+    (dolist (ln (split-string body "\n" nil nil)) ;; keep empties
+      (let ((tln (string-trim ln)))
+        (cond
+         ((and (eq state5 'idle)
+               (string-match "\\=<<[0-9a-f]\\{6\\}[ \t]*\\'" tln))
+          (setq state5 'in acc nil))
+         ((and (eq state5 'in)
+               (string-match "\\=:[0-9a-f]\\{6\\}[ \t]*\\'" tln))
+          (push (mapconcat #'identity (nreverse acc) "\n") res)
+          (setq acc nil state5 'idle))
+         ((eq state5 'in)
+          (push ln acc)))))
+    (nreverse res)))
+
+(defun carriage--sre-scan-segments (body delim)
+  "Scan BODY for segments delimited by DELIM and return a list of payload strings.
+Implementation uses multiple passes (helpers) and prefers the result with the
+greater number of segments to maximize robustness."
+  (let* ((open (concat "<<" delim))
+         (close (concat ":" delim))
+         ;; Pass 1: line-wise tolerant scan with header DELIM
+         (segments (carriage--sre--scan-linewise-delim body open close)))
+    ;; Pass 2: regex scan with header DELIM (anchored)
+    (let ((pass2 (carriage--sre--scan-regexp-delim body open close)))
+      (when (> (length pass2) (length segments))
+        (setq segments pass2)))
+    ;; Pass 3: generic scan ignoring header DELIM (any 6-hex token)
+    (let ((pass3 (carriage--sre--scan-generic-token body)))
+      (when (> (length pass3) (length segments))
+        (setq segments pass3)))
+    ;; Pass 4: greedy token-agnostic scan
+    (let ((greedy (carriage--sre--scan-greedy-any body)))
+      (when (> (length greedy) (length segments))
+        (setq segments greedy)))
+    ;; Pass 5: line-wise generic scan
+    (let ((pass5 (carriage--sre--scan-generic-linewise body)))
+      (when (> (length pass5) (length segments))
+        (setq segments pass5)))
+    segments))
+
 
 (defun carriage--sre-group-pairs (segments op)
   "Group SEGMENTS into FROM/TO pairs for OP."
@@ -107,18 +205,18 @@
                     (setq pending nil))))
       (dolist (p pairs)
         (while (and (< idx (length lines))
-                    (not (string-match "\\=<<[0-9a-f]\\{6\\}\\'" (nth idx lines))))
+                    (not (string-match "\\`<<[0-9a-f]\\{6\\}\\'" (nth idx lines))))
           (let ((opts (carriage--sre-parse-pair-directive (nth idx lines))))
             (when opts (setq pending opts)))
           (setq idx (1+ idx)))
         ;; consume FROM
         (while (and (< idx (length lines))
-                    (not (string-match "\\=:[0-9a-f]\\{6\\}\\'" (nth idx lines))))
+                    (not (string-match "\\`:[0-9a-f]\\{6\\}\\'" (nth idx lines))))
           (setq idx (1+ idx)))
         (setq idx (1+ idx)) ;; skip close
         ;; TO open
         (while (and (< idx (length lines))
-                    (not (string-match "\\=<<[0-9a-f]\\{6\\}\\'" (nth idx lines))))
+                    (not (string-match "\\`<<[0-9a-f]\\{6\\}\\'" (nth idx lines))))
           (setq idx (1+ idx)))
         ;; finalize this pair with options
         (push (list (cons :from (alist-get :from p))
@@ -127,7 +225,7 @@
               result)
         ;; skip to end of TO
         (while (and (< idx (length lines))
-                    (not (string-match "\\=:[0-9a-f]\\{6\\}\\'" (nth idx lines))))
+                    (not (string-match "\\`:[0-9a-f]\\{6\\}\\'" (nth idx lines))))
           (setq idx (1+ idx)))
         (setq idx (1+ idx))))
     (nreverse result)))
@@ -165,10 +263,10 @@
   (let ((a nil) (b nil) (count 0))
     (dolist (line (split-string body "\n"))
       (cond
-       ((string-match "\\=--- \\(.*\\)\\'" line)
+       ((string-match "\\`--- \\(.*\\)\\'" line)
         (setq a (match-string 1 line))
         (setq count (1+ count)))
-       ((string-match "\\=\\+\\+\\+ \\(.*\\)\\'" line)
+       ((string-match "\\`\\+\\+\\+ \\(.*\\)\\'" line)
         (setq b (match-string 1 line))
         (setq count (1+ count)))))
     (unless (= count 2)
@@ -179,13 +277,13 @@
   "Validate A and B paths refer to a single file or /dev/null cases."
   (cond
    ((and (string= a "/dev/null")
-         (string-match "\\=b/\\(.+\\)\\'" b))
+         (string-match "\\`b/\\(.+\\)\\'" b))
     (cons nil (match-string 1 b)))
-   ((and (string-match "\\=a/\\(.+\\)\\'" a)
+   ((and (string-match "\\`a/\\(.+\\)\\'" a)
          (string= b "/dev/null"))
     (cons (match-string 1 a) nil))
-   ((and (string-match "\\=a/\\(.+\\)\\'" a)
-         (string-match "\\=b/\\(.+\\)\\'" b))
+   ((and (string-match "\\`a/\\(.+\\)\\'" a)
+         (string-match "\\`b/\\(.+\\)\\'" b))
     (let ((ap (match-string 1 a))
           (bp (match-string 1 b)))
       (unless (string= ap bp)
@@ -226,7 +324,7 @@
                     (plist-get header :mkdir) t)))
     (unless (and (stringp file) (not (string-empty-p file)))
       (signal (carriage-error-symbol 'OPS_E_PATH) (list file)))
-    (unless (and (stringp delim) (string-match-p "\\=[0-9a-f]\\{6\\}\\'" delim))
+    (unless (and (stringp delim) (string-match-p "\\`[0-9a-f]\\{6\\}\\'" delim))
       (signal (carriage-error-symbol 'SRE_E_OP) (list "Invalid :delim")))
     (let* ((segments (carriage--sre-scan-segments body delim)))
       (unless (= (length segments) 1)

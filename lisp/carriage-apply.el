@@ -148,20 +148,19 @@ MATCH-KIND affects literal vs regex backrefs; for preview we substitute TO verba
   (let* ((lb (carriage--sre-line-bounds-at region start))
          (ls (car lb)) (le (cdr lb))
          (line (substring region ls le))
+         ;; Clamp END to the current line end to avoid args-out-of-range when match spans newline.
+         (end1 (min end le))
          (s (- start ls))
-         (e (- end ls))
+         (e (- end1 ls))
          (before (substring line 0 s))
-         (mid (substring line s e))
          (after (substring line e))
          (mid-rep to))
     (format "-%s\n+%s" line (concat before mid-rep after))))
 
 (defun carriage--sre-build-preview-with-context (region start end to match-kind context-lines)
-  "Build preview with CONTEXT-LINES above and below the replaced line."
+  "Build preview with CONTEXT-LINES lines of context above and below the changed line."
   (let* ((lb (carriage--sre-line-bounds-at region start))
          (ls (car lb)) (le (cdr lb))
-         (line (substring region ls le))
-         ;; Reuse single-line replacement for +/- lines
          (plus-minus (carriage--sre-build-preview-at region start end to match-kind))
          (before-bounds '())
          (after-bounds '())
@@ -180,17 +179,16 @@ MATCH-KIND affects literal vs regex backrefs; for preview we substitute TO verba
           (push nb after-bounds)
           (setq next-le (cdr nb)))))
     (let ((parts '()))
-      ;; before (in correct top-down order)
+      ;; before (top-down order)
       (dolist (b (nreverse before-bounds))
-        (push (buffer-substring-no-properties 0 0) parts) ;; noop to use buffer-substring-no-properties safely
-        (setq parts (cons (substring region (car b) (cdr b)) parts)))
+        (push (substring region (car b) (cdr b)) parts))
       ;; -old/+new lines
-      (setq parts (append (nreverse parts) (list plus-minus)))
+      (push plus-minus parts)
       ;; after
       (dolist (b (nreverse after-bounds))
-        (setq parts (append parts (list (substring region (car b) (cdr b))))))
-      ;; Join; ensure we don't introduce trailing spaces
-      (mapconcat #'identity parts "\n"))))
+        (push (substring region (car b) (cdr b)) parts))
+      ;; Join lines; reverse to restore original order
+      (mapconcat #'identity (nreverse parts) "\n"))))
 
 (defun carriage--sre-previews-for-region (region rx to match-kind occur count)
   "Return list of preview chunks for REGION using RX/TO with MATCH-KIND and OCCUR.
@@ -265,6 +263,52 @@ Populate :diff with a short preview (first match per pair, ±0 lines)."
                                                   (length pairs) total-matches)
                                  :diff (or preview ""))))))))
 
+(defun carriage--dry-run-sre-on-text (plan-item text)
+  "Dry-run SRE as if FILE had TEXT content. Returns a report alist like carriage-dry-run-sre."
+  (let* ((file (alist-get :file plan-item))
+         (pairs (or (alist-get :pairs plan-item) '()))
+         (total-matches 0)
+         (errors nil)
+         (previews '()))
+    (dolist (p pairs)
+      (let* ((from (alist-get :from p))
+             (to   (alist-get :to p))
+             (opts (alist-get :opts p))
+             (range (plist-get opts :range))
+             (occur (or (plist-get opts :occur) 'first))
+             (expect (plist-get opts :expect))
+             (match-kind (or (plist-get opts :match) 'literal))
+             (region (if range (cadr (carriage--sre-slice-by-lines text range)) text))
+             (rx (carriage--sre-make-regexp from match-kind))
+             (count (condition-case e
+                        (carriage--sre-count-matches region from opts)
+                      (error
+                       (push (format "Regex error: %s" (error-message-string e)) errors)
+                       -1))))
+        (when (>= count 0)
+          (setq total-matches (+ total-matches count))
+          (let ((pvs (carriage--sre-previews-for-region region rx to match-kind occur count)))
+            (dolist (pv pvs) (push pv previews))
+            (when (and (eq occur 'all) (> count (length pvs)))
+              (push (format "(+%d more)" (- count (length pvs))) previews)))
+          (when (and (eq occur 'all) (integerp expect) (not (= count expect)))
+            (push (format "Expect mismatch: have %d, expect %d" count expect) errors))
+          (when (and (eq occur 'first) (= count 0))
+            (push "No matches for :occur first" errors))))))
+  (let ((preview (when previews (mapconcat #'identity (nreverse previews) "\n\n"))))
+    (if errors
+        (carriage--report-fail 'sre :file file
+                               :matches total-matches
+                               :details (format "fail: pairs:%d matches:%d; %s"
+                                                (length pairs) total-matches
+                                                (mapconcat #'identity (nreverse errors) "; "))
+                               :diff (or preview ""))
+      (carriage--report-ok 'sre :file file
+                           :matches total-matches
+                           :details (format "ok: pairs:%d matches:%d"
+                                            (length pairs) total-matches)
+                           :diff (or preview "")))))
+
 (defun carriage-apply-sre (plan-item repo-root)
   "Apply SRE pairs by rewriting file and committing via Git."
   (let* ((file (alist-get :file plan-item))
@@ -303,6 +347,39 @@ Populate :diff with a short preview (first match per pair, ±0 lines)."
           (carriage-git-add repo-root file)
           (carriage-git-commit repo-root (format "carriage: sre %s (replaced %d)" file changed))
           (carriage--report-ok 'sre :file file :details (format "Applied %d replacements" changed)))))))
+
+(defun carriage-sre-simulate-apply (plan-item repo-root)
+  "Simulate SRE application in memory and return plist (:after STRING :count N).
+Does not write to disk or run git. Signals on invalid path."
+  (let* ((file (alist-get :file plan-item))
+         (abs (carriage-normalize-path (or repo-root default-directory) file)))
+    (unless (file-exists-p abs)
+      (signal (carriage-error-symbol 'OPS_E_NOT_FOUND) (list file)))
+    (let* ((text (carriage-read-file-string abs))
+           (pairs (or (alist-get :pairs plan-item) '()))
+           (changed 0)
+           (new-text text))
+      (dolist (p pairs)
+        (let* ((from (alist-get :from p))
+               (to   (alist-get :to p))
+               (opts (alist-get :opts p))
+               (range (plist-get opts :range))
+               (match-kind (or (plist-get opts :match) 'literal))
+               (occur (or (plist-get opts :occur) 'first))
+               (rx (carriage--sre-make-regexp from match-kind))
+               (slice (carriage--sre-slice-by-lines new-text range))
+               (pre (car slice))
+               (region (cadr slice))
+               (post (caddr slice))
+               (rep (pcase occur
+                      ('first (carriage--sre-replace-first region rx to (not (eq match-kind 'regex))))
+                      ('all   (carriage--sre-replace-all region rx to (not (eq match-kind 'regex))))
+                      (_      (carriage--sre-replace-all region rx to (not (eq match-kind 'regex))))))
+               (region-new (car rep))
+               (cnt (cdr rep)))
+          (setq changed (+ changed cnt))
+          (setq new-text (concat pre region-new post))))
+      (list :after new-text :count changed))))
 
 ;;; PATCH (unified diff)
 
@@ -455,15 +532,35 @@ Populate :diff with a short preview (first match per pair, ±0 lines)."
 Return report alist: (:plan PLAN :summary (:ok N :fail M :skipped K) :items ...)."
   (let* ((sorted (carriage--plan-sort plan))
          (items '())
-         (ok 0) (fail 0) (skip 0))
+         (ok 0) (fail 0) (skip 0)
+         (virt '()))  ; virtual created files: (\"path\" . content)
     (dolist (it sorted)
-      (let* ((res (carriage--dry-run-dispatch it repo-root))
-             (status (plist-get res :status)))
-        (push res items)
-        (pcase status
-          ('ok   (setq ok (1+ ok)))
-          ('fail (setq fail (1+ fail)))
-          (_     (setq skip (1+ skip))))))
+      (let* ((op (alist-get :op it))
+             (file (alist-get :file it))
+             (res
+              (cond
+               ;; If SRE/SRE-BATCH targets a file that will be created in this plan, simulate on that content.
+               ((and (memq op '(sre sre-batch))
+                     file
+                     (not (let* ((abs (ignore-errors (carriage-normalize-path repo-root file))))
+                            (and abs (file-exists-p abs))))
+                     (assoc-string file virt t))
+                (carriage--dry-run-sre-on-text it (cdr (assoc-string file virt t))))
+               (t
+                (carriage--dry-run-dispatch it repo-root)))))
+        ;; Stash original plan item and repo root into report item for UI actions (e.g., Ediff).
+        (let ((res (append res (list :_plan it :_root repo-root)))
+              (status))
+          (push res items)
+          (setq status (plist-get res :status))
+          (pcase status
+            ('ok   (setq ok (1+ ok)))
+            ('fail (setq fail (1+ fail)))
+            (_     (setq skip (1+ skip)))))
+        ;; Update virtual FS for subsequent SRE checks
+        (when (and (eq op 'create) file)
+          (let ((content (or (alist-get :content it) "")))
+            (setq virt (cons (cons file content) (assq-delete-all file virt)))))))
     (list :plan plan
           :summary (list :ok ok :fail fail :skipped skip)
           :items (nreverse items))))
