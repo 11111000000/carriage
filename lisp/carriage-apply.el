@@ -167,6 +167,7 @@ MATCH-KIND is 'literal or 'regex. Returns a preview string or nil."
 (defun carriage--sre-build-preview-at (region start end to match-kind)
   "Build a single-line preview for REGION by replacing the match [START,END) with TO.
 MATCH-KIND affects literal vs regex backrefs; for preview we substitute TO verbatim."
+  (declare (ignore match-kind))
   (let* ((lb (carriage--sre-line-bounds-at region start))
          (ls (car lb)) (le (cdr lb))
          (line (substring region ls le))
@@ -216,6 +217,7 @@ MATCH-KIND affects literal vs regex backrefs; for preview we substitute TO verba
   "Return list of preview chunks for REGION using RX/TO with MATCH-KIND and OCCUR.
 COUNT is the number of matches in REGION. For :occur first, returns at most 1 preview.
 For :occur all, returns up to =carriage-mode-sre-preview-max' previews."
+  (declare (ignore count))
   (let ((maxn (or (and (boundp 'carriage-mode-sre-preview-max) carriage-mode-sre-preview-max) 3))
         (ctx (or (and (boundp 'carriage-mode-sre-preview-context-lines)
                       carriage-mode-sre-preview-context-lines)

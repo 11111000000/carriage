@@ -1,0 +1,83 @@
+#+title: Carriage — Быстрый старт (golden)
+#+author: Carriage v1
+#+language: ru
+#+options: toc:2 num:t
+
+* Введение
+- Этот документ — минимальный набор примеров для первого запуска: SRE (одна пара), SRE-BATCH, PATCH (unified diff), FILE OPS (create/delete/rename).
+- Как запустить тесты: nix run .#tests или emacs -Q -batch -l test/ert-runner.el
+
+* SRE (одна пара)
+#+begin_example
+#+begin_patch (:version "1" :op "sre" :file "x.txt" :delim "cafe01")
+<<cafe01
+hello
+:cafe01
+<<cafe01
+world
+:cafe01
+#+end_patch
+#+end_example
+- Действия:
+  - Создайте файл x.txt со строкой “hello”.
+  - C-c ? (dry-run) → откроется отчёт с превью, :matches 1.
+  - C-c C-c (apply) → файл станет “world”.
+
+* SRE-BATCH (несколько пар)
+#+begin_example
+#+begin_patch (:version "1" :op "sre-batch" :file "app.log" :delim "deadbe")
+# Пример директивы пары:
+#+pair (:occur all :expect 3)
+<<deadbe
+INFO:
+:deadbe
+<<deadbe
+DEBUG:
+:deadbe
+#+end_patch
+#+end_example
+- В этом примере все “INFO:” заменяются на “DEBUG:”, ожидается 3 совпадения.
+
+* PATCH (unified diff одного файла)
+#+begin_example
+#+begin_patch (:version "1" :op "patch" :strip 1)
+--- a/src/foo.txt
++++ b/src/foo.txt
+@@ -1 +1 @@
+-old
++new
+#+end_patch
+#+end_example
+- Требования v1: только один файл, a/ и b/ префиксы, :strip=1.
+
+* FILE OPS (create / delete / rename)
+#+begin_example
+#+begin_patch (:version "1" :op "create" :file "docs/intro.md" :delim "beef01" :mkdir t)
+<<beef01
+* Intro
+Hello
+:beef01
+#+end_patch
+
+#+begin_patch (:version "1" :op "rename" :from "docs/intro.md" :to "docs/guide.md")
+#+end_patch
+
+#+begin_patch (:version "1" :op "delete" :file "docs/guide.md")
+#+end_patch
+#+end_example
+
+* Приём ответа от LLM (минимальный контур)
+- Команда: M-x carriage-accept-llm-response — вставит только begin_patch-блоки, пометит «последнюю итерацию», выполнит dry-run и откроет отчёт.
+
+* Отчёты и диагностика
+- В отчёте вверху отображаются messages:
+  - SRE_W_RANGE_CLAMP — диапазон :range был скорректирован.
+  - SRE_W_DELIM_RESYNC — при коллизии маркера выполнена пересинхронизация DELIM.
+
+* Порядок применения (v1)
+- delete → rename → create → patch → sre
+
+* Ссылки на спецификации
+- ./spec/index.org (FREEZE/лимиты), ./spec/sre-v1.org, ./spec/patch-unified-diff-v1.org
+- ./spec/file-ops-v1.org, ./spec/data-structures-v1.org, ./spec/ui-v1.org
+- ./spec/errors-v1.org, ./spec/parser-impl-v1.org, ./spec/testing-v1.org

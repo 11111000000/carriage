@@ -1,0 +1,101 @@
+#+title: Carriage-mode v1 — Быстрый старт и справка
+#+author: Peter Kosov
+#+language: ru
+#+options: toc:2 num:nil
+
+* Что это
+Carriage-mode — инструмент для безопасного применения патчей, создаваемых LLM,
+прямо из Org-документов. Поддерживает:
+- SRE/SRE-BATCH (поиск/замена) — см. ./spec/sre-v1.org
+- PATCH (unified diff одного файла) — см. ./spec/patch-unified-diff-v1.org
+- FILE OPS (create/delete/rename) — см. ./spec/file-ops-v1.org
+
+Основной поток: dry-run → предпросмотр (diff/ediff) → применение → коммит в ветку carriage/WIP.
+
+* Установка и тесты
+- Требования: Emacs (24.4+ рекомендуется 28+), Git, Nix (для flake).
+- Запуск тестов:
+  - nix: =nix run .#tests=
+  - вручную: =emacs -Q -batch -l test/ert-runner.el=
+- Загрузка пакета (внутри Emacs):
+  - Убедитесь, что =lisp/= в load-path (ert-runner делает это автоматически).
+  - =(require 'carriage)=
+
+* Первый запуск (golden)
+См. ./examples/getting-started.org — 3–5 готовых блоков:
+- SRE (одна пара), SRE-BATCH
+- PATCH (unified diff одного файла)
+- FILE OPS: create/delete/rename
+
+Шаги:
+1) Откройте examples/getting-started.org
+2) C-c ? — dry-run блока под точкой (или всей «последней итерации»)
+3) В отчёте буфера доступны [Diff]/[Ediff]/[Apply]
+4) C-c C-c — dry-run → подтверждение → применить под точкой
+5) C-c ! — применить все блоки «последней итерации» (см. ниже)
+
+* Команды (основные)
+- carriage-mode — включить режим в org-buffer
+- carriage-dry-run-at-point (C-c ?) — dry-run блока под точкой
+- carriage-apply-at-point (C-c C-c) — dry-run → подтверждение → применить
+- carriage-apply-last-iteration (C-c !) — применить все блоки «последней итерации»
+- carriage-accept-llm-response — вставить begin_patch-блоки из строки/буфера, пометить как «последняя итерация», dry-run и открыть отчёт
+- carriage-wip-checkout (C-c b c) — перейти на ветку carriage/WIP
+- carriage-wip-reset-soft (C-c b r) — soft reset последнего коммита
+
+UI отчёта:
+- [Diff] — показать полный предпросмотр
+- [Ediff] — открыть ediff (в noninteractive подготавливает буферы/патч)
+- [Apply] — применить элемент на строке
+
+* Поведение и безопасность (v1)
+- SRE: поддержаны :occur first|all (для all обязателен :expect), :match literal|regex, :range (с мягким клампом к [1..N] и предупреждением)
+- SRE: авторесинхронизация DELIM при коллизии токена; диагностическое сообщение в отчёте (:messages)
+- PATCH: только один файл на блок; бинарные/rename/copy — отказ (см. спецификацию)
+- Порядок операций: delete → rename → create → patch → sre
+- Пути: только относительные внутри корня; запрет абсолютов/«..»; TRAMP — отключено
+
+Лимиты (FREEZE, см. ./spec/index.org):
+- Макс. пар в SRE-BATCH: 200 (настраивается через =carriage-mode-max-batch-pairs=)
+- Макс. сегмент FROM/TO: 512 KiB; макс. размер тела ответа: 4 MiB
+
+* Диагностика и отчёт
+Формат отчёта см. ./spec/data-structures-v1.org
+- :items — список элементов с :status, :details, :diff (мини-дифф для SRE)
+- :messages — верхнеуровневые диагностические сообщения (info/warn/error)
+  - Примеры кодов: SRE_W_RANGE_CLAMP, SRE_W_DELIM_RESYNC, PATCH_E_GIT_CHECK
+
+* Настройки (Customize)
+- carriage-mode-auto-open-report — автооткрытие отчёта после dry-run (t)
+- carriage-mode-show-diffs — требовать предпросмотр перед применением (t)
+- carriage-mode-confirm-apply-all — подтверждение перед C-c ! (t)
+- carriage-mode-max-batch-pairs — лимит пар в SRE-BATCH (200)
+- carriage-mode-sre-preview-max — максимум мини-диффов на пару (3)
+- carriage-mode-sre-preview-context-lines — контекст строк в превью (±1)
+
+* Логи
+- Общий лог: *carriage-log* — =M-x carriage-show-log=
+- Трафик (вход/выход LLM): *carriage-traffic* — =carriage-traffic-log=
+- Очистка: =M-x carriage-clear-logs=
+
+* CI
+- GitHub Actions: .github/workflows/ci.yml запускает =nix flake check= (включая ERT).
+
+* Спецификации
+- Индекс: ./spec/index.org
+- Форматы: ./spec/sre-v1.org, ./spec/patch-unified-diff-v1.org, ./spec/file-ops-v1.org
+- Пайплайн и диспетчеризация: ./spec/apply-pipeline-v1.org, ./spec/parser-registry-v1.org
+- Git интеграция: ./spec/git-integration-v1.org
+- Ошибки и данные: ./spec/errors-v1.org, ./spec/data-structures-v1.org
+- UI/Режим: ./spec/ui-v1.org, ./spec/carriage-mode-v1.org
+- Безопасность и тесты: ./spec/security-v1.org, ./spec/testing-v1.org
+- Имплементация: ./spec/parser-impl-v1.org
+- Whitepaper: ./spec/carriage-whitepaper-v1.org
+
+* Примечания v1
+- В batch (noninteractive) интерактивные UI-действия подавляются (отчёт/ediff готовятся, но не открываются).
+- Коды ошибок регистрируются через =carriage-define-errors=; добавлен SRE_E_LIMITS.
+- Для PATCH специфические коды (binary/rename-copy) могут сигналиться как DIFF_SYNTAX по текущим тестам v1.
+
+* Лицензия
+MIT (или иная по проекту).

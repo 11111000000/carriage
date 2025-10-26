@@ -6,6 +6,10 @@
 (require 'carriage-errors)
 (require 'carriage-logging)
 
+;; Silence byte-compiler about project.el functions when not loaded at compile time.
+(declare-function project-current "project" (&optional dir))
+(declare-function project-root "project" (project))
+
 (defcustom carriage-mode-wip-branch "carriage/WIP"
   "Name of the working WIP branch for Carriage."
   :type 'string

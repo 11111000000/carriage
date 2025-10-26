@@ -249,20 +249,38 @@ Return the rewritten BODY string."
              ;; idle: opening marker
              ((and (eq state 'idle)
                    (string= tln open-old))
-              (let* ((prefix (progn (string-match "\\=[ \t]*" ln)
-                                    (match-string 0 ln)))
-                     (suffix (if (string-match (concat (regexp-quote open-old) "\\([ \t]*\\)\\'") ln)
-                                 (match-string 1 ln) "")))
-                (push (concat prefix "<<" new suffix) out))
+              ;; Compute prefix/suffix without relying on global match-data
+              (let* ((len (length ln))
+                     (i 0)
+                     (j (1- len)))
+                ;; leading spaces/tabs
+                (while (and (< i len)
+                            (let ((ch (aref ln i))) (or (eq ch ?\s) (eq ch ?\t))))
+                  (setq i (1+ i)))
+                ;; trailing spaces/tabs
+                (while (and (>= j 0)
+                            (let ((ch (aref ln j))) (or (eq ch ?\s) (eq ch ?\t))))
+                  (setq j (1- j)))
+                (let* ((prefix (substring ln 0 i))
+                       (suffix (substring ln (1+ j))) ;; (1+ j) may equal len → empty suffix
+                       (_mid   (substring ln i (1+ j))))
+                  (push (concat prefix "<<" new suffix) out)))
               (setq state 'in))
              ;; in: closing marker
              ((and (eq state 'in)
                    (string= tln close-old))
-              (let ((prefix (progn (string-match "\\=[ \t]*" ln)
-                                   (match-string 0 ln)))
-                    (suffix (if (string-match (concat (regexp-quote close-old) "\\([ \t]*\\)\\'") ln)
-                                (match-string 1 ln) "")))
-                (push (concat prefix ":" new suffix) out))
+              (let* ((len (length ln))
+                     (i 0)
+                     (j (1- len)))
+                (while (and (< i len)
+                            (let ((ch (aref ln i))) (or (eq ch ?\s) (eq ch ?\t))))
+                  (setq i (1+ i)))
+                (while (and (>= j 0)
+                            (let ((ch (aref ln j))) (or (eq ch ?\s) (eq ch ?\t))))
+                  (setq j (1- j)))
+                (let* ((prefix (substring ln 0 i))
+                       (suffix (substring ln (1+ j))))
+                  (push (concat prefix ":" new suffix) out)))
               (setq state 'idle))
              ;; any other line: leave as is
              (t
@@ -432,11 +450,11 @@ greater number of segments to maximize robustness."
                 (signal (carriage-error-symbol 'SRE_E_LIMITS)
                         (list "Segment exceeds 512KiB limit")))))
          (pairs-raw (carriage--sre-group-pairs segments op))
-         (pairs (if (eq op 'sre)
-                    (list (list (cons :from (alist-get :from pairs-raw))
-                                (cons :to   (alist-get :to pairs-raw))
-                                (cons :opts (carriage--sre-merge-opts nil))))
-                  (carriage--sre-attach-opts-to-pairs pairs-raw body1)))
+         (pairs (carriage--sre-attach-opts-to-pairs
+                 (if (eq op 'sre)
+                     (list pairs-raw)
+                   pairs-raw)
+                 body1))
          ;; Enforce limit for :op 'sre-batch per v1 FREEZE (default 200)
          (_ (when (and (eq op 'sre-batch)
                        (> (length pairs) carriage-mode-max-batch-pairs))
@@ -508,6 +526,7 @@ greater number of segments to maximize robustness."
 
 (defun carriage-parse-diff (header body repo-root)
   "Parse unified diff block BODY with HEADER under REPO-ROOT."
+  (declare (ignore repo-root))
   (let* ((version (plist-get header :version))
          (op (plist-get header :op))
          (strip (if (plist-member header :strip)
@@ -686,6 +705,9 @@ Otherwise, return ALL patch blocks in the buffer.
 If REPO-ROOT is nil, detect via =carriage-project-root' or use =default-directory'."
   (let* ((root (or repo-root (carriage-project-root) default-directory))
          (id   (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)))
+    (message "Carriage: collect-last-iteration root=%s id=%s"
+             (or root "<nil>")
+             (and id (substring id 0 (min 8 (length id)))))
     (if (not id)
         (carriage-parse-blocks-in-region (point-min) (point-max) root)
       (save-excursion
@@ -693,35 +715,41 @@ If REPO-ROOT is nil, detect via =carriage-project-root' or use =default-director
         (let ((plan '()))
           (while (re-search-forward "^[ \t]*#\\+begin_patch\\b" nil t)
             (let* ((start (match-beginning 0))
-                   (prop  (get-text-property start 'carriage-iteration-id)))
+                   (prop  (get-text-property start 'carriage-iteration-id))
+                   (body-beg (save-excursion
+                               (goto-char start)
+                               (forward-line 1)
+                               (point)))
+                   (header-plist (carriage--read-patch-header-at start))
+                   (block-end (save-excursion
+                                (goto-char body-beg)
+                                (unless (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
+                                  (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT)
+                                          (list "Unclosed #+begin_patch block")))
+                                (line-beginning-position)))
+                   (after (save-excursion
+                            (goto-char block-end)
+                            (forward-line 1)
+                            (point))))
               (carriage-log "iter-collect: begin@%d prop=%s id=%s match=%s"
                             start prop id (if (equal prop id) "yes" "no"))
+              (message "Carriage: iter-collect begin@%d prop=%s id=%s match=%s"
+                       start prop (and id (substring id 0 (min 8 (length id))))
+                       (if (equal prop id) "yes" "no"))
               (when (equal prop id)
-                (let* ((body-beg (save-excursion
-                                   (goto-char start)
-                                   (forward-line 1)
-                                   (point)))
-                       (header-plist (carriage--read-patch-header-at start))
-                       (block-end (save-excursion
-                                    (goto-char body-beg)
-                                    (unless (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
-                                      (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT)
-                                              (list "Unclosed #+begin_patch block")))
-                                    (line-beginning-position)))
-                       (body (buffer-substring-no-properties body-beg block-end))
+                (let* ((body (buffer-substring-no-properties body-beg block-end))
                        (op (plist-get header-plist :op)))
                   (push (carriage-parse op header-plist body root) plan)
                   (carriage-log "iter-collect: pushed op=%s file=%s"
-                                op (plist-get header-plist :file))))
-              ;; move point to end of this block (whether matched or not)
-              (goto-char (match-beginning 0))
-              (let ((pos0 (point)))
-                (if (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
-                    (progn
-                      (forward-line 1)
-                      (carriage-log "iter-collect: advanced to %d (after end_patch)" (point)))
-                  (carriage-log "iter-collect: no end_patch after %d; staying (possible malformed block)" pos0)))))
+                                op (plist-get header-plist :file))
+                  (message "Carriage: iter-collect pushed op=%s file=%s"
+                           op (plist-get header-plist :file))))
+              ;; Always advance to the first position after this exact block.
+              (goto-char after)
+              (carriage-log "iter-collect: advanced to %d (after end_patch)" (point))
+              (message "Carriage: iter-collect advanced to %d" (point))))
           (setq plan (nreverse plan))
+          (message "Carriage: iter-collect done matched=%d" (length plan))
           (if plan
               plan
             ;; Fallback: if id set but no blocks matched, parse all.

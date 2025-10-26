@@ -15,7 +15,7 @@
 
 * Перечни кодов (минимум v1)
 - SRE_E_*:
-  - SRE_E_VERSION, SRE_E_OP, SRE_E_PATH, SRE_E_SEGMENTS_COUNT, SRE_E_SEGMENTS_ODD, SRE_E_UNCLOSED_SEGMENT, SRE_E_OCCUR_EXPECT, SRE_E_REGEX_SYNTAX, SRE_E_NO_MATCHES, SRE_E_EXPECT_MISMATCH, SRE_E_COLLISION_DELIM.
+  - SRE_E_VERSION, SRE_E_OP, SRE_E_PATH, SRE_E_SEGMENTS_COUNT, SRE_E_SEGMENTS_ODD, SRE_E_UNCLOSED_SEGMENT, SRE_E_OCCUR_EXPECT, SRE_E_REGEX_SYNTAX, SRE_E_NO_MATCHES, SRE_E_EXPECT_MISMATCH, SRE_E_COLLISION_DELIM, SRE_E_LIMITS.
 - PATCH_E_*:
   - PATCH_E_VERSION, PATCH_E_OP, PATCH_E_APPLY, PATCH_E_MULTI_FILE, PATCH_E_PATH, PATCH_E_PATH_MISMATCH, PATCH_E_DIFF_SYNTAX, PATCH_E_STRIP, PATCH_E_GIT_CHECK, PATCH_E_BINARY, PATCH_E_RENAME_COPY.
 - OPS_E_*:
@@ -51,6 +51,7 @@
     (SRE_E_NO_MATCHES       carriage-sre-no-matches       "Совпадений не найдено (SRE_E_NO_MATCHES)")
     (SRE_E_EXPECT_MISMATCH  carriage-sre-expect-mismatch  "Число замен не соответствует :expect (SRE_E_EXPECT_MISMATCH)")
     (SRE_E_COLLISION_DELIM  carriage-sre-collision-delim  "Коллизия DELIM (SRE_E_COLLISION_DELIM)")
+    (SRE_E_LIMITS           carriage-sre-limits           "Превышены лимиты размера (SRE_E_LIMITS)")
 
     (PATCH_E_VERSION        carriage-patch-version        "Неверная версия (PATCH_E_VERSION)")
     (PATCH_E_OP             carriage-patch-op             "Неверное значение :op (PATCH_E_OP)")

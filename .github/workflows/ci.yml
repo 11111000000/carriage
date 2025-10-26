@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        emacs_version: [28.2, 29.4]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Emacs
+        uses: purcell/setup-emacs@master
+        with:
+          version: ${{ matrix.emacs_version }}
+      - name: Byte-compile (warnings allowed)
+        run: emacs -Q --batch -L lisp -f batch-byte-compile lisp/*.el
+      - name: Run tests (ERT)
+        run: make test
+      - name: checkdoc (Elisp)
+        run: make checkdoc
+      - name: package-lint (MELPA)
+        run: make lint
+      - name: Byte-compile (strict: warnings are errors)
+        run: make compile-strict

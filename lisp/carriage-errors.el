@@ -15,6 +15,7 @@
     (SRE_E_NO_MATCHES       carriage-sre-no-matches       "Совпадений не найдено (SRE_E_NO_MATCHES)")
     (SRE_E_EXPECT_MISMATCH  carriage-sre-expect-mismatch  "Число замен не соответствует :expect (SRE_E_EXPECT_MISMATCH)")
     (SRE_E_COLLISION_DELIM  carriage-sre-collision-delim  "Коллизия DELIM (SRE_E_COLLISION_DELIM)")
+    (SRE_E_LIMITS           carriage-sre-limits           "Превышены лимиты размера (SRE_E_LIMITS)")
 
     (PATCH_E_VERSION        carriage-patch-version        "Неверная версия (PATCH_E_VERSION)")
     (PATCH_E_OP             carriage-patch-op             "Неверное значение :op (PATCH_E_OP)")

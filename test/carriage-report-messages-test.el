@@ -23,12 +23,12 @@
                                    (cons :file "x.txt")
                                    (cons :pairs (list (list (cons :from "b")
                                                             (cons :to   "B")
-                                                            (cons :opts '(:occur first :match literal :range (:start-line 0 :end-line 999))))))))))
-            (rep (carriage-dry-run-plan plan dir))
-            (msgs (plist-get rep :messages)))
-          (should (listp msgs))
-          (should (seq-some (lambda (m) (eq (plist-get m :code) 'SRE_W_RANGE_CLAMP)) msgs))))
-    (ignore-errors (delete-directory dir t)))))
+                                                            (cons :opts '(:occur first :match literal :range (:start-line 0 :end-line 999)))))))))
+                 (rep (carriage-dry-run-plan plan dir))
+                 (msgs (plist-get rep :messages)))
+            (should (listp msgs))
+            (should (seq-some (lambda (m) (eq (plist-get m :code) 'SRE_W_RANGE_CLAMP)) msgs))))
+      (ignore-errors (delete-directory dir t)))))
 
 (ert-deftest carriage-report-messages-delim-resync ()
   "SRE parse should resync DELIM on collision and dry-run should aggregate a resync warning."

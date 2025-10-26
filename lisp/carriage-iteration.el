@@ -26,6 +26,8 @@ text property 'carriage-iteration-id on the begin line of each block."
   (let* ((id (carriage-iteration--generate-id))
          (cnt 0))
     (setq carriage--last-iteration-id id)
+    (carriage-log "mark-last-iteration: region %d..%d id=%s"
+                  beg end (substring id 0 8))
     (save-excursion
       (goto-char beg)
       (while (and (< (point) end)

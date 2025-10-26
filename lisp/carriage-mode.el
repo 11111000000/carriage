@@ -248,12 +248,18 @@ Returns the dry-run report plist."
     (when (or (null blocks) (string-empty-p (string-trim blocks)))
       (user-error "No begin_patch blocks found in input"))
     (carriage-traffic-log 'in "Accepted LLM response (%d chars)" (length input))
+    (carriage-log "accept: extracted blocks bytes=%d"
+                  (string-bytes blocks))
     (let ((ins-beg (point)))
       (unless (bolp) (insert "\n"))
       (insert blocks "\n")
       (let ((ins-end (point)))
+        (carriage-log "accept: inserted region %d..%d (%d chars)"
+                      ins-beg ins-end (- ins-end ins-beg))
         (carriage-mark-last-iteration ins-beg ins-end)))
+    (carriage-log "accept: collecting last-iteration blocks…")
     (let ((plan (carriage-collect-last-iteration-blocks root)))
+      (carriage-log "accept: plan-size=%d" (length plan))
       (carriage-ui-set-state 'dry-run)
       (let ((rep (carriage-dry-run-plan plan root)))
         (when (and carriage-mode-auto-open-report (not noninteractive))

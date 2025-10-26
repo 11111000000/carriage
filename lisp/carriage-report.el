@@ -6,6 +6,10 @@
 (require 'carriage-utils)
 (require 'carriage-apply)
 (require 'ediff)
+;; Byte-compile hygiene: declare external function used conditionally.
+(declare-function carriage-sre-simulate-apply "carriage-apply" (plan-item repo-root))
+;; Avoid byte-compiler complaints when checking batch mode.
+(eval-when-compile (defvar noninteractive))
 
 (defconst carriage--report-buffer-name "*carriage-report*"
   "Name of the Carriage report buffer.")
@@ -112,6 +116,19 @@ REPORT shape:
       (read-only-mode -1)
       (erase-buffer)
       (insert (carriage--report-summary-line report))
+      ;; Render top-level messages if present
+      (let ((msgs (plist-get report :messages)))
+        (when (and msgs (listp msgs))
+          (insert "messages:\n")
+          (dolist (m msgs)
+            (let* ((sev (or (plist-get m :severity) 'info))
+                   (code (or (plist-get m :code) 'UNKNOWN))
+                   (file (or (plist-get m :file) (plist-get m :path)))
+                   (details (or (plist-get m :details) "")))
+              (insert (format "- [%s] %s — %s%s\n"
+                              sev code details
+                              (if file (format " (file %s)" file) "")))))
+          (insert "\n")))
       (carriage--report-insert-header)
       (let ((i 0))
         (dolist (it (or (plist-get report :items) '()))
