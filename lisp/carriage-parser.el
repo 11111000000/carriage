@@ -467,6 +467,7 @@ greater number of segments to maximize robustness."
     (list (cons :version "1")
           (cons :op op)
           (cons :file (file-relative-name norm-path repo-root))
+          (cons :meta (and res (list :resynced-delim (list :old delim :new delim1))))
           (cons :pairs pairs))))
 
 ;;;; PATCH parsing
@@ -693,6 +694,8 @@ If REPO-ROOT is nil, detect via =carriage-project-root' or use =default-director
           (while (re-search-forward "^[ \t]*#\\+begin_patch\\b" nil t)
             (let* ((start (match-beginning 0))
                    (prop  (get-text-property start 'carriage-iteration-id)))
+              (carriage-log "iter-collect: begin@%d prop=%s id=%s match=%s"
+                            start prop id (if (equal prop id) "yes" "no"))
               (when (equal prop id)
                 (let* ((body-beg (save-excursion
                                    (goto-char start)
@@ -707,11 +710,17 @@ If REPO-ROOT is nil, detect via =carriage-project-root' or use =default-director
                                     (line-beginning-position)))
                        (body (buffer-substring-no-properties body-beg block-end))
                        (op (plist-get header-plist :op)))
-                  (push (carriage-parse op header-plist body root) plan))
-                ;; move point to end of this block (whether matched or not)
-                (goto-char (match-beginning 0))
-                (when (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
-                  (forward-line 1)))))
+                  (push (carriage-parse op header-plist body root) plan)
+                  (carriage-log "iter-collect: pushed op=%s file=%s"
+                                op (plist-get header-plist :file))))
+              ;; move point to end of this block (whether matched or not)
+              (goto-char (match-beginning 0))
+              (let ((pos0 (point)))
+                (if (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
+                    (progn
+                      (forward-line 1)
+                      (carriage-log "iter-collect: advanced to %d (after end_patch)" (point)))
+                  (carriage-log "iter-collect: no end_patch after %d; staying (possible malformed block)" pos0)))))
           (setq plan (nreverse plan))
           (if plan
               plan

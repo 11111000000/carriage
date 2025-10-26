@@ -8,6 +8,7 @@
 (require 'carriage-parser)
 (require 'carriage-apply)
 (require 'carriage-report)
+(require 'carriage-iteration)
 (require 'carriage-ui)
 
 (defcustom carriage-mode-default-profile 'Code
@@ -106,7 +107,7 @@ as a “(+N more)” tail."
                        (carriage-ui-set-state 'error)
                        (user-error "Carriage parse error: %s" (error-message-string e)))))
          (report (carriage-dry-run-plan (list plan-item) root)))
-    (when carriage-mode-auto-open-report
+    (when (and carriage-mode-auto-open-report (not noninteractive))
       (carriage-report-open report))
     (carriage-ui-set-state 'idle)))
 
@@ -123,7 +124,7 @@ as a “(+N more)” tail."
          (dry (progn
                 (carriage-ui-set-state 'dry-run)
                 (carriage-dry-run-plan (list plan-item) root))))
-    (when carriage-mode-auto-open-report
+    (when (and carriage-mode-auto-open-report (not noninteractive))
       (carriage-report-open dry))
     (let* ((sum (plist-get dry :summary))
            (fails (or (plist-get sum :fail) 0)))
@@ -135,7 +136,8 @@ as a “(+N more)” tail."
                   (y-or-n-p "Apply this block? "))
           (carriage-ui-set-state 'apply)
           (let ((ap (carriage-apply-plan (list plan-item) root)))
-            (carriage-report-open ap))
+            (when (not noninteractive)
+              (carriage-report-open ap)))
           (carriage-ui-set-state 'idle))))))
 
 ;;;###autoload
@@ -153,7 +155,7 @@ as a “(+N more)” tail."
     ;; Dry-run
     (carriage-ui-set-state 'dry-run)
     (let* ((dry (carriage-dry-run-plan plan root)))
-      (when carriage-mode-auto-open-report
+      (when (and carriage-mode-auto-open-report (not noninteractive))
         (carriage-report-open dry))
       (let* ((sum (plist-get dry :summary))
              (fails (or (plist-get sum :fail) 0)))
@@ -166,7 +168,8 @@ as a “(+N more)” tail."
                     (y-or-n-p "Применить группу блоков? "))
             (carriage-ui-set-state 'apply)
             (let ((ap (carriage-apply-plan plan root)))
-              (carriage-report-open ap))
+              (when (not noninteractive)
+                (carriage-report-open ap)))
             (carriage-ui-set-state 'idle)))))))
 
 ;;;###autoload
@@ -214,6 +217,49 @@ as a “(+N more)” tail."
   "Jump to previous patch block (placeholder)."
   (interactive)
   (message "carriage-prev-patch-block: not implemented yet"))
+
+(defun carriage--extract-patch-blocks (text)
+  "Extract all #+begin_patch ... #+end_patch blocks from TEXT.
+Return a single string with blocks concatenated by blank lines."
+  (with-temp-buffer
+    (insert text)
+    (goto-char (point-min))
+    (let ((chunks '()))
+      (while (re-search-forward "^[ \t]*#\\+begin_patch\\b" nil t)
+        (let ((beg (match-beginning 0)))
+          (unless (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
+            (goto-char (point-max)))
+          (let ((end (line-end-position)))
+            (push (buffer-substring-no-properties beg end) chunks))
+          (forward-line 1)))
+      (mapconcat #'identity (nreverse chunks) "\n\n"))))
+
+;;;###autoload
+(defun carriage-accept-llm-response (&optional input)
+  "Accept an LLM response INPUT, keep only begin_patch blocks, insert and dry-run.
+Interactively prompts for INPUT. Inserts extracted blocks at point,
+marks them as the last iteration, runs dry-run and opens the report.
+
+Returns the dry-run report plist."
+  (interactive
+   (list (read-string "Paste LLM response (only begin_patch blocks will be kept):\n")))
+  (let* ((root (or (carriage-project-root) default-directory))
+         (blocks (carriage--extract-patch-blocks (or input ""))))
+    (when (or (null blocks) (string-empty-p (string-trim blocks)))
+      (user-error "No begin_patch blocks found in input"))
+    (carriage-traffic-log 'in "Accepted LLM response (%d chars)" (length input))
+    (let ((ins-beg (point)))
+      (unless (bolp) (insert "\n"))
+      (insert blocks "\n")
+      (let ((ins-end (point)))
+        (carriage-mark-last-iteration ins-beg ins-end)))
+    (let ((plan (carriage-collect-last-iteration-blocks root)))
+      (carriage-ui-set-state 'dry-run)
+      (let ((rep (carriage-dry-run-plan plan root)))
+        (when (and carriage-mode-auto-open-report (not noninteractive))
+          (carriage-report-open rep))
+        (carriage-ui-set-state 'idle)
+        rep))))
 
 (provide 'carriage-mode)
 ;;; carriage-mode.el ends here

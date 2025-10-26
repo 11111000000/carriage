@@ -236,7 +236,8 @@ For :occur all, returns up to =carriage-mode-sre-preview-max' previews."
 (defun carriage-dry-run-sre (plan-item repo-root)
   "Dry-run SRE: count matches per pair; check :expect for :occur all.
 Populate :diff with a short preview (first match per pair, ±0 lines).
-If :range lies outside file bounds, clamp to [1..N] and append a warning to :details."
+If :range lies outside file bounds, clamp to [1..N] and append a warning to :details.
+Also attaches per-item :_messages (internal) for warnings aggregation."
   (let* ((file (alist-get :file plan-item))
          (abs (ignore-errors (carriage-normalize-path (or repo-root default-directory) file))))
     (if (not (and abs (file-exists-p abs)))
@@ -284,27 +285,55 @@ If :range lies outside file bounds, clamp to [1..N] and append a warning to :det
               (when (and (eq occur 'first) (= count 0))
                 (push "No matches for :occur first" errors)))))
         (let* ((preview (when previews (mapconcat #'identity (nreverse previews) "\n\n")))
-               (warn-tail (when warns (format "; %s" (mapconcat #'identity (nreverse warns) "; ")))))
+               (warn-tail (when warns (format "; %s" (mapconcat #'identity (nreverse warns) "; "))))
+               (itm-messages
+                (let ((acc '()))
+                  ;; Range clamp warnings
+                  (when warns
+                    (dolist (w (nreverse warns))
+                      (push (list :code 'SRE_W_RANGE_CLAMP
+                                  :severity 'warn
+                                  :file file
+                                  :details w)
+                            acc)))
+                  ;; DELIM resync warning from plan-item metadata
+                  (let* ((meta (and plan-item (alist-get :meta plan-item)))
+                         (rs   (and meta (plist-get meta :resynced-delim))))
+                    (when rs
+                      (push (list :code 'SRE_W_DELIM_RESYNC
+                                  :severity 'warn
+                                  :file file
+                                  :details (format "DELIM resynced %s→%s"
+                                                   (plist-get rs :old) (plist-get rs :new)))
+                            acc)))
+                  (nreverse acc))))
           (if errors
-              (carriage--report-fail 'sre :file file
-                                     :matches total-matches
-                                     :details (concat
-                                               (format "fail: pairs:%d matches:%d; %s"
-                                                       (length pairs) total-matches
-                                                       (mapconcat #'identity (nreverse errors) "; "))
-                                               (or warn-tail ""))
-                                     :diff (or preview ""))
-            (carriage--report-ok 'sre :file file
-                                 :matches total-matches
-                                 :details (concat
-                                           (format "ok: pairs:%d matches:%d"
-                                                   (length pairs) total-matches)
-                                           (or warn-tail ""))
-                                 :diff (or preview ""))))))))
+              (let ((base (carriage--report-fail 'sre :file file
+                                                 :matches total-matches
+                                                 :details (concat
+                                                           (format "fail: pairs:%d matches:%d; %s"
+                                                                   (length pairs) total-matches
+                                                                   (mapconcat #'identity (nreverse errors) "; "))
+                                                           (or warn-tail ""))
+                                                 :diff (or preview ""))))
+                (if itm-messages
+                    (append base (list :_messages itm-messages))
+                  base))
+            (let ((base (carriage--report-ok 'sre :file file
+                                             :matches total-matches
+                                             :details (concat
+                                                       (format "ok: pairs:%d matches:%d"
+                                                               (length pairs) total-matches)
+                                                       (or warn-tail ""))
+                                             :diff (or preview ""))))
+              (if itm-messages
+                  (append base (list :_messages itm-messages))
+                base))))))))
 
 (defun carriage--dry-run-sre-on-text (plan-item text)
   "Dry-run SRE as if FILE had TEXT content. Returns a report alist like carriage-dry-run-sre.
-If :range lies outside text bounds, clamp and append a warning to :details."
+If :range lies outside text bounds, clamp and append a warning to :details.
+Also attaches per-item :_messages (internal) for warnings aggregation."
   (let* ((file (alist-get :file plan-item))
          (pairs (or (alist-get :pairs plan-item) '()))
          (total-matches 0)
@@ -346,23 +375,50 @@ If :range lies outside text bounds, clamp and append a warning to :details."
           (when (and (eq occur 'first) (= count 0))
             (push "No matches for :occur first" errors)))))
     (let* ((preview (when previews (mapconcat #'identity (nreverse previews) "\n\n")))
-           (warn-tail (when warns (format "; %s" (mapconcat #'identity (nreverse warns) "; ")))))
+           (warn-tail (when warns (format "; %s" (mapconcat #'identity (nreverse warns) "; "))))
+           (itm-messages
+            (let ((acc '()))
+              ;; Range clamp warnings
+              (when warns
+                (dolist (w (nreverse warns))
+                  (push (list :code 'SRE_W_RANGE_CLAMP
+                              :severity 'warn
+                              :file file
+                              :details w)
+                        acc)))
+              ;; DELIM resync warning from plan-item metadata
+              (let* ((meta (and plan-item (alist-get :meta plan-item)))
+                     (rs   (and meta (plist-get meta :resynced-delim))))
+                (when rs
+                  (push (list :code 'SRE_W_DELIM_RESYNC
+                              :severity 'warn
+                              :file file
+                              :details (format "DELIM resynced %s→%s"
+                                               (plist-get rs :old) (plist-get rs :new)))
+                        acc)))
+              (nreverse acc))))
       (if errors
-          (carriage--report-fail 'sre :file file
-                                 :matches total-matches
-                                 :details (concat
-                                           (format "fail: pairs:%d matches:%d; %s"
-                                                   (length pairs) total-matches
-                                                   (mapconcat #'identity (nreverse errors) "; "))
-                                           (or warn-tail ""))
-                                 :diff (or preview ""))
-        (carriage--report-ok 'sre :file file
-                             :matches total-matches
-                             :details (concat
-                                       (format "ok: pairs:%d matches:%d"
-                                               (length pairs) total-matches)
-                                       (or warn-tail ""))
-                             :diff (or preview ""))))))
+          (let ((base (carriage--report-fail 'sre :file file
+                                             :matches total-matches
+                                             :details (concat
+                                                       (format "fail: pairs:%d matches:%d; %s"
+                                                               (length pairs) total-matches
+                                                               (mapconcat #'identity (nreverse errors) "; "))
+                                                       (or warn-tail ""))
+                                             :diff (or preview ""))))
+            (if itm-messages
+                (append base (list :_messages itm-messages))
+              base))
+        (let ((base (carriage--report-ok 'sre :file file
+                                         :matches total-matches
+                                         :details (concat
+                                                   (format "ok: pairs:%d matches:%d"
+                                                           (length pairs) total-matches)
+                                                   (or warn-tail ""))
+                                         :diff (or preview ""))))
+          (if itm-messages
+              (append base (list :_messages itm-messages))
+            base))))))
 
 (defun carriage-apply-sre (plan-item repo-root)
   "Apply SRE pairs by rewriting file and committing via Git."
@@ -589,11 +645,16 @@ Does not write to disk or run git. Signals on invalid path."
 
 (defun carriage-dry-run-plan (plan repo-root)
   "Dry-run PLAN (list of plan items) under REPO-ROOT.
-Return report alist: (:plan PLAN :summary (:ok N :fail M :skipped K) :items ...)."
+Return report alist:
+  (:plan PLAN
+   :summary (:ok N :fail M :skipped K)
+   :items ...
+   :messages LIST) where :messages aggregates per-item diagnostics."
   (let* ((sorted (carriage--plan-sort plan))
          (items '())
          (ok 0) (fail 0) (skip 0)
-         (virt '()))  ; virtual created files: (\"path\" . content)
+         (virt '())  ; virtual created files: (\"path\" . content)
+         (msgs '()))
     (dolist (it sorted)
       (let* ((op (alist-get :op it))
              (file (alist-get :file it))
@@ -609,10 +670,14 @@ Return report alist: (:plan PLAN :summary (:ok N :fail M :skipped K) :items ...)
                (t
                 (carriage--dry-run-dispatch it repo-root)))))
         ;; Stash original plan item and repo root into report item for UI actions (e.g., Ediff).
-        (let ((res (append res (list :_plan it :_root repo-root)))
-              (status))
+        (let* ((res (append res (list :_plan it :_root repo-root)))
+               (status (plist-get res :status)))
           (push res items)
-          (setq status (plist-get res :status))
+          ;; Aggregate per-item diagnostics into top-level :messages if present.
+          (let ((im (plist-get res :_messages)))
+            (when im
+              (dolist (d im)
+                (push d msgs))))
           (pcase status
             ('ok   (setq ok (1+ ok)))
             ('fail (setq fail (1+ fail)))
@@ -623,7 +688,8 @@ Return report alist: (:plan PLAN :summary (:ok N :fail M :skipped K) :items ...)
             (setq virt (cons (cons file content) (assq-delete-all file virt)))))))
     (list :plan plan
           :summary (list :ok ok :fail fail :skipped skip)
-          :items (nreverse items))))
+          :items (nreverse items)
+          :messages (nreverse msgs))))
 
 (defun carriage-apply-plan (plan repo-root)
   "Apply PLAN (list of plan items) under REPO-ROOT sequentially.
