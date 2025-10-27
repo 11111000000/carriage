@@ -1,0 +1,131 @@
+* The Tao of Emacs Lisp Programming for LLMs
+  The Way that is spoken guides the hands that code. Seek clarity without rigidity, flexibility without disorder, power without violence. Build clean cores and thin ports. Let data flow, effects touch lightly, and names serve the essence.
+
+** Core Way
+- Prefer small, composable, mostly pure, testable functions. Separate pure logic from effects.
+- Architect “clean core + thin ports”: all domain logic is pure; I/O, processes, buffers, and UI live at the edges.
+- Make functions total: handle empty/partial/invalid inputs with clear errors or structured results.
+- Favor explicit data over implicit state; avoid hidden mutation and global coupling.
+
+** File And Module Basics
+- Always enable lexical binding: add header -*- lexical-binding: t -*-.
+- Begin with required dependencies (require 'cl-lib) (require 'seq) (require 'map) (require 'json) as actually needed.
+- End with provide 'feature and keep a consistent package prefix for all symbols (pkg-..., pkg--... for internal).
+
+** Data Modeling
+- Use alist for structured data and protocol payloads; prefer symbol keys for internal APIs.
+- Keep schemas stable; avoid changing field types across versions (string ↔ number ↔ boolean).
+- Use map/seq for non-mutating collection transforms (mapcar, seq-map, seq-filter, seq-reduce).
+- Default to simple alists for easy logging and serialization; use cl-defstruct only when strong invariants benefit.
+
+** JSON Handling
+- Parse with json-parse-string using :object-type 'alist; pass :null-object json-null and :false-object json-false when needed.
+- Represent JSON booleans as t and json-false; JSON null as json-null.
+- Serialize with json-serialize preserving object types and key formats.
+
+** API Design
+- Use cl-defun with &key for extensible, self-documenting parameters.
+- Validate required arguments early; signal clear errors or return structured alist failures.
+- Return alist results with fixed keys and documented shapes; keep output predictable.
+- Provide subscribe/unsubscribe APIs; return a zero-arg lambda unsubscribing the handler.
+- Keep routing separate from business logic; keep parsing separate from I/O and handling.
+
+** Errors And Exceptions
+- Distinguish domain/protocol failures (return structured alist error values) from programmer errors (signal/error).
+- Wrap effectful edges with condition-case; never swallow exceptions silently; add context to error messages.
+- Avoid throwing from process filters/sentinels; convert into structured reports and signal in safe contexts.
+
+** Asynchrony, Processes, And I/O
+- Process filters must be fast, non-blocking, and exception-safe; accumulate partial chunks and frame by lines or length-prefix.
+- Sentinels must not error; ensure proper cleanup (aux buffers, stderr processes, timers).
+- Do not block the main thread; for synchronous waits use accept-process-output in short intervals with readiness flags.
+- Ensure idempotency: starting an already started client is a no-op or yields a clear, non-fatal error.
+- Prefer async-first APIs; provide optional synchronous wrappers that delegate to async paths.
+
+** State And Configuration
+- Minimize global state. Provide defgroup/defcustom for user configuration with :group and robust :type; mark safe options where appropriate.
+- Use buffer-local variables for per-buffer behavior.
+- Update mutable caches/pending-requests via explicit wrapper functions; do not change data formats at runtime.
+
+** Logging And Diagnostics
+- Make logging cheap to disable: check a flag before formatting strings.
+- Separate channels: general log, traffic (in/out), and stderr; cap buffer sizes to prevent unbounded growth.
+- Provide commands to clear and view logs; pretty-print JSON only on demand in diagnostic views.
+
+** Naming And Modularity
+- Enforce a strict package prefix for all public and internal symbols (pkg-..., pkg--internal).
+- Keep modules cohesive: parsing, routing, transport, and domain logic in distinct namespaces.
+- Avoid optional external deps unless essential; prefer built-in json, seq, map, cl-lib.
+
+** Documentation
+- Write docstrings: first line imperative and concise; subsequent lines detail parameters, return alist schemas, and examples.
+- For public functions document required/optional params, callbacks’ arity and contracts, and error shapes.
+- Maintain a minimal README with usage examples and Emacs version requirements.
+
+** Testing And Compatibility
+- Write ERT tests for pure functions, parsers, schemas; simulate process messages for routing tests.
+- Keep byte-compiler clean: fix free-variable and obsolete form warnings.
+- Declare and test the minimum supported Emacs version; guard newer APIs with conditionals.
+
+** Performance
+- Avoid excessive consing on hot paths; reuse buffers in filters when possible.
+- Do not call format/pp when logging is disabled.
+- Avoid frequent json-parse/serialize in tight loops; batch when feasible.
+- Keep allocations modest in process handlers; prefer incremental decode.
+
+** User Interface And Autoloads
+- For user commands add ;;;###autoload cookies and clear interactive interfaces.
+- Use user-error/message for user-facing feedback; keep technical details in logs.
+
+** Macros And Style
+- Prefer functions over macros; use macros sparingly and document thoroughly.
+- For macros add declare (indent N) for correct formatting.
+- Follow standard Emacs Lisp style and checkdoc; avoid macro “magic” that obscures control flow.
+
+** LLM-Oriented Structure To Generate
+- Create a minimal module skeleton with headers, require/provide, defgroup/defcustom.
+- Define clear data schemas as alists with symbol keys and documented fields.
+- Implement pure core functions for transforms, validation, and decision-making.
+- Implement thin I/O adapters: process start/stop, filter, sentinel, and message framing.
+- Implement routing that dispatches parsed messages to handlers, returning structured results.
+- Expose subscribe/unsubscribe APIs for notifications, requests, and errors.
+- Add logging helpers gated by flags and capped buffers.
+- Add error constructors for domain/protocol failures, and consistent signaling for programmer errors.
+- Provide sync wrappers only around async flows; maintain idempotency across start/stop/init.
+- Supply ERT tests for core logic, message framing, and routing with simulated inputs.
+
+** Ready-To-Use Prompts For Code Generation
+- Always include file header “-*- lexical-binding: t -*-”.
+- Use cl-defun with &key; validate required args; return alists with fixed keys.
+- Use alist with symbol keys; keep JSON parsing with :object-type 'alist; handle json-null and json-false correctly.
+- Separate I/O, parsing, routing, and domain logic; keep process filters fast and exception-safe.
+- Provide subscribe APIs returning an unsubscribe lambda.
+- Implement logging with cheap disable paths and capped buffers; separate traffic logs.
+- Distinguish domain errors (structured alist) from programmer errors (signal/error); add context via condition-case at the edges.
+- Provide defgroup/defcustom and buffer-local variables where appropriate.
+- Ensure idempotent start/stop; avoid blocking the main thread; use accept-process-output sparingly and safely.
+- Add ;;;###autoload for user commands; use user-error/message for user feedback.
+- Write ERT tests; keep byte-compiler warnings at zero; guard newer APIs; avoid unnecessary dependencies.
+
+** PR/Finalization Checklist
+- Lexical binding enabled; proper require/provide; package headers correct.
+- Public functions have docstrings with contracts, alist schemas, and examples.
+- Filters and sentinels never error; resources cleaned; operations idempotent.
+- Logging is toggleable and cheap; log buffers bounded and maintainable.
+- defgroup/defcustom present; buffer-local state where needed; unsubscribe functions returned.
+- Tests pass; byte-compiler clean; minimum Emacs version honored; no unneeded external deps.
+- Data schemas stable; JSON shapes documented; consistent t/json-false/json-null usage.
+
+** Important
+Follow these rules strictly:
+  - Use only valid, standard Emacs Lisp syntax.
+  - For local bindings, use only let or let*; never use let/, let!, or any invented form.
+  - For quasi-quoting, use a backquote ` before the list; unquote with , and splice with ,@ (e.g., `(foo ,bar ,@baz)). Never write `(, or any equals sign before a parenthesis.
+  - Ensure all parentheses are balanced and the code has no syntax errors.
+  - If you use cl-lib features, include (require 'cl-lib).
+  - Return only the final Emacs Lisp code (no prose). If you wrap it, use a single fenced elisp code block. Before output, self-check and fix any occurrence of the substrings "let\", "`(" or "=`(" so they do not appear. 
+
+** Closing
+  Code that flows like water meets the world without struggle. Keep the core clean, the edges gentle, the names in service of meaning. Thus the system grows without breaking, adapts without fear, and at scale remains calm.
+
+
