@@ -1,0 +1,36 @@
+#+title: Extensibility Points v1 — Точки расширения
+#+author: Carriage Team
+#+language: ru
+#+options: toc:2 num:t
+
+* Назначение
+- Описать стабильные точки расширения: новые :op, транспорты LLM/агенты, UI-сегменты и действия.
+
+* Новые операции (:op)
+- Реестр: см. ./parser-registry-v1.org (parse/dry-run/apply).
+- Контракты: см. ./parser-impl-v1.org (единые сигнатуры).
+- Требования:
+  - Отдельная спецификация формата в spec/, EBNF, ошибки в errors-v1.
+  - Реализация в lisp/ops/<op>.el (или carriage-<op>.el); тесты ERT.
+  - Без зависимостей на UI (строго).
+
+* Транспорты LLM/агенты
+- Абстракция: ./llm-transport-v1.org (carriage-llm-request/abort, события, capabilities).
+- Адаптеры: lisp/transports/<backend>.el; не трогают UI/глобальные переменные.
+- Совместимость: gptel через адаптер; JSON-RPC/Agent — расширением.
+
+* UI расширения
+- Header-line/mode-line сегменты — буферно-локальные (:eval builders).
+- Кнопки — text-button с keymap; альтернативы без мыши (горячие клавиши).
+- Новые компоненты UI — в lisp/ui/*.el; без глобальных эффектов для mode-line-format/global-mode-string.
+
+* Диагностика
+- Ошибки и предупреждения регистрируются в errors-v1 и в таблице ошибок runtime.
+- Предпочитать специфичные коды (например, PATCH_E_RENAME_COPY, PATCH_E_BINARY).
+
+* Тесты (минимум)
+- Юнит: parse/dry-run/apply/ошибки.
+- Интеграция: git-репо, отчёты, UI-реакции на события транспорта (моки).
+
+* Политика слоёв
+- Расширения уважают границы: UI сверху, parser/apply снизу, транспорты сбоку.

@@ -11,8 +11,12 @@
 ** Юнит-тесты (ERT)
 - Парсеры:
   - SRE: корректные/некорректные сегменты, директивы #+pair.
+  - SRE: превышение лимита пар в sre-batch → SRE_E_LIMITS.
+  - SRE: пересинхронизация DELIM → предупреждение SRE_W_DELIM_RESYNC (при успехе), ошибка SRE_E_COLLISION_DELIM (при провале).
+  - SRE: :range вне границ → clamp и предупреждение SRE_W_RANGE_CLAMP; одинаковое поведение dry-run/apply.
   - PATCH: многофайловый diff → отказ, /dev/null create/delete, :strip логика.
-  - FILE OPS: create/delete/rename — предусловия, :mkdir, конфликты путей и существование/отсутствие файлов.
+  - PATCH: rename/copy прелюдии → PATCH_E_RENAME_COPY; бинарные секции → PATCH_E_BINARY.
+  - FILE OPS: create/delete/rename — предусловия, :mkdir, :ensure-final-newline, конфликты путей и существование/отсутствие файлов.
 - Валидаторы regexp (Emacs flavor): неподдерживаемые конструкции → ошибка.
 - Нормализация путей: запрет абсолютов и «..».
 - TRAMP/remote: отказ при (file-remote-p) t.

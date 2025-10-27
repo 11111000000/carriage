@@ -22,7 +22,9 @@
   - (:version "1"
      :op OP                       ; 'sre | 'sre-batch | 'patch | 'create | 'delete | 'rename
      :file "relative/path"        ; для ops, где применимо
-     :meta (:source-range (start end) :origin 'last-iteration ...)) ; опциональные метаданные
+     :meta (:source-range (start end)
+            :origin 'last-iteration
+            :resynced-delim (:old "abcdef" :new "012345") ...)) ; опциональные метаданные
 - Для разных :op добавляются профильные поля, см. ниже.
 
 * Элемент плана: SRE (одна пара)
@@ -49,7 +51,8 @@
 - Каркас:
   - (:version "1" :op 'create :file "path"
      :content STRING               ; содержимое файла
-     :mkdir t)                     ; по умолчанию t
+     :mkdir t                      ; по умолчанию t
+     :ensure-final-newline t)      ; по умолчанию t
 
 * Элемент плана: DELETE
 - Каркас:
@@ -84,7 +87,8 @@
 - (:code SYMBOL :severity 'info|'warn|'error
    :file "path"? :op OP? :details STRING :hint STRING?)
 - Примеры :code:
-  - 'SRE_E_SEGMENTS_COUNT, 'SRE_E_OCCUR_EXPECT
+  - 'SRE_E_SEGMENTS_COUNT, 'SRE_E_OCCУР_EXPECT
+  - 'SRE_W_RANGE_CLAMP, 'SRE_W_DELIM_RESYNC
   - 'PATCH_E_GIT_CHECK, 'PATCH_E_MULTI_FILE
   - 'MODE_E_DISPATCH, 'IO_E_PATH
 

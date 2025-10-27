@@ -1,0 +1,48 @@
+#+title: Project Structure v1 — Слои, каталоги, зависимости
+#+author: Carriage Team
+#+language: ru
+#+options: toc:2 num:t
+
+* Назначение
+- Зафиксировать структуру репозитория и границы слоёв, чтобы новые части проекта появлялись в правильных местах и с понятными контрактами.
+
+* Директории
+- lisp/ — исходники (ядро и модули):
+  - carriage-*.el — ядро и домен: errors, logging, utils, git, parser, apply, iteration, ui, report, mode, entry.
+  - transports/ — адаптеры LLM/агентов (например, gptel, JSON-RPC), опционально.
+  - ops/ — дополнительные операции в будущих версиях.
+  - ui/ — доп. компоненты UI/виджеты (опционально).
+- spec/ — спецификации (норматив и разъяснения).
+- test/ — ERT и интеграционные фикстуры (git-репо).
+- scripts/ — batch-скрипты (lint, compile-strict, checkdoc).
+- examples/ — «golden» документы.
+
+* Слои и зависимости (направление сверху вниз запрещено)
+- Core: errors → logging → utils → git
+- Domain: parser → apply → report
+- Mode/UI: ui → iteration → mode → entry (carriage.el)
+- Transports: transports/* (зависит только от errors/logging/utils; не зависит от UI)
+- Правила:
+  - UI не импортируется из parser/apply.
+  - Транспорт не модифицирует глобальные переменные Emacs.
+
+* Именование и provide
+- Имя файла и feature: carriage-foo.el → (provide 'carriage-foo).
+- Публичные API: carriage-foo-bar; внутренние: carriage--foo-bar.
+- defcustom — в одном «владельце» слоя; остальные файлы — declare-variable при необходимости.
+- Интерактивные команды — ;;;###autoload.
+
+* Порядок загрузки
+- carriage.el: require errors→(carriage-define-errors)→logging→utils→git→parser→apply→mode.
+- Транспорты подключаются через абстракцию (см. llm-transport-v1), не require-ятся по умолчанию.
+
+* Тестирование/CI
+- Юнит: ERT на парсеры/апплаеры/утилиты.
+- Интеграция: тестовый git-репозиторий.
+- Моки транспорта (gptel-mock).
+- CI: byte-compile (строго), checkdoc, package-lint, ert.
+
+* Миграция v1→v1.1 (без ломки)
+- Устранить дубли defcustom/defvar.
+- Синхронизировать предупреждения SRE_W_*.
+- Вынести транспорты в lisp/transports/.

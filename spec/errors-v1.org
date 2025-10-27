@@ -12,6 +12,7 @@
 - PATCH_E_* — ошибки формата unified diff (см. ./patch-unified-diff-v1.org).
 - GIT_E_* — ошибки взаимодействия с Git (apply, index, commit).
 - IO_E_* — ошибки ввода/вывода (нет файла, права, конфликт блокировок).
+- LLM_E_* — ошибки транспорта LLM/агентов (см. ./llm-transport-v1.org).
 
 * Перечни кодов (минимум v1)
 - SRE_E_*:
@@ -20,6 +21,11 @@
   - PATCH_E_VERSION, PATCH_E_OP, PATCH_E_APPLY, PATCH_E_MULTI_FILE, PATCH_E_PATH, PATCH_E_PATH_MISMATCH, PATCH_E_DIFF_SYNTAX, PATCH_E_STRIP, PATCH_E_GIT_CHECK, PATCH_E_BINARY, PATCH_E_RENAME_COPY.
 - OPS_E_*:
   - OPS_E_EXISTS, OPS_E_NOT_FOUND, OPS_E_PATH, OPS_E_PERM.
+- LLM_E_*:
+  - LLM_E_BACKEND, LLM_E_REQUEST, LLM_E_STREAM, LLM_E_TOOL_USE, LLM_E_SCHEMA.
+- WARNINGS (SRE_W_*):
+  - SRE_W_RANGE_CLAMP — диапазон :range был скорректирован до границ файла.
+  - SRE_W_DELIM_RESYNC — выполнена успешная пересинхронизация DELIM (old→new).
 
 * Формат диагностического сообщения
 - Поля:
