@@ -99,7 +99,7 @@
     (_ "")))
 
 ;; -------------------------------------------------------------------
-;; Header-line and Mode-line builders (M2: spinner + extended actions)
+;; Header-line and Mode-line builders (M3: icons (optional) + outline click)
 
 (defun carriage-ui--truncate-middle (s max)
   "Truncate string S to MAX chars with a middle ellipsis if needed."
@@ -125,9 +125,58 @@
       (when (and path (listp path) (> (length path) 0))
         (mapconcat (lambda (s) (if (stringp s) s (format "%s" s))) path " › ")))))
 
+(defun carriage-ui-goto-outline (&optional _event)
+  "Go to the current org heading (best-effort) when clicking outline in header-line."
+  (interactive "e")
+  (when (and (derived-mode-p 'org-mode)
+             (fboundp 'org-find-exact-headline-in-buffer)
+             (fboundp 'org-get-outline-path))
+    (let* ((path (ignore-errors (org-get-outline-path t t)))
+           (title (and path (car (last path))))
+           (pos (and title (ignore-errors (org-find-exact-headline-in-buffer title)))))
+      (when (number-or-marker-p pos)
+        (goto-char pos)
+        (recenter 1)))))
+
+(defun carriage-ui--icons-available-p ()
+  "Return non-nil when icons can be used in modeline."
+  (and (boundp 'carriage-mode-use-icons)
+       carriage-mode-use-icons
+       (require 'all-the-icons nil t)))
+
+(defun carriage-ui--icon (key)
+  "Return icon string for KEY using all-the-icons, or nil if unavailable."
+  (when (carriage-ui--icons-available-p)
+    (pcase key
+      ;; Profile
+      ('ask  (when (fboundp 'all-the-icons-material)
+               (all-the-icons-material "chat" :v-adjust -0.1)))
+      ('code (when (fboundp 'all-the-icons-material)
+               (all-the-icons-material "code" :v-adjust -0.1)))
+      ;; Model/backend
+      ('model (cond
+               ((fboundp 'all-the-icons-octicon) (all-the-icons-octicon "cpu"))
+               ((fboundp 'all-the-icons-material) (all-the-icons-material "memory"))
+               (t nil)))
+      ;; Actions
+      ('dry    (when (fboundp 'all-the-icons-faicon)   (all-the-icons-faicon "flask")))
+      ('apply  (when (fboundp 'all-the-icons-material) (all-the-icons-material "check_circle")))
+      ('all    (cond
+                ((fboundp 'all-the-icons-octicon) (all-the-icons-octicon "rocket"))
+                ((fboundp 'all-the-icons-octicon) (all-the-icons-octicon "play"))
+                (t nil)))
+      ('abort  (when (fboundp 'all-the-icons-octicon) (all-the-icons-octicon "stop")))
+      ('report (when (fboundp 'all-the-icons-octicon) (all-the-icons-octicon "file-text")))
+      ('diff   (when (fboundp 'all-the-icons-octicon) (all-the-icons-octicon "git-compare")))
+      ('ediff  (when (fboundp 'all-the-icons-octicon) (all-the-icons-octicon "diff")))
+      ('wip    (when (fboundp 'all-the-icons-octicon) (all-the-icons-octicon "git-branch")))
+      ('reset  (when (fboundp 'all-the-icons-octicon) (all-the-icons-octicon "history")))
+      (_ nil))))
+
 (defun carriage-ui--header-line ()
   "Build header-line: project › buffer › org-outline-path with graceful degradation.
-Respects =carriage-mode-headerline-max-width' and hides outline on narrow/TTY."
+Respects =carriage-mode-headerline-max-width' and hides outline on narrow/TTY.
+When outline is visible in org-mode, make it clickable to jump to heading."
   (let* ((project (carriage-ui--project-name))
          (bufname (buffer-name))
          (outline (carriage-ui--org-outline-path))
@@ -160,7 +209,17 @@ Respects =carriage-mode-headerline-max-width' and hides outline on narrow/TTY."
         (setq project (carriage-ui--truncate-middle project (max 5 (- avail (length sep) (length bufname)))))
         (setq base (concat project sep bufname))
         (setq full (if show-outline (concat base sep outline) base))))
-    full))
+    ;; Clickable outline (optional)
+    (if show-outline
+        (let* ((omap (let ((m (make-sparse-keymap)))
+                       (define-key m [header-line mouse-1] #'carriage-ui-goto-outline)
+                       m))
+               (oprop (propertize (or outline "")
+                                  'mouse-face 'mode-line-highlight
+                                  'help-echo "Перейти к заголовку (mouse-1)"
+                                  'local-map omap)))
+          (concat base sep oprop))
+      full)))
 
 (defun carriage-ui--ml-button (label fn help)
   "Return a propertized clickable LABEL that invokes FN. HELP shows as tooltip."
@@ -174,14 +233,14 @@ Respects =carriage-mode-headerline-max-width' and hides outline on narrow/TTY."
 (defun carriage-ui--maybe-in-report-buffer ()
   "Return non-nil if current buffer is a Carriage report buffer."
   (or (derived-mode-p 'carriage-report-mode)
-      (string= (buffer-name) "*carriage-report*")))
+      (string= (buffer-name) "*carriage-report/")))
 
 (defun carriage-ui--diff-button ()
   "Open Diff for report item if available; otherwise switch to report."
   (interactive)
   (if (carriage-ui--maybe-in-report-buffer)
       (call-interactively #'carriage-report-show-diff-at-point)
-    (let ((buf (get-buffer "*carriage-report*")))
+    (let ((buf (get-buffer "*carriage-report/")))
       (if buf
           (progn (pop-to-buffer buf)
                  (message "Select a row, then press RET or [Diff]"))
@@ -192,30 +251,46 @@ Respects =carriage-mode-headerline-max-width' and hides outline on narrow/TTY."
   (interactive)
   (if (carriage-ui--maybe-in-report-buffer)
       (call-interactively #'carriage-report-ediff-at-point)
-    (let ((buf (get-buffer "*carriage-report*")))
+    (let ((buf (get-buffer "*carriage-report/")))
       (if buf
           (progn (pop-to-buffer buf)
                  (message "Select a row, then press e or [Ediff]"))
         (user-error "Нет доступного отчёта для Ediff")))))
 
 (defun carriage-ui--modeline ()
-  "Build Carriage modeline segment (M2: spinner + extended actions)."
-  (let* ((profile (format "[%s]" (if (and (boundp 'carriage-mode-profile)
-                                          (eq carriage-mode-profile 'Ask))
-                                     "Ask" "Code")))
-         (profile-btn (carriage-ui--ml-button profile
+  "Build Carriage modeline segment (M3: icons optional + spinner + extended actions)."
+  (let* ((use-icons (carriage-ui--icons-available-p))
+         ;; Profile
+         (profile-label
+          (if use-icons
+              (or (if (and (boundp 'carriage-mode-profile)
+                           (eq carriage-mode-profile 'Ask))
+                      (carriage-ui--icon 'ask)
+                    (carriage-ui--icon 'code))
+                  (format "[%s]" (if (eq carriage-mode-profile 'Ask) "Ask" "Code")))
+            (format "[%s]" (if (and (boundp 'carriage-mode-profile)
+                                    (eq carriage-mode-profile 'Ask))
+                               "Ask" "Code"))))
+         (profile-btn (carriage-ui--ml-button profile-label
                                               #'carriage-toggle-profile
                                               "Toggle Ask/Code profile"))
+         ;; Backend:Model
          (backend-str (let ((b (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
                         (cond
                          ((symbolp b) (symbol-name b))
                          ((stringp b) b)
                          (t "backend"))))
          (model-str (or (and (boundp 'carriage-mode-model) carriage-mode-model) "model"))
-         (backend-model (format "[%s:%s]" backend-str model-str))
-         (backend-model-btn (carriage-ui--ml-button backend-model
+         (bm-text (format "[%s:%s]" backend-str model-str))
+         (bm-label (if use-icons
+                       (let ((ic (
+                                  carriage-ui--icon 'model)))
+                         (if ic (concat ic " " bm-text) bm-text))
+                     bm-text))
+         (backend-model-btn (carriage-ui--ml-button bm-label
                                                     #'carriage-select-model
                                                     "Select model (M-x carriage-select-backend to change backend)"))
+         ;; State + spinner (textual; spinner already handled)
          (st (let ((s (and (boundp 'carriage--ui-state) carriage--ui-state)))
                (if (symbolp s) s 'idle)))
          (state (format "[%s%s]"
@@ -223,17 +298,26 @@ Respects =carriage-mode-headerline-max-width' and hides outline on narrow/TTY."
                         (if (memq st '(sending streaming))
                             (concat " " (carriage-ui--spinner-char))
                           "")))
-         ;; Actions
-         (dry    (carriage-ui--ml-button "[Dry]"    #'carriage-dry-run-at-point      "Dry-run at point"))
-         (apply  (carriage-ui--ml-button "[Apply]"  #'carriage-apply-at-point        "Apply at point"))
-         (all    (carriage-ui--ml-button "[All]"    #'carriage-apply-last-iteration  "Apply last iteration"))
-         (abort  (carriage-ui--ml-button "[Abort]"  #'carriage-abort-current         "Abort current request"))
-         (report (carriage-ui--ml-button "[Report]" #'carriage-report-open           "Open report buffer"))
-         (diff   (carriage-ui--ml-button "[Diff]"   #'carriage-ui--diff-button       "Show diff (report)"))
-         (ediff  (carriage-ui--ml-button "[Ediff]"  #'carriage-ui--ediff-button      "Open Ediff (report)"))
-         (wip    (carriage-ui--ml-button "[WIP]"    #'carriage-wip-checkout          "Switch to WIP branch"))
-         (reset  (carriage-ui--ml-button "[Reset]"  #'carriage-wip-reset-soft        "Soft reset last commit"))
-         ;; Toggles
+         ;; Actions (icon fallback to text)
+         (dry-label    (or (and use-icons (carriage-ui--icon 'dry))    "[Dry]"))
+         (apply-label  (or (and use-icons (carriage-ui--icon 'apply))  "[Apply]"))
+         (all-label    (or (and use-icons (carriage-ui--icon 'all))    "[All]"))
+         (abort-label  (or (and use-icons (carriage-ui--icon 'abort))  "[Abort]"))
+         (report-label (or (and use-icons (carriage-ui--icon 'report)) "[Report]"))
+         (diff-label   (or (and use-icons (carriage-ui--icon 'diff))   "[Diff]"))
+         (ediff-label  (or (and use-icons (carriage-ui--icon 'ediff))  "[Ediff]"))
+         (wip-label    (or (and use-icons (carriage-ui--icon 'wip))    "[WIP]"))
+         (reset-label  (or (and use-icons (carriage-ui--icon 'reset))  "[Reset]"))
+         (dry    (carriage-ui--ml-button dry-label    #'carriage-dry-run-at-point      "Dry-run at point"))
+         (apply  (carriage-ui--ml-button apply-label  #'carriage-apply-at-point        "Apply at point"))
+         (all    (carriage-ui--ml-button all-label    #'carriage-apply-last-iteration  "Apply last iteration"))
+         (abort  (carriage-ui--ml-button abort-label  #'carriage-abort-current         "Abort current request"))
+         (report (carriage-ui--ml-button report-label #'carriage-report-open           "Open report buffer"))
+         (diff   (carriage-ui--ml-button diff-label   #'carriage-ui--diff-button       "Show diff (report)"))
+         (ediff  (carriage-ui--ml-button ediff-label  #'carriage-ui--ediff-button      "Open Ediff (report)"))
+         (wip    (carriage-ui--ml-button wip-label    #'carriage-wip-checkout          "Switch to WIP branch"))
+         (reset  (carriage-ui--ml-button reset-label  #'carriage-wip-reset-soft        "Soft reset last commit"))
+         ;; Toggles (not iconified; text conveys meaning)
          (t-auto  (carriage-ui--ml-button "[AutoRpt]"    #'carriage-toggle-auto-open-report   "Toggle auto-open report"))
          (t-diffs (carriage-ui--ml-button "[ShowDiffs]"  #'carriage-toggle-show-diffs        "Toggle show diffs before apply"))
          (t-all   (carriage-ui--ml-button "[ConfirmAll]" #'carriage-toggle-confirm-apply-all "Toggle confirm apply-all"))
