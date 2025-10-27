@@ -24,6 +24,8 @@
   - Создать/перейти на ветку carriage/WIP.
 - carriage-show-log (C-c b l)
   - Показать лог применений.
+- carriage-show-traffic
+  - Показать трафик LLM (вход/выход).
 - carriage-wip-reset-soft (C-c b r)
   - Откат последнего коммита (soft reset).
 - carriage-toggle-profile
@@ -54,6 +56,8 @@
 - carriage-mode-wip-branch (string) — "carriage/WIP"
 - carriage-mode-confirm-apply-all (boolean) — t
 - carriage-mode-auto-open-report (boolean) — t
+- carriage-mode-auto-open-log (boolean) — t
+- carriage-mode-auto-open-traffic (boolean) — t
 - carriage-mode-show-diffs (boolean) — t
 - carriage-mode-show-header-line (boolean) — t
 - carriage-mode-show-mode-line-ui (boolean) — t

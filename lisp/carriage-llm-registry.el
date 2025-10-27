@@ -47,24 +47,38 @@ Returns an unregister zero-arg lambda."
                     (condition-case _ (funcall fn) (error nil)))))
         (or dyn static)))))
 
+(defun carriage-llm--slug (s)
+  "Return a lowercase slug for string S with non-alnum replaced by dashes."
+  (let* ((s (format "%s" s))
+         (s (downcase s)))
+    (replace-regexp-in-string "[^a-z0-9]+" "-" s)))
+
 (defun carriage-llm-candidates ()
-  "Return combined candidates \"provider:model\".
+  "Return combined candidates for model selection.
 
 Preference order:
 - If gptel is available, enumerate models from gptel’s registered backends
-  and return candidates as \"gptel:MODEL\".
+  and return BOTH:
+    - \"gptel:PROVIDER:MODEL\" (provider is a slug from backend name)
+    - \"gptel:MODEL\"          (back-compat)
 - Otherwise, fall back to the internal registry and return \"backend:model\"."
   (cond
    ;; Prefer gptel as the source of truth when available
    ((and (boundp 'gptel--known-backends) gptel--known-backends)
     (let ((acc '()))
       (dolist (cell gptel--known-backends)
-        (let* ((backend (cdr cell))
-               ;; Guard: gptel-backend-models may not exist if backends differ; ignore-errors
+        (let* ((provider-name (car cell))          ;string key in the gptel registry
+               (backend (cdr cell))
+               (prov (carriage-llm--slug (or provider-name
+                                             (ignore-errors (gptel-backend-name backend))
+                                             "default")))
                (models (ignore-errors (gptel-backend-models backend))))
           (dolist (m (or models '()))
-            (push (format "gptel:%s" (if (symbolp m) (symbol-name m) (format "%s" m))) acc))))
-      (nreverse acc)))
+            (let ((mstr (if (symbolp m) (symbol-name m) (format "%s" m))))
+              ;; New triple and old double forms
+              (push (format "gptel:%s:%s" prov mstr) acc)
+              (push (format "gptel:%s" mstr) acc)))))
+      (delete-dups (nreverse acc))))
    (t
     ;; Fallback to internal simple registry
     (cl-loop for (b . pl) in carriage-llm--registry

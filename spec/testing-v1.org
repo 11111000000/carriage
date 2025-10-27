@@ -27,7 +27,11 @@
   - delete → rename → create → patch → sre/sre-batch порядок.
   - Сбой в середине группы → остановка без автоматического отката.
   - Dry-run отчёты и подтверждение.
-- gptel-mock: имитация ответа LLM с блоками.
+- gptel-mock: имитация ответа LLM с блоками:
+  - Стрим: несколько чанков STRING → t; проверка, что UI переходит sending→streaming→idle и спиннер останавливается.
+  - Ошибка: nil → состояние error, лог и завершение (carriage-transport-complete t).
+  - Abort: 'abort → обработчик отмены вызывает gptel-abort; состояние error.
+- echo (dev): без gptel — backend='echo' стримит тестовые чанки, проверяем видимость в *carriage-traffic*, переходы состояний и корректную отмену (abort).
 
 ** Золотые документы (golden files)
 - Набор org-файлов с известными блоками и ожидаемыми результатами.

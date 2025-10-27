@@ -78,5 +78,10 @@ STRING may be any object; it will be coerced to a string via `format'."
   (interactive)
   (pop-to-buffer (carriage-log-buffer)))
 
+(defun carriage-show-traffic ()
+  "Display the Carriage traffic buffer."
+  (interactive)
+  (pop-to-buffer (carriage-traffic-buffer)))
+
 (provide 'carriage-logging)
 ;;; carriage-logging.el ends here

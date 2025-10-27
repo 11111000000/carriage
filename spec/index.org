@@ -30,7 +30,7 @@
   - ./file-ops-v1.org — Операции над файлами (create, delete, rename) в блоках =patch=.
 - Спецификация мода (основы и модули):
   - ./carriage-mode-v1.org — основы мода, активация, команды, поведение.
-  - ./llm-transport-v1.org — абстракция транспорта LLM/агентов и адаптер к gptel.
+  - ./llm-transport-v1.org — абстракция транспорта LLM/агентов и адаптер к gptel (референс).
   - ./project-structure-v1.org — структура проекта, слои и зависимости.
   - ./extensibility-points-v1.org — точки расширения (ops, транспорты, UI).
   - ./parser-registry-v1.org — диспетчеризация (:version,:op) → парсер/апплаер.

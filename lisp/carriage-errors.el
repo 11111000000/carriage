@@ -37,6 +37,13 @@
     (MODE_E_DISPATCH        carriage-mode-dispatch        "Неизвестные :version или :op (MODE_E_DISPATCH)")
     (GIT_E_APPLY            carriage-git-apply            "Ошибка git apply (GIT_E_APPLY)")
     (IO_E_PATH              carriage-io-path              "Ошибка доступа к пути (IO_E_PATH)")
+
+    ;; LLM transport errors
+    (LLM_E_BACKEND          carriage-llm-backend          "Бэкенд транспорта недоступен (LLM_E_BACKEND)")
+    (LLM_E_REQUEST          carriage-llm-request          "Ошибка формирования запроса (LLM_E_REQUEST)")
+    (LLM_E_STREAM           carriage-llm-stream           "Ошибка потоковой передачи (LLM_E_STREAM)")
+    (LLM_E_TOOL_USE         carriage-llm-tool-use         "Ошибка протокола tool-use (LLM_E_TOOL_USE)")
+    (LLM_E_SCHEMA           carriage-llm-schema           "Ошибка обработки схемы (LLM_E_SCHEMA)")
     )
   "Mapping of error codes to condition symbols and Russian messages.")
 

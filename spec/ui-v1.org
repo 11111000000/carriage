@@ -89,6 +89,8 @@
 
 * Поведение по умолчанию (Customize)
 - Открывать отчёт: carriage-mode-auto-open-report (t).
+- Открывать лог: carriage-mode-auto-open-log (t).
+- Открывать трафик: carriage-mode-auto-open-traffic (t).
 - Показывать диффы перед применением: carriage-mode-show-diffs (t).
 - Требовать подтверждение перед C-c !: carriage-mode-confirm-apply-all (t).
 

@@ -10,6 +10,7 @@
 (require 'carriage-report)
 (require 'carriage-iteration)
 (require 'carriage-llm-registry)
+(require 'carriage-transport)
 (require 'carriage-ui)
 
 (defcustom carriage-mode-default-profile 'Code
@@ -35,11 +36,19 @@
   "Require showing diffs before apply."
   :type 'boolean :group 'carriage)
 
+(defcustom carriage-mode-auto-open-log t
+  "When non-nil, open *carriage-log* automatically on mode enable and when sending."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-auto-open-traffic t
+  "When non-nil, open *carriage-traffic* automatically when sending."
+  :type 'boolean :group 'carriage)
+
 (defcustom carriage-mode-confirm-apply-all t
   "Ask for confirmation before applying all blocks (C-c !)."
   :type 'boolean :group 'carriage)
 
-(defcustom carriage-mode-use-icons nil
+(defcustom carriage-mode-use-icons t
   "Use all-the-icons in mode-line if available."
   :type 'boolean :group 'carriage)
 
@@ -134,6 +143,10 @@ Set by transports/pipelines when starting an async activity; cleared on completi
             (setq carriage--mode-modeline-construct '(:eval (carriage-ui--modeline)))
             (setq-local mode-line-format
                         (append mode-line-format (list carriage--mode-modeline-construct)))))
+        (when (and carriage-mode-auto-open-log (fboundp 'carriage-show-log))
+          (ignore-errors (carriage-show-log)))
+        (when (and carriage-mode-auto-open-traffic (fboundp 'carriage-show-traffic))
+          (ignore-errors (carriage-show-traffic)))
         (carriage-log "carriage-mode enabled in %s" (buffer-name)))
     ;; Disable: restore header-line and remove modeline segment (buffer-local)
     (unless (bound-and-true-p noninteractive)
@@ -158,19 +171,63 @@ Set by transports/pipelines when starting an async activity; cleared on completi
 (defun carriage-send-buffer ()
   "Send entire buffer to LLM according to current profile."
   (interactive)
-  (carriage-ui-set-state 'sending)
-  (message "Carriage: send-buffer (profile=%s, model=%s)"
-           carriage-mode-profile carriage-mode-model)
-  (carriage-ui-set-state 'idle))
+  (let* ((backend carriage-mode-backend)
+         (model   carriage-mode-model)
+         (profile carriage-mode-profile))
+    (carriage-log "send-buffer: profile=%s backend=%s model=%s"
+                  profile backend model)
+    (when (and carriage-mode-auto-open-log (not (bound-and-true-p noninteractive)))
+      (ignore-errors (carriage-show-log)))
+    (when (and carriage-mode-auto-open-traffic (not (bound-and-true-p noninteractive)))
+      (ignore-errors (carriage-show-traffic)))
+    (let ((unreg (carriage-transport-begin)))
+      (carriage-traffic-log 'out "request begin: source=buffer backend=%s model=%s"
+                            backend model)
+      (condition-case err
+          (progn
+            ;; Hint UI that streaming started (adapter should call this too).
+            (carriage-transport-streaming)
+            ;; Dispatch via transport (placeholder will log error if no adapter).
+            (carriage-transport-dispatch :source 'buffer
+                                         :backend backend
+                                         :model model
+                                         :buffer (current-buffer))
+            t)
+        (error
+         (carriage-log "send-buffer error: %s" (error-message-string err))
+         (carriage-transport-complete t))))))
 
 ;;;###autoload
 (defun carriage-send-subtree ()
   "Send current org subtree to LLM according to current profile."
   (interactive)
-  (carriage-ui-set-state 'sending)
-  (message "Carriage: send-subtree (profile=%s, model=%s)"
-           carriage-mode-profile carriage-mode-model)
-  (carriage-ui-set-state 'idle))
+  (let* ((backend carriage-mode-backend)
+         (model   carriage-mode-model)
+         (profile carriage-mode-profile))
+    (carriage-log "send-subtree: profile=%s backend=%s model=%s"
+                  profile backend model)
+    ;; Best-effort derive a small payload boundary for logs
+    (when (derived-mode-p 'org-mode)
+      (carriage-log "send-subtree: org-mode detected; using subtree-at-point as payload"))
+    (when (and carriage-mode-auto-open-log (not (bound-and-true-p noninteractive)))
+      (ignore-errors (carriage-show-log)))
+    (when (and carriage-mode-auto-open-traffic (not (bound-and-true-p noninteractive)))
+      (ignore-errors (carriage-show-traffic)))
+    (let ((unreg (carriage-transport-begin)))
+      (carriage-traffic-log 'out "request begin: source=subtree backend=%s model=%s"
+                            backend model)
+      (condition-case err
+          (progn
+            (carriage-transport-streaming)
+            (carriage-transport-dispatch :source 'subtree
+                                         :backend backend
+                                         :model model
+                                         :buffer (current-buffer)
+                                         :mode (symbol-name major-mode))
+            t)
+        (error
+         (carriage-log "send-subtree error: %s" (error-message-string err))
+         (carriage-transport-complete t))))))
 
 ;;;###autoload
 (defun carriage-dry-run-at-point ()

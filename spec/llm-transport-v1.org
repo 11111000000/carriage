@@ -96,19 +96,26 @@
   - Нет media — только текст.
 
 * Адаптер к gptel (референс)
-- Транспорт «gptel-adapter» должен:
-  - Конвертировать SPEC → gptel-request (map полей).
-  - Переводить поток gptel в события (STRING, t, nil; reasoning, tool-call, tool-result).
-  - Поддерживать :context (буферы/файлы/медиа) через gptel-context.
-  - Передавать :schema в gptel (response_format/json schema).
-  - Обеспечивать gptel-curl|url пути, логгирование, fsm.
-- Сопоставление:
-  - :system, :messages/:prompt → gptel директивы/список сообщений.
-  - :stream → gptel-stream (при capability).
-  - :tools → gptel-tools (функции/категории).
-  - :schema → gptel--parse-schema.
-  - reasoning → (reasoning . text|t).
-  - tool-use → (tool-call . ...), (tool-result . ...).
+- Реализация: lisp/carriage-transport-gptel.el (подключается условно из carriage.el при наличии gptel).
+- Поведение:
+  - Конвертировать SPEC → gptel-request с передачей :prompt (строка) и :stream=t.
+  - Begin: инициируется вызывающей стороной (команда/Mode) через carriage-transport-begin; адаптер НЕ должен вызывать begin повторно, но обязан зарегистрировать abort и корректно вызывать streaming/complete.
+  - Переводить поток gptel в события транспорта:
+    - STRING → streaming chunk (логируется в *carriage-traffic*, агрегируется до конца).
+    - t → завершение успехом (carriage-transport-complete nil).
+    - nil|'abort → завершение с ошибкой/отменой (carriage-transport-complete t).
+    - (reasoning . TEXT|t) → reasoning-ивенты (логируются; включение в буфер — по политике UI).
+    - (tool-call . …) / (tool-result . …) → логируются; запуск инструментов — вне объёма v1.
+  - Abort: регистрируется обработчик, вызывающий gptel-abort для исходного буфера.
+- Сопоставление параметров:
+  - :backend='gptel — активирует адаптер; иные backend → отказ (LLM_E_BACKEND).
+  - :model STRING|SYMBOL — нормализуется до SYMBOL (последний сегмент после «:»), gptel сам выполняет sanitization.
+  - :system/:messages — необязательны в v1 (минимальная интеграция); допускается расширение.
+  - :context/:tools/:schema — допускаются, маппинг в gptel по возможности; в v1 не обязателен.
+- Наблюдаемость и UI:
+  - При первом чанке вызывается carriage-transport-streaming; спиннер активируется до завершения.
+  - Весь вход/выход протоколируется в *carriage-traffic*; статусы — в *carriage-log*.
+  - Фоллбэк (echo): при отсутствии gptel, backend='echo' обеспечивает имитацию стрима для отладки (см. carriage-transport-echo.el).
 
 * Агентный транспорт (JSON-RPC v1, эскиз)
 - Цель: запуск внешнего агента (локальный процесс/сервер) по JSON-RPC 2.0.

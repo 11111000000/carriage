@@ -10,6 +10,10 @@
 (require 'carriage-apply)
 (require 'carriage-mode)
 (require 'carriage-transport)
+;; Optional: enable gptel adapter when available (fallback to echo)
+(if (require 'gptel nil t)
+    (require 'carriage-transport-gptel)
+  (require 'carriage-transport-echo))
 
 (provide 'carriage)
 ;;; carriage.el ends here
