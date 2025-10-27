@@ -93,6 +93,9 @@
 - Открывать трафик: carriage-mode-auto-open-traffic (t).
 - Показывать диффы перед применением: carriage-mode-show-diffs (t).
 - Требовать подтверждение перед C-c !: carriage-mode-confirm-apply-all (t).
+- Боковое окно для логов/трафика: carriage-mode-aux-window-side (left|right|top|bottom; по умолчанию right).
+- Размер бокового окна: carriage-mode-aux-window-size (доля ширины/высоты, по умолчанию 0.33).
+- Переиспользовать уже открытое окно: carriage-mode-aux-window-reuse (t); при повторном показе окно не выбирается (фокус остаётся в исходном буфере).
 
 * Видимость и жизненный цикл UI (норматив)
 - Буферная локальность:

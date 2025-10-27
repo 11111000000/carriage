@@ -96,10 +96,13 @@
   - Нет media — только текст.
 
 * Адаптер к gptel (референс)
-- Реализация: lisp/carriage-transport-gptel.el (подключается условно из carriage.el при наличии gptel).
+- Реализация: lisp/carriage-transport-gptel.el (подключается условно из carriage.el при наличии gptel и/или лениво при первом dispatch для backend='gptel').
+  - Требование к адаптерам: предоставлять стабильный entry-point вида carriage-transport-<backend>-dispatch (например, carriage-transport-gptel-dispatch).
+  - Поведение базового диспетчера: если entry-point fboundp — вызывать напрямую; иначе однократно (guard) выполнить require бэкенда и адаптера, затем снова проверить entry-point. Без рекурсий и без проверки function-cell. При отсутствии entry-point — фиксировать ошибку и завершать запрос.
 - Поведение:
   - Конвертировать SPEC → gptel-request с передачей :prompt (строка) и :stream=t.
   - Begin: инициируется вызывающей стороной (команда/Mode) через carriage-transport-begin; адаптер НЕ должен вызывать begin повторно, но обязан зарегистрировать abort и корректно вызывать streaming/complete.
+  - Важное: все вызовы UI состояний (carriage-transport-streaming/complete) выполняются в буфере-источнике (with-current-buffer ORIGIN), иначе спиннер/состояние останутся в неверном буфере.
   - Переводить поток gptel в события транспорта:
     - STRING → streaming chunk (логируется в *carriage-traffic*, агрегируется до конца).
     - t → завершение успехом (carriage-transport-complete nil).
@@ -110,6 +113,7 @@
 - Сопоставление параметров:
   - :backend='gptel — активирует адаптер; иные backend → отказ (LLM_E_BACKEND).
   - :model STRING|SYMBOL — нормализуется до SYMBOL (последний сегмент после «:»), gptel сам выполняет sanitization.
+  - :prompt STRING и :system STRING — если заданы, адаптер обязан использовать их напрямую; иначе строить из содержимого буфера/поддерева.
   - :system/:messages — необязательны в v1 (минимальная интеграция); допускается расширение.
   - :context/:tools/:schema — допускаются, маппинг в gptel по возможности; в v1 не обязателен.
 - Наблюдаемость и UI:

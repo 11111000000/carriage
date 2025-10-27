@@ -165,6 +165,51 @@ Set by transports/pipelines when starting an async activity; cleared on completi
       (force-mode-line-update t))
     (carriage-log "carriage-mode disabled in %s" (buffer-name))))
 
+;;; Prompt construction (profiles Ask/Code)
+
+(defun carriage--build-prompt (profile source buffer)
+  "Return plist (:system :prompt) built from PROFILE and SOURCE for BUFFER.
+PROFILE is 'Ask or 'Code. SOURCE is 'buffer or 'subtree."
+  (with-current-buffer buffer
+    (let* ((mode (buffer-local-value 'major-mode buffer))
+           (payload
+            (pcase source
+              ('subtree
+               (if (eq mode 'org-mode)
+                   (save-excursion
+                     (require 'org)
+                     (ignore-errors (org-back-to-heading t))
+                     (let ((beg (save-excursion (org-back-to-heading t) (point)))
+                           (end (save-excursion (org-end-of-subtree t t) (point))))
+                       (buffer-substring-no-properties beg end)))
+                 (buffer-substring-no-properties (point-min) (point-max))))
+              (_ (buffer-substring-no-properties (point-min) (point-max))))))
+      (pcase profile
+        ('Code
+         (list
+          :system
+          (concat
+           "Ты инструмент Carriage-mode. Отвечай строго и только блоками Org:\n"
+           "- Разрешены ТОЛЬКО блоки #+begin_patch ... #+end_patch.\n"
+           "- Ни одного символа вне блоков (никакого reasoning, пояснений и текста вне блоков).\n"
+           "- Поддерживаемые форматы: sre / sre-batch / patch / create / delete / rename (v1).\n"
+           "- DELIM и относительные пути выбирает инструмент; не придумывай их сам.\n"
+           "- Если результата нет — верни пустой допустимый блок соответствующего op.\n"
+           "Пример (create):\n"
+           "#+begin_patch (:version \"1\" :op \"create\" :file \"README.md\" :delim \"a1b2c3\")\n"
+           "<<a1b2c3\n"
+           "Hello\n"
+           ":a1b2c3\n"
+           "#+end_patch\n")
+          :prompt
+          (concat
+           "Задача:\n"
+           payload
+           "\nСформируй ответ ТОЛЬКО из допустимых begin_patch-блоков (см. v1). Без лишнего текста.")))
+        (_
+         ;; Ask: свободный ответ без патчей
+         (list :system "Режим диалога (Ask). Не генерируй begin_patch." :prompt payload))))))
+
 ;;; Commands (stubs/minimal implementations)
 
 ;;;###autoload
@@ -173,7 +218,12 @@ Set by transports/pipelines when starting an async activity; cleared on completi
   (interactive)
   (let* ((backend carriage-mode-backend)
          (model   carriage-mode-model)
-         (profile carriage-mode-profile))
+         (profile carriage-mode-profile)
+         (srcbuf  (current-buffer))
+         (origin-marker (copy-marker (point) t))
+         (built   (carriage--build-prompt profile 'buffer srcbuf))
+         (sys     (plist-get built :system))
+         (pr      (plist-get built :prompt)))
     (carriage-log "send-buffer: profile=%s backend=%s model=%s"
                   profile backend model)
     (when (and carriage-mode-auto-open-log (not (bound-and-true-p noninteractive)))
@@ -191,7 +241,11 @@ Set by transports/pipelines when starting an async activity; cleared on completi
             (carriage-transport-dispatch :source 'buffer
                                          :backend backend
                                          :model model
-                                         :buffer (current-buffer))
+                                         :prompt pr
+                                         :system sys
+                                         :buffer srcbuf
+                                         :mode (symbol-name (buffer-local-value 'major-mode srcbuf))
+                                         :insert-marker origin-marker)
             t)
         (error
          (carriage-log "send-buffer error: %s" (error-message-string err))
@@ -203,7 +257,12 @@ Set by transports/pipelines when starting an async activity; cleared on completi
   (interactive)
   (let* ((backend carriage-mode-backend)
          (model   carriage-mode-model)
-         (profile carriage-mode-profile))
+         (profile carriage-mode-profile)
+         (srcbuf  (current-buffer))
+         (origin-marker (copy-marker (point) t))
+         (built   (carriage--build-prompt profile 'subtree srcbuf))
+         (sys     (plist-get built :system))
+         (pr      (plist-get built :prompt)))
     (carriage-log "send-subtree: profile=%s backend=%s model=%s"
                   profile backend model)
     ;; Best-effort derive a small payload boundary for logs
@@ -222,8 +281,11 @@ Set by transports/pipelines when starting an async activity; cleared on completi
             (carriage-transport-dispatch :source 'subtree
                                          :backend backend
                                          :model model
-                                         :buffer (current-buffer)
-                                         :mode (symbol-name major-mode))
+                                         :prompt pr
+                                         :system sys
+                                         :buffer srcbuf
+                                         :mode (symbol-name (buffer-local-value 'major-mode srcbuf))
+                                         :insert-marker origin-marker)
             t)
         (error
          (carriage-log "send-subtree error: %s" (error-message-string err))
@@ -460,37 +522,49 @@ Return a single string with blocks concatenated by blank lines."
       (mapconcat #'identity (nreverse chunks) "\n\n"))))
 
 ;;;###autoload
-(defun carriage-accept-llm-response (&optional input)
+(defun carriage-accept-llm-response (&optional input insert-marker)
   "Accept an LLM response INPUT, keep only begin_patch blocks, insert and dry-run.
-Interactively prompts for INPUT. Inserts extracted blocks at point,
-marks them as the last iteration, runs dry-run and opens the report.
 
-Returns the dry-run report plist."
+When INSERT-MARKER is a live marker, insert into (marker-buffer INSERT-MARKER)
+at (marker-position INSERT-MARKER). Otherwise insert at point in current buffer.
+
+Interactively prompts for INPUT. Inserts extracted blocks, marks them as the last
+iteration, runs dry-run and opens the report. Returns the dry-run report plist."
   (interactive
    (list (read-string "Paste LLM response (only begin_patch blocks will be kept):\n")))
-  (let* ((root (or (carriage-project-root) default-directory))
-         (blocks (carriage--extract-patch-blocks (or input ""))))
+  (let* ((blocks (carriage--extract-patch-blocks (or input ""))))
     (when (or (null blocks) (string-empty-p (string-trim blocks)))
       (user-error "No begin_patch blocks found in input"))
-    (carriage-traffic-log 'in "Accepted LLM response (%d chars)" (length input))
-    (carriage-log "accept: extracted blocks bytes=%d"
-                  (string-bytes blocks))
-    (let ((ins-beg (point)))
-      (unless (bolp) (insert "\n"))
-      (insert blocks "\n")
-      (let ((ins-end (point)))
-        (carriage-log "accept: inserted region %d..%d (%d chars)"
-                      ins-beg ins-end (- ins-end ins-beg))
-        (carriage-mark-last-iteration ins-beg ins-end)))
-    (carriage-log "accept: collecting last-iteration blocks…")
-    (let ((plan (carriage-collect-last-iteration-blocks root)))
-      (carriage-log "accept: plan-size=%d" (length plan))
-      (carriage-ui-set-state 'dry-run)
-      (let ((rep (carriage-dry-run-plan plan root)))
-        (when (and carriage-mode-auto-open-report (not noninteractive))
-          (carriage-report-open rep))
-        (carriage-ui-set-state 'idle)
-        rep))))
+    (let* ((tgt-buf (if (and (markerp insert-marker)
+                             (buffer-live-p (marker-buffer insert-marker)))
+                        (marker-buffer insert-marker)
+                      (current-buffer)))
+           (tgt-pos (and (markerp insert-marker)
+                         (buffer-live-p (marker-buffer insert-marker))
+                         (marker-position insert-marker)))
+           rep)
+      (with-current-buffer tgt-buf
+        (let ((root (or (carriage-project-root) default-directory)))
+          (carriage-traffic-log 'in "Accepted LLM response (%d chars)" (length (or input "")))
+          (carriage-log "accept: extracted blocks bytes=%d" (string-bytes blocks))
+          (save-excursion
+            (when tgt-pos (goto-char tgt-pos))
+            (let ((ins-beg (point)))
+              (unless (bolp) (insert "\n"))
+              (insert blocks "\n")
+              (let ((ins-end (point)))
+                (carriage-log "accept: inserted region %d..%d (%d chars)"
+                              ins-beg ins-end (- ins-end ins-beg))
+                (carriage-mark-last-iteration ins-beg ins-end))))
+          (carriage-log "accept: collecting last-iteration blocks…")
+          (let ((plan (carriage-collect-last-iteration-blocks root)))
+            (carriage-log "accept: plan-size=%d" (length plan))
+            (carriage-ui-set-state 'dry-run)
+            (setq rep (carriage-dry-run-plan plan root))
+            (when (and carriage-mode-auto-open-report (not noninteractive))
+              (carriage-report-open rep))
+            (carriage-ui-set-state 'idle))))
+      rep)))
 
 ;;; Toggles and helpers (UI accessibility)
 

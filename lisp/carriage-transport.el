@@ -6,6 +6,9 @@
 (require 'carriage-mode)
 (require 'carriage-logging)
 
+(defvar carriage--transport-loading-adapter nil
+  "Guard to prevent recursive/layered adapter loading in transport dispatcher.")
+
 ;;;###autoload
 (defun carriage-transport-begin (&optional abort-fn)
   "Signal beginning of an async request: set UI to 'sending and install ABORT-FN.
@@ -36,15 +39,63 @@ If ERRORP non-nil, set state to 'error; otherwise set 'idle."
   t)
 
 (defun carriage-transport-dispatch (&rest args)
-  "Dispatch a request to the current backend adapter (placeholder).
-ARGS is a plist, may include :source, :backend, :model, :payload, :buffer, etc.
+  "Dispatch request ARGS to transport adapter with safe lazy loading.
 
-In v1, when no adapter is installed, we log and complete with error.
-Backends (e.g., gptel) should advise/override this function in their adapter."
+Contract:
+- Prefer direct entry-point call (carriage-transport-<backend>-dispatch) when fboundp.
+- If missing, attempt one-shot lazy load of adapter (guarded), then call entry-point.
+- No recursion, no reliance on function cell replacement."
   (carriage-traffic-log 'out "dispatch request: %S" args)
-  (carriage-log "Transport: no adapter installed; request dropped")
-  (carriage-transport-complete t)
-  (user-error "No transport adapter installed (gptel or other)"))
+  (let* ((backend (plist-get args :backend))
+         (bsym (cond
+                ((symbolp backend) backend)
+                ((stringp backend) (intern backend))
+                (t (ignore-errors (intern (format "%s" backend)))))))
+    (pcase bsym
+      ;; GPTel backend
+      ('gptel
+       (cond
+        ;; Fast path: entry-point present
+        ((fboundp 'carriage-transport-gptel-dispatch)
+         (apply #'carriage-transport-gptel-dispatch args))
+        ;; One-shot lazy load guarded
+        ((not carriage--transport-loading-adapter)
+         (let ((carriage--transport-loading-adapter t))
+           (when (and (require 'gptel nil t)
+                      (require 'carriage-transport-gptel nil t))
+             (carriage-log "Transport: gptel adapter loaded on demand"))
+           (if (fboundp 'carriage-transport-gptel-dispatch)
+               (apply #'carriage-transport-gptel-dispatch args)
+             (carriage-log "Transport: no gptel entry-point; request dropped")
+             (carriage-transport-complete t)
+             (user-error "No transport adapter installed (gptel)"))))
+        (t
+         (carriage-log "Transport: adapter loading already in progress; dropping")
+         (carriage-transport-complete t)
+         (user-error "No transport adapter installed (gptel)"))))
+      ;; Echo backend (dev)
+      ('echo
+       (cond
+        ((fboundp 'carriage-transport-echo-dispatch)
+         (apply #'carriage-transport-echo-dispatch args))
+        ((not carriage--transport-loading-adapter)
+         (let ((carriage--transport-loading-adapter t))
+           (when (require 'carriage-transport-echo nil t)
+             (carriage-log "Transport: echo adapter loaded on demand"))
+           (if (fboundp 'carriage-transport-echo-dispatch)
+               (apply #'carriage-transport-echo-dispatch args)
+             (carriage-log "Transport: no echo entry-point; request dropped")
+             (carriage-transport-complete t)
+             (user-error "No transport adapter installed (echo)"))))
+        (t
+         (carriage-log "Transport: adapter loading already in progress; dropping")
+         (carriage-transport-complete t)
+         (user-error "No transport adapter installed (echo)"))))
+      ;; Unknown backend
+      (_
+       (carriage-log "Transport: unknown backend=%s" bsym)
+       (carriage-transport-complete t)
+       (user-error "Unknown transport backend: %s" bsym)))))
 
 (provide 'carriage-transport)
 ;;; carriage-transport.el ends here

@@ -62,12 +62,14 @@ If MODEL cannot be interned meaningfully, return it unchanged."
              (not (bound-and-true-p noninteractive)))
     (ignore-errors (carriage-show-traffic))))
 
-(defun carriage-transport-dispatch (&rest args)
+(defun carriage-transport-gptel-dispatch (&rest args)
   "Dispatch Carriage request via GPTel when backend is 'gptel.
 
 ARGS is a plist with at least :backend, :model, :source, :buffer, :mode.
+Optionally accepts :prompt and :system to override prompt construction.
+When :insert-marker is a live marker, insert accepted blocks at its position.
 Streams chunks to *carriage-traffic*, accumulates text, and on completion
-invokes `carriage-accept-llm-response' in the originating buffer.
+invokes =carriage-accept-llm-response' in the originating buffer/marker.
 
 On backend mismatch, logs and completes with error."
   (let* ((backend (plist-get args :backend))
@@ -75,16 +77,19 @@ On backend mismatch, logs and completes with error."
          (source  (plist-get args :source))
          (buffer  (or (plist-get args :buffer) (current-buffer)))
          (mode    (or (plist-get args :mode)
-                      (buffer-local-value 'major-mode buffer))))
+                      (buffer-local-value 'major-mode buffer)))
+         (ins-marker (plist-get args :insert-marker)))
     (unless (memq (if (symbolp backend) backend (intern (format "%s" backend)))
                   '(gptel))
       (carriage-log "Transport[gptel]: backend mismatch (%s), dropping" backend)
-      (carriage-transport-complete t)
+      (with-current-buffer buffer (carriage-transport-complete t))
       (user-error "No transport adapter for backend: %s" backend))
     ;; Prepare environment for gptel
     (let* ((acc "")
            (first-chunk t)
-           (prompt (carriage--gptel--prompt source buffer (intern (format "%s" mode))))
+           (prompt (or (plist-get args :prompt)
+                       (carriage--gptel--prompt source buffer (intern (format "%s" mode)))))
+           (system (plist-get args :system))
            ;; Let-bind gptel variables locally to this request buffer
            (gptel-buffer buffer)
            (abort-installed nil)
@@ -92,7 +97,7 @@ On backend mismatch, logs and completes with error."
            (gptel-model (carriage--gptel--normalize-model model)))
       (with-current-buffer gptel-buffer
         (carriage--gptel--maybe-open-logs)
-        ;; Install abort via Carriage; `gptel-abort' expects a buffer.
+        ;; Install abort via Carriage; =gptel-abort' expects a buffer.
         (carriage-register-abort-handler
          (lambda ()
            (condition-case e
@@ -104,6 +109,8 @@ On backend mismatch, logs and completes with error."
         (carriage-traffic-log 'out "gptel request: model=%s source=%s bytes=%d"
                               gptel-model source (length prompt))
         (gptel-request prompt
+          :system system
+          :stream t
           :callback
           (lambda (response info)
             (cond
@@ -111,7 +118,8 @@ On backend mismatch, logs and completes with error."
              ((stringp response)
               (when first-chunk
                 (setq first-chunk nil)
-                (carriage-transport-streaming))
+                (with-current-buffer gptel-buffer
+                  (carriage-transport-streaming)))
               (setq acc (concat acc response))
               (carriage-traffic-log 'in "%s" response))
              ;; Reasoning block: log (do not accumulate)
@@ -125,19 +133,27 @@ On backend mismatch, logs and completes with error."
              ;; Completed successfully (t)
              ((eq response t)
               (carriage-traffic-log 'in "gptel: done")
-              (carriage-transport-complete nil)
-              (when (and (stringp acc) (not (string-empty-p (string-trim acc))))
-                (with-current-buffer gptel-buffer
+              (let ((accepted-ok nil))
+                (when (and (stringp acc) (not (string-empty-p (string-trim acc))))
                   (condition-case e
-                      (carriage-accept-llm-response acc)
+                      (progn
+                        (carriage-accept-llm-response acc ins-marker)
+                        (setq accepted-ok t))
                     (error
-                     (carriage-log "accept error: %s" (error-message-string e))
-                     (carriage-ui-set-state 'error))))))
+                     (with-current-buffer gptel-buffer
+                       (carriage-log "accept error: %s" (error-message-string e)))
+                     (setq accepted-ok nil))))
+                (with-current-buffer gptel-buffer
+                  (carriage-transport-complete (not accepted-ok)))))
              ;; Aborted or error (nil or 'abort)
              ((or (null response) (eq response 'abort))
               (let ((msg (or (plist-get info :status) "error/abort")))
                 (carriage-traffic-log 'in "gptel: %s" msg))
-              (carriage-transport-complete t)))))))))
+              (with-current-buffer gptel-buffer
+                (carriage-transport-complete t))))))))))
+
+
+;; Entry-point: carriage-transport-gptel-dispatch
 
 (provide 'carriage-transport-gptel)
 ;;; carriage-transport-gptel.el ends here

@@ -17,6 +17,22 @@
   :type 'integer
   :group 'carriage)
 
+(defcustom carriage-mode-aux-window-side 'right
+  "Side for auxiliary buffers (*carriage-log*, *carriage-traffic*)."
+  :type '(choice (const left) (const right) (const top) (const bottom))
+  :group 'carriage)
+
+(defcustom carriage-mode-aux-window-size 0.33
+  "Relative size of the side window for auxiliary buffers.
+For left/right sides this is window-width; for top/bottom — window-height."
+  :type 'number
+  :group 'carriage)
+
+(defcustom carriage-mode-aux-window-reuse t
+  "Reuse an existing window that already displays the auxiliary buffer."
+  :type 'boolean
+  :group 'carriage)
+
 (defconst carriage--log-buffer-name "*carriage-log*")
 (defconst carriage--traffic-buffer-name "*carriage-traffic*")
 
@@ -73,15 +89,52 @@ STRING may be any object; it will be coerced to a string via `format'."
   (message "Carriage logs cleared.")
   t)
 
+(defun carriage--display-aux-buffer (buffer &optional side size reuse)
+  "Display BUFFER in a side window without replacing the current window.
+SIDE defaults to =carriage-mode-aux-window-side'. SIZE defaults to
+=carriage-mode-aux-window-size'. When REUSE (or
+=carriage-mode-aux-window-reuse') is non-nil, reuse an existing window
+already showing BUFFER."
+  (let* ((side (or side (and (boundp 'carriage-mode-aux-window-side)
+                             carriage-mode-aux-window-side)
+                   'right))
+         (size (or size (and (boundp 'carriage-mode-aux-window-size)
+                             carriage-mode-aux-window-size)
+                   0.33))
+         (reuse (if (boundp 'carriage-mode-aux-window-reuse)
+                    carriage-mode-aux-window-reuse
+                  t))
+         (win (and reuse (get-buffer-window buffer t))))
+    (cond
+     (win
+      ;; Reuse existing window but do not select it (preserve user focus).
+      (set-window-buffer win buffer))
+     (t
+      ;; Show in a side window and keep main window intact.
+      (display-buffer buffer
+                      `((display-buffer-reuse-window display-buffer-in-side-window)
+                        (side . ,side)
+                        ,@(if (memq side '(left right))
+                              `((window-width . ,size))
+                            `((window-height . ,size)))
+                        (slot . -1)
+                        (window-parameters . ((no-delete-other-windows . t)))))))))
+
 (defun carriage-show-log ()
-  "Display the Carriage log buffer."
+  "Display the Carriage log buffer in a side window."
   (interactive)
-  (pop-to-buffer (carriage-log-buffer)))
+  (carriage--display-aux-buffer (carriage-log-buffer)
+                                carriage-mode-aux-window-side
+                                carriage-mode-aux-window-size
+                                carriage-mode-aux-window-reuse))
 
 (defun carriage-show-traffic ()
-  "Display the Carriage traffic buffer."
+  "Display the Carriage traffic buffer in a side window."
   (interactive)
-  (pop-to-buffer (carriage-traffic-buffer)))
+  (carriage--display-aux-buffer (carriage-traffic-buffer)
+                                carriage-mode-aux-window-side
+                                carriage-mode-aux-window-size
+                                carriage-mode-aux-window-reuse))
 
 (provide 'carriage-logging)
 ;;; carriage-logging.el ends here

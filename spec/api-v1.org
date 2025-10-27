@@ -68,6 +68,9 @@
 - carriage-mode-max-batch-pairs (integer) — лимит пар в SRE-BATCH
 - carriage-mode-log-max-lines (integer) — предел строк для *carriage-log*/*carriage-report*.
 - carriage-mode-traffic-max-lines (integer) — предел строк для *carriage-traffic*.
+- carriage-mode-aux-window-side (symbol) — сторона бокового окна для логов/трафика: left|right|top|bottom.
+- carriage-mode-aux-window-size (number) — относительный размер бокового окна (0–1).
+- carriage-mode-aux-window-reuse (boolean) — переиспользовать уже открытое окно для буферов логов/трафика.
 
 * Лица (faces)
 - carriage-patch-valid-face

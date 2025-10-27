@@ -52,7 +52,7 @@
         (setq i j)))
     (nreverse acc)))
 
-(defun carriage-transport-dispatch (&rest args)
+(defun carriage-transport-echo-dispatch (&rest args)
   "Dispatch Carriage request via echo backend when :backend is 'echo.
 
 ARGS is a plist with keys like :backend, :model, :source, :buffer, :mode.
@@ -120,6 +120,8 @@ in small chunks on a timer. No content is inserted into the Org buffer."
              (when (timerp timer) (cancel-timer timer))
              (carriage-traffic-log 'in "echo: aborted (begin-handler)")
              (carriage-transport-complete t))))))))
+
+;; Entry-point: carriage-transport-echo-dispatch
 
 (provide 'carriage-transport-echo)
 ;;; carriage-transport-echo.el ends here
