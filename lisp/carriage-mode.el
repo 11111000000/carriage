@@ -521,50 +521,112 @@ Return a single string with blocks concatenated by blank lines."
           (forward-line 1)))
       (mapconcat #'identity (nreverse chunks) "\n\n"))))
 
+(defun carriage--sanitize-llm-response (raw)
+  "Return only sanitized #+begin_patch blocks from RAW.
+
+Sanitization rules:
+- Keep only begin_patch blocks; drop any text outside blocks.
+- For :op sre/sre-batch/create: ensure :delim is a 6-hex token in header.
+  If missing/invalid, generate a token and rewrite markers in body (<<TOK and :TOK)."
+  (with-temp-buffer
+    (insert (or raw ""))
+    (goto-char (point-min))
+    (let ((acc '()))
+      (while (re-search-forward "^[ \t]*#\\+begin_patch\\s-+\\((.*)\\)[ \t]*$" nil t)
+        (let* ((hdr-str (match-string 1))
+               (hdr     (car (read-from-string hdr-str)))
+               (op      (plist-get hdr :op))
+               (opstr   (format "%s" op))
+               (body-beg (progn (forward-line 1) (point)))
+               (body-end (progn
+                           (unless (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
+                             (goto-char (point-max)))
+                           (line-beginning-position)))
+               (body (buffer-substring-no-properties body-beg body-end)))
+          (when (string-prefix-p ":" (or opstr ""))
+            (setq opstr (substring opstr 1)))
+          (let* ((needs-delim (member opstr '("sre" "sre-batch" "create")))
+                 (delim (plist-get hdr :delim))
+                 (delim-ok (and (stringp delim)
+                                (string-match-p "\\`[0-9a-f]\\{6\\}\\'" delim)))
+                 (oldtok (cond
+                          ((stringp delim) delim)
+                          (t (with-temp-buffer
+                               (insert body)
+                               (goto-char (point-min))
+                               (when (re-search-forward "^[ \t]*<<\\([^ \t\n]+\\)[ \t]*$" nil t)
+                                 (match-string 1))))))
+                 (newtok (if (and needs-delim delim-ok) delim (carriage-generate-delim)))
+                 (body1  body)
+                 (hdr1   hdr))
+            (when needs-delim
+              (setq hdr1 (plist-put hdr1 :delim newtok))
+              (when (and oldtok (not (string= oldtok newtok)))
+                (setq body1 (carriage--sre--rewrite-delim-markers body oldtok newtok))))
+            (let* ((hdr-print (prin1-to-string hdr1))
+                   (block (concat "#+begin_patch " hdr-print "\n" body1 "\n#+end_patch\n")))
+              (push block acc))))
+        (forward-line 1))
+      (mapconcat #'identity (nreverse acc) "\n"))))
+
+(defun carriage--accept-insertion-target (insert-marker)
+  "Return (cons BUFFER . POS) for insertion target based on INSERT-MARKER."
+  (if (and (markerp insert-marker)
+           (buffer-live-p (marker-buffer insert-marker)))
+      (cons (marker-buffer insert-marker) (marker-position insert-marker))
+    (cons (current-buffer) nil)))
+
+(defun carriage--insert-blocks-and-mark (buf pos blocks)
+  "Insert BLOCKS into BUF at POS (or point if nil), mark last iteration.
+Return cons (BEG . END) of inserted region."
+  (with-current-buffer buf
+    (save-excursion
+      (when pos (goto-char pos))
+      (let ((ins-beg (point)))
+        (unless (bolp) (insert "\n"))
+        (insert blocks "\n")
+        (let ((ins-end (point)))
+          (carriage-log "accept: inserted region %d..%d (%d chars)"
+                        ins-beg ins-end (- ins-end ins-beg))
+          (carriage-mark-last-iteration ins-beg ins-end)
+          (cons ins-beg ins-end))))))
+
+(defun carriage--dry-run-last-iteration (root)
+  "Collect last-iteration blocks for ROOT, run dry-run, open report if configured.
+Return the dry-run report plist."
+  (carriage-log "accept: collecting last-iteration blocks…")
+  (let* ((plan (carriage-collect-last-iteration-blocks root)))
+    (carriage-log "accept: plan-size=%d" (length plan))
+    (carriage-ui-set-state 'dry-run)
+    (let ((rep (carriage-dry-run-plan plan root)))
+      (when (and carriage-mode-auto-open-report (not noninteractive))
+        (carriage-report-open rep))
+      (carriage-ui-set-state 'idle)
+      rep)))
+
 ;;;###autoload
 (defun carriage-accept-llm-response (&optional input insert-marker)
   "Accept an LLM response INPUT, keep only begin_patch blocks, insert and dry-run.
 
-When INSERT-MARKER is a live marker, insert into (marker-buffer INSERT-MARKER)
-at (marker-position INSERT-MARKER). Otherwise insert at point in current buffer.
-
-Interactively prompts for INPUT. Inserts extracted blocks, marks them as the last
-iteration, runs dry-run and opens the report. Returns the dry-run report plist."
+- Sanitizes begin_patch blocks (enforces :delim for sre/sre-batch/create).
+- Inserts into buffer at INSERT-MARKER or point.
+- Marks the region as the last iteration and runs dry-run with report."
   (interactive
    (list (read-string "Paste LLM response (only begin_patch blocks will be kept):\n")))
-  (let* ((blocks (carriage--extract-patch-blocks (or input ""))))
+  (let* ((raw (or input ""))
+         (sanitized (carriage--sanitize-llm-response raw))
+         (blocks (carriage--extract-patch-blocks sanitized)))
     (when (or (null blocks) (string-empty-p (string-trim blocks)))
       (user-error "No begin_patch blocks found in input"))
-    (let* ((tgt-buf (if (and (markerp insert-marker)
-                             (buffer-live-p (marker-buffer insert-marker)))
-                        (marker-buffer insert-marker)
-                      (current-buffer)))
-           (tgt-pos (and (markerp insert-marker)
-                         (buffer-live-p (marker-buffer insert-marker))
-                         (marker-position insert-marker)))
-           rep)
-      (with-current-buffer tgt-buf
+    (let* ((target (carriage--accept-insertion-target insert-marker))
+           (buf (car target))
+           (pos (cdr target)))
+      (with-current-buffer buf
         (let ((root (or (carriage-project-root) default-directory)))
-          (carriage-traffic-log 'in "Accepted LLM response (%d chars)" (length (or input "")))
+          (carriage-traffic-log 'in "Accepted LLM response (%d chars)" (length raw))
           (carriage-log "accept: extracted blocks bytes=%d" (string-bytes blocks))
-          (save-excursion
-            (when tgt-pos (goto-char tgt-pos))
-            (let ((ins-beg (point)))
-              (unless (bolp) (insert "\n"))
-              (insert blocks "\n")
-              (let ((ins-end (point)))
-                (carriage-log "accept: inserted region %d..%d (%d chars)"
-                              ins-beg ins-end (- ins-end ins-beg))
-                (carriage-mark-last-iteration ins-beg ins-end))))
-          (carriage-log "accept: collecting last-iteration blocks…")
-          (let ((plan (carriage-collect-last-iteration-blocks root)))
-            (carriage-log "accept: plan-size=%d" (length plan))
-            (carriage-ui-set-state 'dry-run)
-            (setq rep (carriage-dry-run-plan plan root))
-            (when (and carriage-mode-auto-open-report (not noninteractive))
-              (carriage-report-open rep))
-            (carriage-ui-set-state 'idle))))
-      rep)))
+          (ignore (carriage--insert-blocks-and-mark buf pos blocks))
+          (carriage--dry-run-last-iteration root))))))
 
 ;;; Toggles and helpers (UI accessibility)
 

@@ -16,7 +16,7 @@
   - SRE: :range вне границ → clamp и предупреждение SRE_W_RANGE_CLAMP; одинаковое поведение dry-run/apply.
   - PATCH: многофайловый diff → отказ, /dev/null create/delete, :strip логика.
   - PATCH: rename/copy прелюдии → PATCH_E_RENAME_COPY; бинарные секции → PATCH_E_BINARY.
-  - FILE OPS: create/delete/rename — предусловия, :mkdir, :ensure-final-newline, конфликты путей и существование/отсутствие файлов.
+  - File Ops: create/delete/rename — предусловия, :mkdir, :ensure-final-newline, конфликты путей и существование/отсутствие файлов; create: валидация :delim (=6 hex, \=[0-9a-f]\{6\}\'), негативный кейс при неверном токене.
 - Валидаторы regexp (Emacs flavor): неподдерживаемые конструкции → ошибка.
 - Нормализация путей: запрет абсолютов и «..».
 - TRAMP/remote: отказ при (file-remote-p) t.
@@ -75,6 +75,15 @@
 
 (ert-deftest carriage-rename-validate-and-apply ()
   (should (fboundp 'carriage-parse-rename)))
+
+;; BUGFIX regression: create :delim must be exactly 6 lower hex; anchor with \= and \'
+(ert-deftest carriage-create-delim-validation ()
+  (let ((hdr '(:version "1" :op "create" :file "x" :delim "1db651"))
+        (bad '(:version "1" :op "create" :file "x" :delim "ZZZZZZ")))
+    (should (ignore-errors
+              (carriage-parse-create hdr "<<1db651\nok\n:1db651\n" default-directory)))
+    (should-error
+     (carriage-parse-create bad "<<ZZZZZZ\nok\n:ZZZZZZ\n" default-directory))))
 
 ;; Security and env
 (ert-deftest carriage-path-normalization ()
