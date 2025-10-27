@@ -21,6 +21,11 @@
   :type 'string
   :group 'carriage)
 
+(defcustom carriage-mode-default-backend 'gptel
+  "Default LLM transport backend for Carriage (e.g., 'gptel)."
+  :type '(choice symbol string)
+  :group 'carriage)
+
 (defcustom carriage-mode-auto-open-report t
   "Open report buffer automatically after dry-run."
   :type 'boolean :group 'carriage)
@@ -53,14 +58,41 @@ as a “(+N more)” tail."
   :type 'integer :group 'carriage)
 
 (defcustom carriage-mode-max-batch-pairs 200
-  "Maximum number of pairs allowed in an :op `sre-batch' block."
+  "Maximum number of pairs allowed in an :op =sre-batch' block."
   :type 'integer :group 'carriage)
 
+(defcustom carriage-mode-show-header-line t
+  "When non-nil, install a buffer-local header-line segment for Carriage."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-headerline-max-width nil
+  "Maximum width of header-line in columns. When nil, use window width."
+  :type '(choice (const :tag "Auto" nil) integer)
+  :group 'carriage)
+
+(defcustom carriage-mode-show-mode-line-ui t
+  "When non-nil, add a buffer-local modeline segment for Carriage."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-spinner-interval 0.15
+  "Spinner update interval in seconds for sending/streaming states."
+  :type 'number :group 'carriage)
+
 (defvar-local carriage-mode-profile carriage-mode-default-profile
-  "Current Carriage profile for this buffer: `Ask' or `Code'.")
+  "Current Carriage profile for this buffer: =Ask' or =Code'.")
 
 (defvar-local carriage-mode-model carriage-mode-default-model
   "Current Carriage model string for this buffer.")
+
+(defvar-local carriage-mode-backend carriage-mode-default-backend
+  "Current Carriage backend identifier (symbol or string) for this buffer.")
+
+(defvar-local carriage--mode-prev-header-line-format nil
+  "Saved previous value of =header-line-format' to restore on mode disable.")
+
+(defvar-local carriage--mode-modeline-construct nil
+  "The exact modeline construct object inserted by Carriage for later removal.")
+
 
 ;;;###autoload
 (define-minor-mode carriage-mode
@@ -72,7 +104,31 @@ as a “(+N more)” tail."
       (progn
         (setq carriage-mode-profile carriage-mode-default-profile)
         (setq carriage-mode-model carriage-mode-default-model)
+        (setq carriage-mode-backend carriage-mode-default-backend)
+        ;; UI (buffer-local, no global effects); respect batch/noninteractive
+        (unless (bound-and-true-p noninteractive)
+          (when carriage-mode-show-header-line
+            (setq carriage--mode-prev-header-line-format header-line-format)
+            (setq-local header-line-format '(:eval (carriage-ui--header-line))))
+          (when carriage-mode-show-mode-line-ui
+            (setq carriage--mode-modeline-construct '(:eval (carriage-ui--modeline)))
+            (setq-local mode-line-format
+                        (append mode-line-format (list carriage--mode-modeline-construct)))))
         (carriage-log "carriage-mode enabled in %s" (buffer-name)))
+    ;; Disable: restore header-line and remove modeline segment (buffer-local)
+    (unless (bound-and-true-p noninteractive)
+      (when (local-variable-p 'header-line-format)
+        (setq-local header-line-format carriage--mode-prev-header-line-format))
+      (setq carriage--mode-prev-header-line-format nil)
+      (when (and carriage--mode-modeline-construct
+                 (local-variable-p 'mode-line-format))
+        (setq-local mode-line-format
+                    (delq carriage--mode-modeline-construct mode-line-format)))
+      (setq carriage--mode-modeline-construct nil)
+      ;; Stop spinner if running
+      (when (fboundp 'carriage-ui--spinner-stop)
+        (carriage-ui--spinner-stop t))
+      (force-mode-line-update t))
     (carriage-log "carriage-mode disabled in %s" (buffer-name))))
 
 ;;; Commands (stubs/minimal implementations)
@@ -206,6 +262,14 @@ as a “(+N more)” tail."
   (setq carriage-mode-model model)
   (message "Carriage model set to: %s" model))
 
+;;;###autoload
+(defun carriage-select-backend (backend)
+  "Select LLM transport BACKEND for Carriage (symbol or string)."
+  (interactive "SBackend (symbol, e.g., gptel): ")
+  (setq carriage-mode-backend backend)
+  (message "Carriage backend set to: %s"
+           (if (symbolp backend) (symbol-name backend) backend)))
+
 ;;; Navigation placeholders
 
 (defun carriage-next-patch-block ()
@@ -266,6 +330,46 @@ Returns the dry-run report plist."
           (carriage-report-open rep))
         (carriage-ui-set-state 'idle)
         rep))))
+
+;;; Toggles and helpers (UI accessibility)
+
+;;;###autoload
+(defun carriage-abort-current ()
+  "Abort current Carriage request/apply (stub for v1, transport integration in v1.1)."
+  (interactive)
+  (message "Нет активного запроса"))
+
+;;;###autoload
+(defun carriage-toggle-auto-open-report ()
+  "Toggle auto-opening report after dry-run."
+  (interactive)
+  (setq carriage-mode-auto-open-report (not carriage-mode-auto-open-report))
+  (message "Auto-open report: %s" (if carriage-mode-auto-open-report "on" "off"))
+  (force-mode-line-update t))
+
+;;;###autoload
+(defun carriage-toggle-show-diffs ()
+  "Toggle requirement to show diffs before apply."
+  (interactive)
+  (setq carriage-mode-show-diffs (not carriage-mode-show-diffs))
+  (message "Show diffs before apply: %s" (if carriage-mode-show-diffs "on" "off"))
+  (force-mode-line-update t))
+
+;;;###autoload
+(defun carriage-toggle-confirm-apply-all ()
+  "Toggle confirmation before applying all blocks (C-c !)."
+  (interactive)
+  (setq carriage-mode-confirm-apply-all (not carriage-mode-confirm-apply-all))
+  (message "Confirm apply-all: %s" (if carriage-mode-confirm-apply-all "on" "off"))
+  (force-mode-line-update t))
+
+;;;###autoload
+(defun carriage-toggle-use-icons ()
+  "Toggle using icons in the UI (requires all-the-icons)."
+  (interactive)
+  (setq carriage-mode-use-icons (not carriage-mode-use-icons))
+  (message "Use icons: %s" (if carriage-mode-use-icons "on" "off"))
+  (force-mode-line-update t))
 
 (provide 'carriage-mode)
 ;;; carriage-mode.el ends here

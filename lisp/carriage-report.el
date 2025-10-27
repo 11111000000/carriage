@@ -183,12 +183,8 @@ If no preview is available, signal a user-visible message."
           (pop-to-buffer buf))
       (user-error "No diff preview available at point"))))
 
-(defun carriage-report-ediff-at-point ()
-  "Open Ediff for the report item at point.
-For SRE/SRE-BATCH: build in-memory \"after\" and run ediff-buffers.
-For patch: run ediff-patch-file with the unified diff and target file.
-In noninteractive (batch) mode, prepare buffers or patch file and return without invoking Ediff."
-  (interactive)
+(defun carriage--report-ediff-at-point-impl ()
+  "Implementation for =carriage-report-ediff-at-point'. See that command for behavior."
   (let* ((it (carriage-report--item-at-point)))
     (unless it
       (user-error "No report item at point"))
@@ -202,13 +198,12 @@ In noninteractive (batch) mode, prepare buffers or patch file and return without
            (unless (and abs (file-exists-p abs))
              (user-error "File not found: %s" (or file "<nil>")))
            (let* ((before (carriage-read-file-string abs))
-                  ;; In batch, or if simulation function is unavailable, avoid calling it.
                   (sim    (if (and plan (fboundp 'carriage-sre-simulate-apply) (not (bound-and-true-p noninteractive)))
                               (carriage-sre-simulate-apply plan root)
                             (list :after before :count 0)))
                   (after  (or (plist-get sim :after) before))
-                  (bufA   (get-buffer-create (format "*carriage-ediff A: %s*" file)))
-                  (bufB   (get-buffer-create (format "*carriage-ediff B: %s*" file))))
+                  (bufA   (get-buffer-create (format "*carriage-ediff A: %s/" file)))
+                  (bufB   (get-buffer-create (format "*carriage-ediff B: %s/" file))))
              (with-current-buffer bufA (read-only-mode -1) (erase-buffer) (insert before) (set-buffer-modified-p nil) (read-only-mode 1))
              (with-current-buffer bufB (read-only-mode -1) (erase-buffer) (insert after)  (set-buffer-modified-p nil) (read-only-mode 1))
              (if (bound-and-true-p noninteractive)
@@ -218,18 +213,39 @@ In noninteractive (batch) mode, prepare buffers or patch file and return without
          (let* ((diff (or (plist-get it :diff) (and plan (alist-get :diff plan))))
                 (path (or (plist-get it :path) (and plan (alist-get :path plan))))
                 (abs  (and path (ignore-errors (carriage-normalize-path root path)))))
-           (unless (and diff abs (file-exists-p abs))
-             (user-error "Cannot run Ediff for patch: missing :diff or file"))
-           (let ((patch-file (make-temp-file "carriage-ediff-" nil ".diff")))
+           (let ((patch-file (and diff (make-temp-file "carriage-ediff-" nil ".diff"))))
              (unwind-protect
                  (progn
-                   (with-temp-file patch-file (insert diff))
+                   (when patch-file
+                     (with-temp-file patch-file (insert diff)))
                    (if (bound-and-true-p noninteractive)
-                       (message "Prepared patch for Ediff (noninteractive)")
-                     (ediff-patch-file patch-file abs)))
-               (ignore-errors (delete-file patch-file))))))
+                       (progn
+                         (if patch-file
+                             (message "Prepared patch for Ediff (noninteractive)")
+                           (message "No diff available for patch item (noninteractive)")))
+                     (progn
+                       (unless (and diff abs (file-exists-p abs))
+                         (user-error "Cannot run Ediff for patch: missing :diff or file"))
+                       (ediff-patch-file patch-file abs))))
+               (when patch-file (ignore-errors (delete-file patch-file)))))))
         (_
-         (user-error "Ediff not supported for op: %S" op))))))
+         (if (bound-and-true-p noninteractive)
+             (message "Ediff not supported for op: %S (noninteractive)" op)
+           (user-error "Ediff not supported for op: %S" op)))))))
+
+(defun carriage-report-ediff-at-point ()
+  "Open Ediff for the report item at point.
+For SRE/SRE-BATCH: build in-memory \"after\" and run ediff-buffers.
+For patch: run ediff-patch-file with the unified diff and target file.
+In noninteractive (batch) mode, prepare data and never signal an error."
+  (interactive)
+  (if (bound-and-true-p noninteractive)
+      (condition-case err
+          (carriage--report-ediff-at-point-impl)
+        (error
+         (message "Ediff suppressed in batch: %s" (error-message-string err))
+         nil))
+    (carriage--report-ediff-at-point-impl)))
 
 ;;; NEW: apply-at-point
 
@@ -262,47 +278,11 @@ In batch mode runs non-interactively and refreshes report."
       map)
     "Keymap for Carriage report buffers."))
 
-(unless (fboundp 'carriage-report-mode)
-  (define-derived-mode carriage-report-mode special-mode "Carriage-Report"
-    "Major mode for Carriage report buffer."))
-
-(unless (fboundp 'carriage-report--item-at-point)
-  (defun carriage-report--item-at-point ()
-    "Return report item plist stored as text property on current line, if any."
-    (or (get-text-property (line-beginning-position) 'carriage-report-item)
-        (get-text-property (line-end-position)       'carriage-report-item))))
-
-(unless (fboundp 'carriage-report-show-diff-at-point)
-  (defun carriage-report-show-diff-at-point ()
-    "Show full diff/preview for the report item at point in a separate buffer."
-    (interactive)
-    (let* ((it   (carriage-report--item-at-point))
-           (diff (and it (plist-get it :diff))))
-      (if (and diff (stringp diff) (> (length diff) 0))
-          (let ((buf (get-buffer-create "*Carriage Diff*")))
-            (with-current-buffer buf
-              (read-only-mode -1)
-              (erase-buffer)
-              (insert diff)
-              (goto-char (point-min))
-              (view-mode 1))
-            (pop-to-buffer buf))
-        (message "No diff available at point")))))
-
-(unless (fboundp 'carriage-report-ediff-at-point)
-  (defun carriage-report-ediff-at-point ()
-    "Start Ediff for the report item at point (safe no-op in batch)."
-    (interactive)
-    (let ((it (carriage-report--item-at-point)))
-      (cond
-       (noninteractive
-        (message "Ediff suppressed in batch"))
-       ((null it)
-        (message "No report item at point"))
-       (t
-        ;; Placeholder: SRE/patch-specific ediff can be implemented here.
-        (let ((op (plist-get it :op)))
-          (message "Ediff not implemented for %S yet" op)))))))
+(define-derived-mode carriage-report-mode special-mode "Carriage-Report"
+  "Major mode for Carriage report buffers."
+  (use-local-map carriage-report-mode-map)
+  (setq buffer-read-only t)
+  (setq truncate-lines t))
 
 ;; Ensure report buffer uses our mode/keymap after rendering.
 (when (fboundp 'carriage-report-render)
