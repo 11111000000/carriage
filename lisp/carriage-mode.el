@@ -9,6 +9,7 @@
 (require 'carriage-apply)
 (require 'carriage-report)
 (require 'carriage-iteration)
+(require 'carriage-llm-registry)
 (require 'carriage-ui)
 
 (defcustom carriage-mode-default-profile 'Code
@@ -78,6 +79,11 @@ as a “(+N more)” tail."
   "Spinner update interval in seconds for sending/streaming states."
   :type 'number :group 'carriage)
 
+(defcustom carriage-mode-allow-patch-binary nil
+  "Allow binary patches in :op \"patch\" blocks.
+Note: v1 forbids binary patches; this option remains nil in v1 and is reserved for future versions."
+  :type 'boolean :group 'carriage)
+
 (defvar-local carriage-mode-profile carriage-mode-default-profile
   "Current Carriage profile for this buffer: =Ask' or =Code'.")
 
@@ -93,6 +99,12 @@ as a “(+N more)” tail."
 (defvar-local carriage--mode-modeline-construct nil
   "The exact modeline construct object inserted by Carriage for later removal.")
 
+(defvar-local carriage--abort-handler nil
+  "Buffer-local abort handler function for the current Carriage activity, or nil.
+
+The handler should be a zero-argument function that cancels the ongoing request or apply.
+Set by transports/pipelines when starting an async activity; cleared on completion or when disabling carriage-mode.")
+
 
 ;;;###autoload
 (define-minor-mode carriage-mode
@@ -105,6 +117,14 @@ as a “(+N more)” tail."
         (setq carriage-mode-profile carriage-mode-default-profile)
         (setq carriage-mode-model carriage-mode-default-model)
         (setq carriage-mode-backend carriage-mode-default-backend)
+        ;; Ensure default backend:model is present in registry for completion.
+        (when (require 'carriage-llm-registry nil t)
+          (let* ((bsym (if (symbolp carriage-mode-backend)
+                           carriage-mode-backend
+                         (intern (format "%s" carriage-mode-backend))))
+                 (backs (carriage-llm-available-backends)))
+            (unless (member (symbol-name bsym) backs)
+              (carriage-llm-register-backend bsym :models (list carriage-mode-model)))))
         ;; UI (buffer-local, no global effects); respect batch/noninteractive
         (unless (bound-and-true-p noninteractive)
           (when carriage-mode-show-header-line
@@ -125,7 +145,8 @@ as a “(+N more)” tail."
         (setq-local mode-line-format
                     (delq carriage--mode-modeline-construct mode-line-format)))
       (setq carriage--mode-modeline-construct nil)
-      ;; Stop spinner if running
+      ;; Clear abort handler and stop spinner if running
+      (setq carriage--abort-handler nil)
       (when (fboundp 'carriage-ui--spinner-stop)
         (carriage-ui--spinner-stop t))
       (force-mode-line-update t))
@@ -256,19 +277,102 @@ as a “(+N more)” tail."
   (message "Carriage profile: %s" carriage-mode-profile))
 
 ;;;###autoload
-(defun carriage-select-model (model)
-  "Select LLM MODEL string for Carriage."
-  (interactive "sModel: ")
-  (setq carriage-mode-model model)
-  (message "Carriage model set to: %s" model))
+(defun carriage-select-model (&optional model)
+  "Select LLM MODEL for Carriage, optionally as \"backend:model\".
+
+When registry has entries, offer completion over:
+- current backend's models, and
+- combined \"backend:model\" candidates.
+
+If the choice is \"backend:model\", both backend and model are updated.
+Falls back to plain string prompt when registry is empty."
+  (interactive)
+  ;; Ensure at least the current backend:model is registered for completion.
+  (when (require 'carriage-llm-registry nil t)
+    (let* ((bsym (if (symbolp carriage-mode-backend)
+                     carriage-mode-backend
+                   (intern (format "%s" carriage-mode-backend))))
+           (backs (carriage-llm-available-backends)))
+      (unless (member (symbol-name bsym) backs)
+        (carriage-llm-register-backend bsym :models (list carriage-mode-model)))))
+  (let* ((bcur (if (symbolp carriage-mode-backend)
+                   (symbol-name carriage-mode-backend)
+                 (or carriage-mode-backend "")))
+         (models (carriage-llm-available-models (and (stringp bcur) (intern bcur))))
+         (pairs  (carriage-llm-candidates))
+         ;; Offer both combined and plain model names; keep gptel pairs first.
+         (collection (delete-dups (append (or pairs '()) (or models '()))))
+         (prompt (if collection
+                     (format "Model (or backend:model) [%s]: " bcur)
+                   "Model: "))
+         (choice (or model
+                     (if collection
+                         (completing-read prompt collection nil t)
+                       (read-string prompt)))))
+    (if (and (string-match-p ":" choice)
+             (string-match "\\`\\([^:]+\\):\\(.+\\)\\'" choice))
+
+        (let ((b (match-string 1 choice))
+              (m (match-string 2 choice)))
+          (setq carriage-mode-backend (intern b))
+          (setq carriage-mode-model m)
+          ;; Keep registry in sync so completion always offers backend:model.
+          (when (require 'carriage-llm-registry nil t)
+            (let* ((bsym (if (symbolp carriage-mode-backend)
+                             carriage-mode-backend
+                           (intern (format "%s" carriage-mode-backend))))
+                   (existing (or (carriage-llm-available-models bsym) '())))
+              (carriage-llm-register-backend bsym :models (delete-dups (cons carriage-mode-model existing)))))
+          (message "Carriage backend:model set to: %s:%s" b m))
+      (setq carriage-mode-model choice)
+      ;; Also register model under current backend for future completion.
+      (when (require 'carriage-llm-registry nil t)
+        (let* ((bsym (if (symbolp carriage-mode-backend)
+                         carriage-mode-backend
+                       (intern (format "%s" carriage-mode-backend))))
+               (existing (or (carriage-llm-available-models bsym) '())))
+          (carriage-llm-register-backend bsym :models (delete-dups (cons carriage-mode-model existing)))))
+      (message "Carriage model set to: %s" choice))))
 
 ;;;###autoload
-(defun carriage-select-backend (backend)
-  "Select LLM transport BACKEND for Carriage (symbol or string)."
-  (interactive "SBackend (symbol, e.g., gptel): ")
-  (setq carriage-mode-backend backend)
-  (message "Carriage backend set to: %s"
-           (if (symbolp backend) (symbol-name backend) backend)))
+(defun carriage-select-backend (&optional backend)
+  "Select LLM transport BACKEND for Carriage.
+
+When registry is available, completion is offered over registered backends.
+Otherwise falls back to a free-form prompt. Stores backend as a symbol."
+  (interactive)
+  ;; Ensure registry exists; preseed with current backend:model if empty.
+  (when (require 'carriage-llm-registry nil t)
+    (let ((backs (carriage-llm-available-backends)))
+      (when (null backs)
+        (let* ((bsym (if (symbolp carriage-mode-backend)
+                         carriage-mode-backend
+                       (intern (format "%s" carriage-mode-backend)))))
+          (carriage-llm-register-backend bsym :models (list carriage-mode-model))))))
+  (let* ((backs (carriage-llm-available-backends))
+         (choice (or backend
+                     (if backs
+                         (completing-read "Backend: " backs nil t
+                                          (if (symbolp carriage-mode-backend)
+                                              (symbol-name carriage-mode-backend)
+                                            (or carriage-mode-backend "")))
+                       (read-string "Backend (symbol or string): ")))))
+    (setq carriage-mode-backend
+          (cond
+           ((symbolp choice) choice)
+           ((stringp choice) (intern choice))
+           (t (carriage-llm--norm-backend choice))))
+    ;; Make sure selected backend is present in registry with current model for backend:model completion.
+    (when (require 'carriage-llm-registry nil t)
+      (let* ((bsym (if (symbolp carriage-mode-backend)
+                       carriage-mode-backend
+                     (intern (format "%s" carriage-mode-backend))))
+             (existing (or (carriage-llm-available-models bsym) '())))
+        (carriage-llm-register-backend bsym :models (delete-dups (cons carriage-mode-model existing)))))
+    (message "Carriage backend set to: %s"
+             (if (symbolp carriage-mode-backend)
+                 (symbol-name carriage-mode-backend)
+               carriage-mode-backend))))
 
 ;;; Navigation placeholders
 
@@ -335,9 +439,43 @@ Returns the dry-run report plist."
 
 ;;;###autoload
 (defun carriage-abort-current ()
-  "Abort current Carriage request/apply (stub for v1, transport integration in v1.1)."
+  "Abort current Carriage request/apply if one is active.
+
+In v1 this calls a buffer-local handler registered by the transport/pipeline.
+If no handler is present, stops UI spinner and reports no active request."
   (interactive)
-  (message "Нет активного запроса"))
+  (let ((handler carriage--abort-handler))
+    (cond
+     ((functionp handler)
+      ;; Clear handler first to avoid reentrancy; then attempt abort.
+      (setq carriage--abort-handler nil)
+      (condition-case err
+          (funcall handler)
+        (error
+         (message "Abort handler error: %s" (error-message-string err))))
+      (when (fboundp 'carriage-ui--spinner-stop)
+        (carriage-ui--spinner-stop t))
+      (when (fboundp 'carriage-ui-set-state)
+        (carriage-ui-set-state 'idle))
+      (message "Carriage: abort requested"))
+     (t
+      (when (fboundp 'carriage-ui--spinner-stop)
+        (carriage-ui--spinner-stop t))
+      (when (fboundp 'carriage-ui-set-state)
+        (carriage-ui-set-state 'idle))
+      (message "Нет активного запроса")))))
+
+(defun carriage-register-abort-handler (fn)
+  "Register buffer-local abort handler FN and return an unregister lambda.
+FN must be a zero-argument function that cancels the ongoing activity."
+  (setq carriage--abort-handler fn)
+  (lambda ()
+    (when (eq carriage--abort-handler fn)
+      (setq carriage--abort-handler nil))))
+
+(defun carriage-clear-abort-handler ()
+  "Clear buffer-local abort handler if any."
+  (setq carriage--abort-handler nil))
 
 ;;;###autoload
 (defun carriage-toggle-auto-open-report ()

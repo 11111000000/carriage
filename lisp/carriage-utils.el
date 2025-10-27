@@ -10,11 +10,6 @@
 (declare-function project-current "project" (&optional dir))
 (declare-function project-root "project" (project))
 
-(defcustom carriage-mode-wip-branch "carriage/WIP"
-  "Name of the working WIP branch for Carriage."
-  :type 'string
-  :group 'carriage)
-
 (defun carriage--call-git (default-dir &rest args)
   "Call git with ARGS in DEFAULT-DIR, return (:exit :stdout :stderr).
 Capture stderr via a temporary file to avoid DEST type issues."

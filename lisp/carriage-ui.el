@@ -230,17 +230,23 @@ When outline is visible in org-mode, make it clickable to jump to heading."
                 'help-echo help
                 'local-map map)))
 
+(defun carriage-ui--toggle (label var-sym fn help)
+  "Build a toggle button with LABEL; highlight when VAR-SYM is non-nil."
+  (let* ((on (and (boundp var-sym) (symbol-value var-sym)))
+         (lbl (if on (propertize label 'face 'mode-line-emphasis) label)))
+    (carriage-ui--ml-button lbl fn help)))
+
 (defun carriage-ui--maybe-in-report-buffer ()
   "Return non-nil if current buffer is a Carriage report buffer."
   (or (derived-mode-p 'carriage-report-mode)
-      (string= (buffer-name) "*carriage-report/")))
+      (string= (buffer-name) "*carriage-report*")))
 
 (defun carriage-ui--diff-button ()
   "Open Diff for report item if available; otherwise switch to report."
   (interactive)
   (if (carriage-ui--maybe-in-report-buffer)
       (call-interactively #'carriage-report-show-diff-at-point)
-    (let ((buf (get-buffer "*carriage-report/")))
+    (let ((buf (get-buffer "*carriage-report*")))
       (if buf
           (progn (pop-to-buffer buf)
                  (message "Select a row, then press RET or [Diff]"))
@@ -251,7 +257,7 @@ When outline is visible in org-mode, make it clickable to jump to heading."
   (interactive)
   (if (carriage-ui--maybe-in-report-buffer)
       (call-interactively #'carriage-report-ediff-at-point)
-    (let ((buf (get-buffer "*carriage-report/")))
+    (let ((buf (get-buffer "*carriage-report*")))
       (if buf
           (progn (pop-to-buffer buf)
                  (message "Select a row, then press e or [Ediff]"))
@@ -317,11 +323,11 @@ When outline is visible in org-mode, make it clickable to jump to heading."
          (ediff  (carriage-ui--ml-button ediff-label  #'carriage-ui--ediff-button      "Open Ediff (report)"))
          (wip    (carriage-ui--ml-button wip-label    #'carriage-wip-checkout          "Switch to WIP branch"))
          (reset  (carriage-ui--ml-button reset-label  #'carriage-wip-reset-soft        "Soft reset last commit"))
-         ;; Toggles (not iconified; text conveys meaning)
-         (t-auto  (carriage-ui--ml-button "[AutoRpt]"    #'carriage-toggle-auto-open-report   "Toggle auto-open report"))
-         (t-diffs (carriage-ui--ml-button "[ShowDiffs]"  #'carriage-toggle-show-diffs        "Toggle show diffs before apply"))
-         (t-all   (carriage-ui--ml-button "[ConfirmAll]" #'carriage-toggle-confirm-apply-all "Toggle confirm apply-all"))
-         (t-icons (carriage-ui--ml-button "[Icons]"      #'carriage-toggle-use-icons         "Toggle icons in UI")))
+         ;; Toggles (text conveys meaning; active ones emphasized)
+         (t-auto  (carriage-ui--toggle "[AutoRpt]"    'carriage-mode-auto-open-report   #'carriage-toggle-auto-open-report   "Toggle auto-open report"))
+         (t-diffs (carriage-ui--toggle "[ShowDiffs]"  'carriage-mode-show-diffs         #'carriage-toggle-show-diffs        "Toggle show diffs before apply"))
+         (t-all   (carriage-ui--toggle "[ConfirmAll]" 'carriage-mode-confirm-apply-all  #'carriage-toggle-confirm-apply-all "Toggle confirm apply-all"))
+         (t-icons (carriage-ui--toggle "[Icons]"      'carriage-mode-use-icons          #'carriage-toggle-use-icons         "Toggle icons in UI")))
     (mapconcat #'identity
                (list profile-btn backend-model-btn state
                      dry apply all abort report diff ediff wip reset

@@ -9,6 +9,7 @@
 (require 'carriage-parser)
 (require 'carriage-apply)
 (require 'carriage-mode)
+(require 'carriage-transport)
 
 (provide 'carriage)
 ;;; carriage.el ends here
