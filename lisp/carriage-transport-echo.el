@@ -58,16 +58,15 @@
 
 ARGS is a plist with keys like :backend, :model, :source, :buffer, :mode.
 
-Simulates streaming by sending prompt-derived text to the traffic log
-in small chunks on a timer. No content is inserted into the Org buffer."
+Simulates streaming by emitting chunks to *carriage-traffic* on a timer.
+Does not modify the Org buffer and does not call =carriage-transport-begin'."
   (let* ((backend (plist-get args :backend))
          (model   (plist-get args :model))
          (source  (or (plist-get args :source) 'buffer))
          (buffer  (or (plist-get args :buffer) (current-buffer)))
          (mode    (or (plist-get args :mode)
                       (buffer-local-value 'major-mode buffer))))
-    (unless (memq (if (symbolp backend) backend (intern (format "%s" backend)))
-                  '(echo))
+    (unless (eq (if (symbolp backend) backend (intern (format "%s" backend))) 'echo)
       (carriage-log "Transport[echo]: backend mismatch (%s), dropping" backend)
       (carriage-transport-complete t)
       (user-error "No transport adapter for backend: %s" backend))
@@ -79,45 +78,44 @@ in small chunks on a timer. No content is inserted into the Org buffer."
                         (format "ECHO: %s" trimmed)))
              (chunks (carriage--echo--chunk-string payload carriage-transport-echo-chunk-size))
              (first t)
-             timer)
+             (timer nil))
         ;; Install abort handler that cancels the streaming timer
         (carriage-register-abort-handler
          (lambda ()
            (when (and timer (timerp timer))
              (cancel-timer timer))
+           (setq timer nil)
            (carriage-traffic-log 'in "echo: aborted")
            (carriage-transport-complete t)))
-        ;; Begin
+        ;; Log request
         (carriage-traffic-log 'out "echo request: source=%s model=%s bytes=%d"
                               source model (length payload))
         ;; Drive streaming via timer
         (let* ((interval (/ (max 1 carriage-transport-echo-chunk-ms) 1000.0))
                (rest chunks))
           (setq timer
-                (run-at-time 0 interval
-                             (lambda ()
-                               (condition-case e
-                                   (progn
-                                     (when (null rest)
-                                       (carriage-traffic-log 'in "echo: done")
-                                       (carriage-transport-complete nil)
-                                       (when (timerp timer)
-                                         (cancel-timer timer))
-                                       (setq timer nil))
-                                     (when rest
-                                       (when first
-                                         (setq first nil)
-                                         (carriage-transport-streaming))
-                                       (let* ((chunk (pop rest)))
-                                         (carriage-traffic-log 'in "%s" chunk))))
-                                 (error
-                                  (carriage-log "Echo stream error: %s" (error-message-string e))
-                                  (carriage-transport-complete t)
-                                  (when (timerp timer) (cancel-timer timer))
-                                  (setq timer nil))))))
-
-
-          ;; Entry-point: carriage-transport-echo-dispatch
-
-          (provide 'carriage-transport-echo)
+                (run-at-time
+                 0 interval
+                 (lambda ()
+                   (condition-case e
+                       (progn
+                         (if (null rest)
+                             (progn
+                               (carriage-traffic-log 'in "echo: done")
+                               (carriage-transport-complete nil)
+                               (when (timerp timer)
+                                 (cancel-timer timer))
+                               (setq timer nil))
+                           (progn
+                             (when first
+                               (setq first nil)
+                               (carriage-transport-streaming))
+                             (let ((chunk (pop rest)))
+                               (carriage-traffic-log 'in "%s" chunk)))))
+                     (error
+                      (carriage-log "Echo stream error: %s" (error-message-string e))
+                      (carriage-transport-complete t)
+                      (when (timerp timer) (cancel-timer timer))
+                      (setq timer nil))))))))))
+  (provide 'carriage-transport-echo)
 ;;; carriage-transport-echo.el ends here

@@ -109,6 +109,38 @@ Negative values move icons up; positive move them down."
   "Muted face for disabled toggle icons."
   :group 'carriage-ui)
 
+;; Faces for patch block highlighting (spec/ui-v1.org)
+(defface carriage-patch-valid-face
+  '((t :inherit nil :background "#203a24"))
+  "Face for visually marking valid patch blocks."
+  :group 'carriage-ui)
+
+(defface carriage-patch-warning-face
+  '((t :inherit nil :background "#3a2f20"))
+  "Face for visually marking suspicious patch blocks."
+  :group 'carriage-ui)
+
+(defface carriage-patch-error-face
+  '((t :inherit nil :background "#3a2020"))
+  "Face for visually marking erroneous patch blocks."
+  :group 'carriage-ui)
+
+;; Faces for report rows (OK/WARN/ERR)
+(defface carriage-report-ok-face
+  '((t :inherit success))
+  "Face for OK rows in report."
+  :group 'carriage-ui)
+
+(defface carriage-report-warn-face
+  '((t :inherit warning))
+  "Face for WARN rows in report."
+  :group 'carriage-ui)
+
+(defface carriage-report-err-face
+  '((t :inherit error))
+  "Face for ERR rows in report."
+  :group 'carriage-ui)
+
 (defvar carriage-mode-map
   (let* ((map (make-sparse-keymap)))
     (define-key map (kbd "C-c M-RET") #'carriage-send-buffer)

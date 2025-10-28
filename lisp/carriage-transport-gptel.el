@@ -11,6 +11,7 @@
 (require 'carriage-logging)
 (require 'carriage-ui)
 (require 'carriage-transport)
+(require 'carriage-errors)
 ;; Avoid hard dependency on carriage-mode to break cycles at load time.
 (declare-function carriage-register-abort-handler "carriage-mode" (fn))
 (declare-function carriage-accept-llm-response "carriage-mode" (&optional input insert-marker))
@@ -84,7 +85,13 @@ On backend mismatch, logs and completes with error."
     (unless (memq (if (symbolp backend) backend (intern (format "%s" backend)))
                   '(gptel))
       (carriage-log "Transport[gptel]: backend mismatch (%s), dropping" backend)
-      (with-current-buffer buffer (carriage-transport-complete t))
+      (with-current-buffer buffer
+        ;; Сигнализируем LLM_E_BACKEND (см. spec/errors-v1.org), затем завершаем транспорт.
+        (condition-case _
+            (signal (carriage-error-symbol 'LLM_E_BACKEND)
+                    (list (format "Unknown transport backend: %s" backend)))
+          (error nil))
+        (carriage-transport-complete t))
       (user-error "No transport adapter for backend: %s" backend))
     ;; Prepare environment for gptel
     (let* ((acc "")

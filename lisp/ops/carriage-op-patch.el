@@ -138,7 +138,14 @@
           (list :op 'patch :status 'ok :path path :details "git apply --index ok"))
       (list :op 'patch :status 'fail :path path :details "git apply --index failed"
             :extra (list :exit (plist-get apply-res :exit)
-                         :stderr (plist-get apply-res :stderr))))))
+                         :stderr (plist-get apply-res :stderr)
+                         :stdout (plist-get apply-res :stdout))
+            :_messages (list (list :code 'PATCH_E_APPLY
+                                   :severity 'error
+                                   :file path
+                                   :details (or (plist-get apply-res :stderr)
+                                                (plist-get apply-res :stdout)
+                                                "git apply --index failed")))))))
 
 ;;;; Registration
 

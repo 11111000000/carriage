@@ -7,6 +7,7 @@
 (require 'carriage-utils)
 (require 'carriage-logging)
 (require 'carriage-format-registry)
+(require 'carriage-iteration)
 
 ;; Forward declaration: buffer-local id of the "last iteration".
 ;; Defined as buffer-local in carriage-iteration.el.
@@ -122,7 +123,8 @@ Otherwise, return all patch blocks in the buffer.
 
 If REPO-ROOT is nil, detect via `carriage-project-root' or use `default-directory'."
   (let* ((root (or repo-root (carriage-project-root) default-directory))
-         (id   (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)))
+         (id   (or (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)
+                   (ignore-errors (carriage-iteration-read-org-id)))))
     (message "Carriage: collect-last-iteration root=%s id=%s"
              (or root "<nil>")
              (and id (substring id 0 (min 8 (length id)))))

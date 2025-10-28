@@ -32,6 +32,8 @@
   "Face for error items in report."
   :group 'carriage)
 
+
+
 (defun carriage--report-insert-line (cols &optional face)
   "Insert an Org-table row from COLS list, applying FACE to the whole row."
   (let* ((cells

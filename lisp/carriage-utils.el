@@ -6,25 +6,64 @@
 (require 'carriage-errors)
 (require 'carriage-logging)
 
+(defcustom carriage-mode-git-timeout-seconds 15
+  "Max seconds to wait for git commands before timing out.
+When the timeout elapses, the process is terminated and a non-zero exit
+code (124) is returned with :stderr set to \"timeout\"."
+  :type 'integer
+  :group 'carriage)
+
 ;; Silence byte-compiler about project.el functions when not loaded at compile time.
 (declare-function project-current "project" (&optional dir))
 (declare-function project-root "project" (project))
 
 (defun carriage--call-git (default-dir &rest args)
   "Call git with ARGS in DEFAULT-DIR, return (:exit :stdout :stderr).
-Capture stderr via a temporary file to avoid DEST type issues."
+Respects `carriage-mode-git-timeout-seconds'. Uses `make-process' and
+`accept-process-output' in a loop to avoid blocking the UI."
   (let* ((default-directory (file-name-as-directory (expand-file-name default-dir))))
-    (let* ((stderr-file (make-temp-file "carriage-git-stderr-")))
+    (let* ((stdout-buf (generate-new-buffer " *carriage-git-stdout*"))
+           (stderr-buf (generate-new-buffer " *carriage-git-stderr*"))
+           (exit-code nil)
+           (done nil)
+           (proc nil)
+           (timeout (or carriage-mode-git-timeout-seconds 15))
+           (deadline (+ (float-time) (max 0 timeout))))
       (unwind-protect
-          (with-temp-buffer
-            (let* ((out (current-buffer))
-                   (status (apply #'call-process "git" nil (list out stderr-file) nil args)))
-              (list :exit status
-                    :stdout (buffer-string)
-                    :stderr (with-temp-buffer
-                              (insert-file-contents stderr-file)
-                              (buffer-string)))))
-        (ignore-errors (delete-file stderr-file))))))
+          (progn
+            (setq proc
+                  (make-process
+                   :name "carriage-git"
+                   :command (append (list "git") args)
+                   :buffer stdout-buf
+                   :stderr stderr-buf
+                   :noquery t
+                   :connection-type 'pipe
+                   :sentinel (lambda (p _e)
+                               (when (memq (process-status p) '(exit signal))
+                                 (with-current-buffer (process-buffer p)
+                                   (setq exit-code (process-exit-status p)))
+                                 (setq done t)))))
+            ;; Wait loop with timeout
+            (while (and (not done) (< (float-time) deadline))
+              (accept-process-output proc 0.05))
+            ;; Timeout handling
+            (when (and (not done) (process-live-p proc))
+              (ignore-errors (interrupt-process proc))
+              (ignore-errors (kill-process proc))
+              (setq exit-code 124)
+              (setq done t))
+            ;; Collect outputs
+            (let* ((stdout (with-current-buffer stdout-buf (buffer-string)))
+                   (stderr (with-current-buffer stderr-buf (buffer-string))))
+              (when (and (= (or exit-code -1) 124)
+                         (or (null stderr) (string-empty-p stderr)))
+                (setq stderr "timeout"))
+              (list :exit (or exit-code -1)
+                    :stdout stdout
+                    :stderr stderr)))
+        (when (buffer-live-p stdout-buf) (kill-buffer stdout-buf))
+        (when (buffer-live-p stderr-buf) (kill-buffer stderr-buf))))))
 
 (defun carriage-project-root ()
   "Detect project root directory. Return absolute path or nil."
