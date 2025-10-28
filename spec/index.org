@@ -15,6 +15,20 @@
   - Patch: только один файл на блок; :strip=1 по умолчанию (a/ b/ префиксы обязательны).
   - TRAMP и бинарные патчи — не поддерживаются.
 
+* Источники истины (anchors)
+- Имя спец-блока (=begin_patch/end_patch=): ./parser-registry-v1.org.
+- FREEZE/лимиты/DELIM: ./index.org (секция FREEZE).
+- Политика путей, symlink, TRAMP: ./security-v1.org.
+- Конвейер применения и dry-run/подтверждение: ./apply-pipeline-v1.org.
+- Правила unified diff: ./patch-unified-diff-v1.org.
+- Операции create/delete/rename: ./file-ops-v1.org.
+- Формат SRE/SRE-BATCH: ./sre-v1.org.
+- UI/состояния/таблицы: ./ui-v1.org.
+- Git/WIP: ./git-integration-v1.org.
+- Коды ошибок: ./errors-v1.org.
+- Структуры данных: ./data-structures-v1.org.
+- Реестр и имплементация парсеров: ./parser-registry-v1.org, ./parser-impl-v1.org.
+
 * Назначение
 - Этот индекс собирает спецификации форматов и самого мода.
 - Версия сводной спецификации: v1 (минимальная, надёжная, без алиасов).

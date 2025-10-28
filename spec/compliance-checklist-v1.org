@@ -13,41 +13,39 @@
   - sre, sre-batch (./sre-v1.org)
   - patch (unified diff одного файла) (./patch-unified-diff-v1.org)
   - create/delete/rename (./file-ops-v1.org)
-- Алиасы блоков не поддерживаются (v1).
+- Алисы блоков не поддерживаются — см. ./parser-registry-v1.org.
 
 * Парсеры
-- Детерминированный разбор SRE по DELIM, без вложенных конструкций.
-- Валидация путей (без абсолютов и «..»).
-- PATCH: отказ на многофайловых диффах, на бинарных секциях, на rename/copy.
-- Ошибки сигнализируются через define-error и коды из ./errors-v1.org.
+- SRE-парсинг: см. ./sre-v1.org (детерминированный разбор по DELIM; без вложенных конструкций).
+- Валидация путей: см. ./security-v1.org.
+- PATCH: ограничения — см. ./patch-unified-diff-v1.org.
+- Ошибки: см. ./errors-v1.org (define-error и коды).
 
 * Dry-run
-- SRE: подсчёт совпадений, проверка :expect при :occur all, мини-дифф.
-- PATCH: git apply --check с захватом stdout/stderr.
-- CREATE/DELETE/RENAME: валидация предусловий, отчёт действий.
+- SRE: см. ./sre-v1.org (правила dry-run).
+- PATCH: см. ./patch-unified-diff-v1.org (dry-run через git apply --check).
+- FILE OPS: см. ./file-ops-v1.org (dry-run/валидация).
 
 * Применение
 - Порядок типов: delete → rename → create → patch → sre/sre-batch (./apply-pipeline-v1.org).
-- Групповое применение (C-c !) — остановка на первой ошибке, без автоматического отката.
-- Коммиты в ветку carriage/WIP; сообщения включают {op} и {file|path}.
-- NOOP-политика: carriage-mode-sre-noop-on-zero-matches учитывается (0 совпадений → 'skip при включении).
+- Групповое применение: см. ./apply-pipeline-v1.org (остановка на первой ошибке; без авт. отката).
+- Коммиты: см. ./git-integration-v1.org (ветка carriage/WIP; шаблон сообщений).
+- NOOP-политика: см. ./apply-pipeline-v1.org и ./api-v1.org (carriage-mode-sre-noop-on-zero-matches).
 
 * UI/UX
-- Клавиши и команды из ./ui-v1.org.
-- Буфер отчёта, предпросмотр диффов, подтверждение перед применением.
+- Клавиши и команды: см. ./ui-v1.org.
+- Отчёты/предпросмотр/подтверждение: см. ./ui-v1.org.
 
 * Безопасность
-- Политики из ./security-v1.org соблюдены: пути, EOL, лимиты, запреты.
-- TRAMP/remote — отключено в v1.
+- Политики: см. ./security-v1.org (пути, EOL, запреты); лимиты — см. ./index.org (FREEZE).
+- TRAMP/remote — см. ./security-v1.org (в v1 отключено).
 
 * Промпты
 - Интенты Ask/Patch и сьюиты из ./prompt-profiles-v1.org (Intent/Suite).
-- В Intent=Patch — строго только блоки =patch=; DELIM вставляет инструмент; пути относительные.
+- Правила Intent=Patch: см. ./prompt-profiles-v1.org; имя блока/пути/DELIM — см. ./parser-registry-v1.org, ./security-v1.org, ./index.org (FREEZE).
 
 * Тестирование
-- Юнит-тесты ERT для всех парсеров и аплаеров.
-- Интеграционные тесты с тестовым git-репозиторием.
-- Золотые Org-файлы.
+- Тесты: см. ./testing-v1.org (юниты, интеграция, golden files).
 
 * Документация
 - Обновлён ./index.org.
