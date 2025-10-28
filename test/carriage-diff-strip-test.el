@@ -3,6 +3,7 @@
 (require 'ert)
 (require 'carriage)
 (require 'carriage-parser)
+(require 'carriage-op-patch)
 
 (defun carriage--make-header-patch (&rest kv)
   (apply #'list :version "1" :op "patch" kv))

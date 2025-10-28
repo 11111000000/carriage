@@ -18,7 +18,7 @@
 
 (defun carriage-op-sre-prompt-fragment (ctx)
   "Return prompt fragment for SRE ops. CTX may contain :delim, :file hints."
-  (let* ((delim (or (plist-get ctx :delim) "d7e2b5")))
+  (let* ((delim (or (plist-get ctx :delim) (carriage-generate-delim))))
     (concat
      "Формат SRE (поисково-заменяющий блок для одного файла):\n"
      "#+begin_patch (:version \"1\" :op \"sre\" :file \"RELATIVE/PATH\" :delim \"" delim "\")\n"
@@ -41,11 +41,15 @@
   (if (eq match-kind 'regex) from (regexp-quote (or from ""))))
 
 (defun carriage--sre-count-nonoverlapping (text regexp)
-  "Count non-overlapping matches of REGEXP in TEXT."
+  "Count non-overlapping matches of REGEXP in TEXT.
+Guards against zero-length matches to avoid infinite loops: when
+(match-end 0) equals POS, advance POS by one character."
   (let ((pos 0) (cnt 0))
-    (while (and (< pos (length text)) (string-match regexp text pos))
+    (while (and (< pos (length text))
+                (string-match regexp text pos))
       (setq cnt (1+ cnt))
-      (setq pos (match-end 0)))
+      (let ((next (match-end 0)))
+        (setq pos (if (= next pos) (1+ pos) next))))
     cnt))
 
 (defun carriage--sre-slice-by-lines (text range-plist)
@@ -198,14 +202,17 @@
          (if pv (list pv) '())))
       (_
        (let* ((pos-list (let ((pos 0) (acc '()))
-                          (while (and (< pos (length region)) (string-match rx region pos) (< (length acc) (max 0 (or maxn 0))))
+                          (while (and (< pos (length region))
+                                      (string-match rx region pos)
+                                      (< (length acc) (max 0 (or maxn 0))))
                             (push (cons (match-beginning 0) (match-end 0)) acc)
-                            (setq pos (match-end 0)))
-                          (nreverse acc))))
-         (previews (mapcar (lambda (p)
-                             (carriage--sre-build-preview-with-context region (car p) (cdr p) to match-kind ctx))
-                           pos-list)))
-       previews)))))
+                            (let ((next (match-end 0)))
+                              (setq pos (if (= next pos) (1+ pos) next))))
+                          (nreverse acc)))
+              (previews (mapcar (lambda (p)
+                                  (carriage--sre-build-preview-with-context region (car p) (cdr p) to match-kind ctx))
+                                pos-list)))
+         previews)))))
 
 ;;;; Parse (sre, sre-batch)
 
@@ -236,7 +243,7 @@
 
 (defun carriage--sre-parse-pair-directive (line)
   "If LINE is a #+pair directive, return its plist; else nil."
-  (when (string-match "\\=\\s-*#\\+pair\\s-+\\((.*)\\)\\s-*\\'" line)
+  (when (string-match "\\`\\s-*#\\+pair\\s-+\\((.*)\\)\\s-*\\'" line)
     (car (read-from-string (match-string 1 line)))))
 
 (defun carriage--sre--scan-linewise-delim (body open close)
@@ -315,8 +322,8 @@
     (dolist (ln (split-string body "\n" nil nil))
       (let ((tln (string-trim ln)))
         (cond
-         ((and (eq state5 'idle) (string-match "\\=<<[0-9a-f]\\{6\\}[ \t]*\\'" tln)) (setq state5 'in acc nil))
-         ((and (eq state5 'in) (string-match "\\=:[0-9a-f]\\{6\\}[ \t]*\\'" tln))
+         ((and (eq state5 'idle) (string-match "\\`<<[0-9a-f]\\{6\\}[ \t]*\\'" tln)) (setq state5 'in acc nil))
+         ((and (eq state5 'in) (string-match "\\`:[0-9a-f]\\{6\\}[ \t]*\\'" tln))
           (push (mapconcat #'identity (nreverse acc) "\n") res)
           (setq acc nil state5 'idle))
          ((eq state5 'in) (push ln acc)))))
@@ -432,23 +439,23 @@
     (cl-labels ((next-opts () (prog1 (carriage--sre-merge-opts pending) (setq pending nil))))
       (dolist (p pairs)
         (while (and (< idx (length lines))
-                    (not (string-match "\\=<<[0-9a-f]\\{6\\}\\'" (nth idx lines))))
+                    (not (string-match "\\`<<[0-9a-f]\\{6\\}\\'" (nth idx lines))))
           (let ((opts (carriage--sre-parse-pair-directive (nth idx lines))))
             (when opts (setq pending opts)))
           (setq idx (1+ idx)))
         (while (and (< idx (length lines))
-                    (not (string-match "\\=:[0-9a-f]\\{6\\}\\'" (nth idx lines))))
+                    (not (string-match "\\`:[0-9a-f]\\{6\\}\\'" (nth idx lines))))
           (setq idx (1+ idx)))
         (setq idx (1+ idx))
         (while (and (< idx (length lines))
-                    (not (string-match "\\=<<[0-9a-f]\\{6\\}\\'" (nth idx lines))))
+                    (not (string-match "\\`<<[0-9a-f]\\{6\\}\\'" (nth idx lines))))
           (setq idx (1+ idx)))
         (push (list (cons :from (alist-get :from p))
                     (cons :to   (alist-get :to p))
                     (cons :opts (next-opts)))
               result)
         (while (and (< idx (length lines))
-                    (not (string-match "\\=:[0-9a-f]\\{6\\}\\'" (nth idx lines))))
+                    (not (string-match "\\`:[0-9a-f]\\{6\\}\\'" (nth idx lines))))
           (setq idx (1+ idx)))
         (setq idx (1+ idx))))
     (nreverse result)))

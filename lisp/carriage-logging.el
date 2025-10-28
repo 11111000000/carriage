@@ -140,5 +140,14 @@ already showing BUFFER."
                                 carriage-mode-aux-window-size
                                 carriage-mode-aux-window-reuse))
 
+;;;###autoload
+(defun carriage-show-log-and-traffic ()
+  "Open both *carriage-log* and *carriage-traffic* side windows on the right."
+  (interactive)
+  (let ((reuse (and (boundp 'carriage-mode-aux-window-reuse) carriage-mode-aux-window-reuse))
+        (size  (and (boundp 'carriage-mode-aux-window-size) carriage-mode-aux-window-size)))
+    (carriage--display-aux-buffer (carriage-log-buffer) 'right size reuse)
+    (carriage--display-aux-buffer (carriage-traffic-buffer) 'right size reuse)))
+
 (provide 'carriage-logging)
 ;;; carriage-logging.el ends here

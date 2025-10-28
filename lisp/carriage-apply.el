@@ -27,9 +27,6 @@
 (defvar carriage-mode-sre-preview-max 3
   "Default maximum number of SRE preview chunks when Customize is not loaded.")
 
-;;; SRE/PATCH/FILE-OPS moved to ops modules and are dispatched via carriage-format-registry.
-;;; This file retains only plan-level pipeline and registry-based dispatch.
-
 ;;; Plan-level pipeline
 
 
@@ -127,11 +124,19 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
   (let* ((sorted (carriage--plan-sort plan))
          (items '())
          (ok 0) (fail 0) (skip 0)
-         (stop nil))
+         (stop nil)
+         (msgs '()))
     (dolist (it sorted)
       (unless stop
-        (let* ((res (carriage--apply-dispatch it repo-root))
-               (status (plist-get res :status)))
+        (let* ((res0 (carriage--apply-dispatch it repo-root))
+               ;; Store original plan item and root on the row (parity with dry-run report)
+               (res (append res0 (list :_plan it :_root repo-root)))
+               (status (plist-get res :status))
+               (im (plist-get res :_messages)))
+          ;; Aggregate per-item diagnostics into top-level :messages
+          (when im
+            (dolist (d im)
+              (push d msgs)))
           (push res items)
           (pcase status
             ('ok   (setq ok (1+ ok)))
@@ -140,7 +145,8 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
             (_     (setq skip (1+ skip)))))))
     (list :plan plan
           :summary (list :ok ok :fail fail :skipped skip)
-          :items (nreverse items))))
+          :items (nreverse items)
+          :messages (nreverse msgs))))
 
 (provide 'carriage-apply)
 ;;; carriage-apply.el ends here

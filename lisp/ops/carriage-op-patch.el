@@ -108,44 +108,56 @@
 
 (defun carriage-dry-run-diff (plan-item repo-root)
   "Run git apply --check for unified diff."
-  (let* ((diff  (alist-get :diff plan-item))
-         (strip (alist-get :strip plan-item))
-         (path  (alist-get :path plan-item))
-         (res (carriage-git-apply-check repo-root diff :strip strip)))
-    (if (and (plist-get res :exit) (zerop (plist-get res :exit)))
-        (list :op 'patch :status 'ok :path path :details "git apply --check ok")
-      (list :op 'patch :status 'fail :path path :details "git apply --check failed"
-            :extra (list :exit (plist-get res :exit)
-                         :stderr (plist-get res :stderr)
-                         :stdout (plist-get res :stdout))
-            :_messages (list (list :code 'PATCH_E_GIT_CHECK
-                                   :severity 'error
-                                   :file path
-                                   :details (or (plist-get res :stderr)
-                                                (plist-get res :stdout)
-                                                "git apply --check failed")))))))
+  (let* ((diff  (or (alist-get :diff plan-item)  (plist-get plan-item :diff)))
+         (strip (or (alist-get :strip plan-item) (plist-get plan-item :strip)))
+         (path  (or (alist-get :path plan-item)  (plist-get plan-item :path))))
+    (if (not (and (stringp diff) (> (length diff) 0)))
+        (list :op 'patch :status 'fail :path path :details "Empty diff"
+              :_messages (list (list :code 'PATCH_E_DIFF_SYNTAX
+                                     :severity 'error
+                                     :file path
+                                     :details "Empty diff")))
+      (let* ((res (carriage-git-apply-check repo-root diff :strip strip)))
+        (if (and (plist-get res :exit) (zerop (plist-get res :exit)))
+            (list :op 'patch :status 'ok :path path :details "git apply --check ok")
+          (list :op 'patch :status 'fail :path path :details "git apply --check failed"
+                :extra (list :exit (plist-get res :exit)
+                             :stderr (plist-get res :stderr)
+                             :stdout (plist-get res :stdout))
+                :_messages (list (list :code 'PATCH_E_GIT_CHECK
+                                       :severity 'error
+                                       :file path
+                                       :details (or (plist-get res :stderr)
+                                                    (plist-get res :stdout)
+                                                    "git apply --check failed")))))))))
 
 (defun carriage-apply-diff (plan-item repo-root)
   "Apply unified diff with git apply --index; then git add/commit."
-  (let* ((diff  (alist-get :diff plan-item))
-         (strip (alist-get :strip plan-item))
-         (path  (alist-get :path plan-item))
-         (apply-res (carriage-git-apply-index repo-root diff :strip strip)))
-    (if (and (plist-get apply-res :exit) (zerop (plist-get apply-res :exit)))
-        (progn
-          (when path (carriage-git-add repo-root path))
-          (carriage-git-commit repo-root (format "carriage: patch %s" (or path "<unknown>")))
-          (list :op 'patch :status 'ok :path path :details "git apply --index ok"))
-      (list :op 'patch :status 'fail :path path :details "git apply --index failed"
-            :extra (list :exit (plist-get apply-res :exit)
-                         :stderr (plist-get apply-res :stderr)
-                         :stdout (plist-get apply-res :stdout))
-            :_messages (list (list :code 'PATCH_E_APPLY
-                                   :severity 'error
-                                   :file path
-                                   :details (or (plist-get apply-res :stderr)
-                                                (plist-get apply-res :stdout)
-                                                "git apply --index failed")))))))
+  (let* ((diff  (or (alist-get :diff plan-item)  (plist-get plan-item :diff)))
+         (strip (or (alist-get :strip plan-item) (plist-get plan-item :strip)))
+         (path  (or (alist-get :path plan-item)  (plist-get plan-item :path))))
+    (if (not (and (stringp diff) (> (length diff) 0)))
+        (list :op 'patch :status 'fail :path path :details "Empty diff"
+              :_messages (list (list :code 'PATCH_E_DIFF_SYNTAX
+                                     :severity 'error
+                                     :file path
+                                     :details "Empty diff")))
+      (let* ((apply-res (carriage-git-apply-index repo-root diff :strip strip)))
+        (if (and (plist-get apply-res :exit) (zerop (plist-get apply-res :exit)))
+            (progn
+              (when path (carriage-git-add repo-root path))
+              (carriage-git-commit repo-root (format "carriage: patch %s" (or path "<unknown>")))
+              (list :op 'patch :status 'ok :path path :details "git apply --index ok"))
+          (list :op 'patch :status 'fail :path path :details "git apply --index failed"
+                :extra (list :exit (plist-get apply-res :exit)
+                             :stderr (plist-get apply-res :stderr)
+                             :stdout (plist-get apply-res :stdout))
+                :_messages (list (list :code 'PATCH_E_APPLY
+                                       :severity 'error
+                                       :file path
+                                       :details (or (plist-get apply-res :stderr)
+                                                    (plist-get apply-res :stdout)
+                                                    "git apply --index failed")))))))))
 
 ;;;; Registration
 

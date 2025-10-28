@@ -24,8 +24,10 @@
   - Создать/перейти на ветку carriage/WIP.
 - carriage-show-log (C-c b l)
   - Показать лог применений.
-- carriage-show-traffic
+- carriage-show-traffic (C-c b t)
   - Показать трафик LLM (вход/выход).
+- carriage-show-log-and-traffic (C-c b L)
+  - Открыть лог и трафик одновременно в правых боковых окнах.
 - carriage-wip-reset-soft (C-c b r)
   - Откат последнего коммита (soft reset).
 - carriage-toggle-intent
@@ -50,23 +52,31 @@
   - carriage-log-buffer () → BUFFER
   - carriage-traffic-buffer () → BUFFER
   - carriage-clear-logs () → t
+- Потоковая печать:
+  - carriage-insert-stream-chunk (STRING &optional TYPE) → POS   ; TYPE ∈ ('text 'reasoning), вставляет в активный «ответный» регион
+  - carriage-begin-reasoning () → POS                              ; открыть #+begin_reasoning при первом reasoning-чане
+  - carriage-end-reasoning () → POS                                ; закрыть #+end_reasoning при (reasoning . t)/завершении
+  - carriage-stream-region () → (BEG . END)                        ; текущие границы региона ответа в буфере
+  - carriage-stream-reset () → t                                   ; сброс состояния печати (при новом запросе/ошибке/abort)
 
 * Переменные Customize
 - carriage-mode-default-intent (symbol) — 'Ask | 'Patch
 - carriage-mode-default-suite (symbol) — 'auto-v1 | 'sre-v1 | 'patch-v1 | 'file-ops-v1
 - carriage-mode-default-backend (symbol|string) — имя бэкенда транспорта по умолчанию (например, 'gptel)
 - carriage-mode-default-model (string) — имя модели для выбранного бэкенда
+- carriage-mode-state-file (string) — путь к файлу состояния в проекте (".context/carriage/carriage-state.el")
 - carriage-mode-wip-branch (string) — "carriage/WIP"
 - carriage-mode-confirm-apply-all (boolean) — t
 - carriage-mode-auto-open-report (boolean) — t
-- carriage-mode-auto-open-log (boolean) — t
-- carriage-mode-auto-open-traffic (boolean) — t
+- carriage-mode-auto-open-log (boolean) — nil
+- carriage-mode-auto-open-traffic (boolean) — nil
 - carriage-mode-show-diffs (boolean) — t
 - carriage-mode-show-header-line (boolean) — t
 - carriage-mode-show-mode-line-ui (boolean) — t
 - carriage-mode-spinner-interval (number) — 0.15
 - carriage-mode-headerline-max-width (integer or nil) — nil
-- carriage-mode-use-icons (boolean) — nil
+- carriage-mode-use-icons (boolean) — t
+- carriage-mode-include-reasoning (symbol) — 'block | 'ignore — политика вставки reasoning в исходный буфер (по умолчанию 'block: #+begin_reasoning/#+end_reasoning)
 - carriage-mode-allow-patch-binary (boolean) — nil (v1)
 - carriage-mode-max-batch-pairs (integer) — лимит пар в SRE-BATCH
 - carriage-mode-sre-noop-on-zero-matches (boolean) — noop при 0 совпадений для :occur first

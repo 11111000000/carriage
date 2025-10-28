@@ -11,8 +11,11 @@
 (require 'carriage-logging)
 (require 'carriage-ui)
 (require 'carriage-transport)
+(require 'carriage-errors)
 ;; Avoid hard dependency on carriage-mode to break cycles at load time.
 (declare-function carriage-register-abort-handler "carriage-mode" (fn))
+(declare-function carriage-insert-stream-chunk "carriage-mode" (string &optional type))
+(declare-function carriage-stream-finalize "carriage-mode" (&optional errorp mark-last-iteration))
 
 (defgroup carriage-transport-echo nil
   "Echo transport adapter (development fallback)."
@@ -59,7 +62,7 @@
 ARGS is a plist with keys like :backend, :model, :source, :buffer, :mode.
 
 Simulates streaming by emitting chunks to *carriage-traffic* on a timer.
-Does not modify the Org buffer and does not call =carriage-transport-begin'."
+Does not modify the Org buffer and does not call 'carriage-transport-begin'."
   (let* ((backend (plist-get args :backend))
          (model   (plist-get args :model))
          (source  (or (plist-get args :source) 'buffer))
@@ -68,6 +71,11 @@ Does not modify the Org buffer and does not call =carriage-transport-begin'."
                       (buffer-local-value 'major-mode buffer))))
     (unless (eq (if (symbolp backend) backend (intern (format "%s" backend))) 'echo)
       (carriage-log "Transport[echo]: backend mismatch (%s), dropping" backend)
+      ;; Сигнализируем LLM_E_BACKEND согласно spec/errors-v1.org, затем завершаем транспорт
+      (condition-case _
+          (signal (carriage-error-symbol 'LLM_E_BACKEND)
+                  (list (format "Unknown transport backend: %s" backend)))
+        (error nil))
       (carriage-transport-complete t)
       (user-error "No transport adapter for backend: %s" backend))
     (with-current-buffer buffer
@@ -86,6 +94,8 @@ Does not modify the Org buffer and does not call =carriage-transport-begin'."
              (cancel-timer timer))
            (setq timer nil)
            (carriage-traffic-log 'in "echo: aborted")
+           (with-current-buffer buffer
+             (carriage-stream-finalize t nil))
            (carriage-transport-complete t)))
         ;; Log request
         (carriage-traffic-log 'out "echo request: source=%s model=%s bytes=%d"
@@ -102,6 +112,8 @@ Does not modify the Org buffer and does not call =carriage-transport-begin'."
                          (if (null rest)
                              (progn
                                (carriage-traffic-log 'in "echo: done")
+                               (with-current-buffer buffer
+                                 (carriage-stream-finalize nil t))
                                (carriage-transport-complete nil)
                                (when (timerp timer)
                                  (cancel-timer timer))
@@ -111,11 +123,13 @@ Does not modify the Org buffer and does not call =carriage-transport-begin'."
                                (setq first nil)
                                (carriage-transport-streaming))
                              (let ((chunk (pop rest)))
+                               (with-current-buffer buffer
+                                 (carriage-insert-stream-chunk chunk 'text))
                                (carriage-traffic-log 'in "%s" chunk)))))
                      (error
                       (carriage-log "Echo stream error: %s" (error-message-string e))
                       (carriage-transport-complete t)
                       (when (timerp timer) (cancel-timer timer))
-                      (setq timer nil))))))))))
-  (provide 'carriage-transport-echo)
+                      (setq timer nil)))))))))))
+(provide 'carriage-transport-echo)
 ;;; carriage-transport-echo.el ends here

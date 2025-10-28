@@ -19,10 +19,22 @@
   "Fallback maximum number of pairs allowed in sre-batch when Customize not loaded.")
 
 (defun carriage-parse (op header-plist body-text repo-root)
-  "Dispatch parse via registry by OP for HEADER-PLIST and BODY-TEXT under REPO-ROOT."
+  "Dispatch parse via registry by OP for HEADER-PLIST and BODY-TEXT under REPO-ROOT.
+
+If handler is not yet registered, attempt a lazy require of the op-module
+from lisp/ops/* and retry the registry lookup before failing."
   (let* ((op-sym (if (symbolp op) op (intern (format "%s" op))))
          (rec    (and (fboundp 'carriage-format-get) (carriage-format-get op-sym "1")))
          (fn     (and rec (plist-get rec :parse))))
+    (unless (functionp fn)
+      ;; Lazy-load the op module by feature name and retry.
+      (pcase op-sym
+        ((or 'sre 'sre-batch) (load "ops/carriage-op-sre" t t))
+        ('patch               (load "ops/carriage-op-patch" t t))
+        ((or 'create 'delete 'rename) (load "ops/carriage-op-file" t t))
+        (_ nil))
+      (setq rec (and (fboundp 'carriage-format-get) (carriage-format-get op-sym "1"))
+            fn  (and rec (plist-get rec :parse))))
     (if (functionp fn)
         (funcall fn header-plist body-text repo-root)
       (signal (carriage-error-symbol 'MODE_E_DISPATCH)

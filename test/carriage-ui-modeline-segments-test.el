@@ -13,7 +13,9 @@
 (ert-deftest carriage-ui-modeline-has-core-segments ()
   "Modeline should include core action buttons and toggles."
   (with-temp-buffer
-    (let ((noninteractive nil))
+    (let ((noninteractive nil)
+          (carriage-mode-use-icons nil))
+      (org-mode)
       (carriage-mode 1)
       (unwind-protect
           (let ((ml (carriage--modeline-string)))
@@ -39,7 +41,9 @@
 (ert-deftest carriage-ui-modeline-shows-backend-and-model ()
   "Modeline should include [BACKEND:MODEL] string per defaults."
   (with-temp-buffer
-    (let ((noninteractive nil))
+    (let ((noninteractive nil)
+          (carriage-mode-use-icons nil))
+      (org-mode)
       (carriage-mode 1)
       (unwind-protect
           (let* ((ml (carriage--modeline-string))

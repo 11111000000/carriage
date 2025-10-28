@@ -1,6 +1,9 @@
 ;;; carriage-parser-test.el --- Parser presence tests  -*- lexical-binding: t; -*-
 
 (require 'ert)
+(require 'carriage-op-sre)
+(require 'carriage-op-patch)
+(require 'carriage-op-file)
 
 (ert-deftest carriage-parser-sre-fns-present ()
   (should (fboundp 'carriage-parse-sre)))

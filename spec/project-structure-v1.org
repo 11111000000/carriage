@@ -16,6 +16,7 @@
 - test/ — ERT и интеграционные фикстуры (git-репо).
 - scripts/ — batch-скрипты (lint, compile-strict, checkdoc).
 - examples/ — «golden» документы.
+- .context/ — персистентное состояние проекта (например, ".context/carriage/carriage-state.el").
 
 * Слои и зависимости (направление сверху вниз запрещено)
 - Core: errors → logging → utils → git

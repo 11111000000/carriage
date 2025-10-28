@@ -2,6 +2,7 @@
 
 (require 'ert)
 (require 'carriage)
+(require 'carriage-op-sre)
 
 (defun carriage-sre-context-test--write (dir rel content)
   (let ((abs (expand-file-name rel dir)))

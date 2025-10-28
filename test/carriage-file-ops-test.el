@@ -2,6 +2,7 @@
 
 (require 'ert)
 (require 'carriage)
+(require 'carriage-op-file)
 
 (defun carriage-file-ops-test--git (dir &rest args)
   "Run git ARGS in DIR and return exit code."

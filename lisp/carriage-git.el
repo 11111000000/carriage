@@ -14,7 +14,9 @@
   (apply #'carriage--call-git root args))
 
 (defun carriage-git-ensure-repo (root)
-  "Ensure ROOT looks like a git repo, signal if not."
+  "Ensure ROOT looks like a git repo and is not TRAMP, signal if not."
+  (when (file-remote-p root)
+    (signal (carriage-error-symbol 'IO_E_PATH) (list "TRAMP is not supported in v1")))
   (let* ((res (carriage-git--run root "rev-parse" "--git-dir")))
     (unless (eq (plist-get res :exit) 0)
       (signal (carriage-error-symbol 'GIT_E_APPLY) (list "Git repo not detected"))))

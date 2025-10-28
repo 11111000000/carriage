@@ -57,7 +57,7 @@
             (with-current-buffer buf
               (goto-char (point-min))
               ;; Move to first item row (after header lines)
-              (re-search-forward "^---")
+              (re-search-forward "^|---")
               (forward-line 1)
               ;; Invoke [Apply] via function; should not error in batch
               (let ((errp (condition-case _e

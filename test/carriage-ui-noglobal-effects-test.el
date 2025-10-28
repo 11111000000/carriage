@@ -13,6 +13,7 @@
           (with-current-buffer buf-b
             (setq-local header-line-format nil))
           (with-current-buffer buf-a
+            (org-mode)
             (let ((orig-b-hl (with-current-buffer buf-b header-line-format)))
               (carriage-mode 1)
               (unwind-protect

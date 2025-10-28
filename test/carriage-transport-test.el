@@ -8,6 +8,7 @@
   (with-temp-buffer
     (let ((noninteractive nil)
           (called nil))
+      (org-mode)
       (carriage-mode 1)
       (unwind-protect
           (progn
@@ -27,6 +28,7 @@
   "Begin→sending, streaming→streaming, complete→idle/error; spinner stops on completion."
   (with-temp-buffer
     (let ((noninteractive nil))
+      (org-mode)
       (carriage-mode 1)
       (unwind-protect
           (progn

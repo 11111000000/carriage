@@ -1,6 +1,7 @@
 ;;; carriage-sre-test.el --- SRE dry-run tests  -*- lexical-binding: t; -*-
 
 (require 'ert)
+(require 'carriage-op-sre)
 
 (ert-deftest carriage-sre-dry-run-occur-all-expect-ok ()
   (let* ((tmpdir (make-temp-file "carriage-sre-" t))

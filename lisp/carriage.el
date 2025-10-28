@@ -13,17 +13,17 @@
 (require 'carriage-parser)
 (require 'carriage-apply)
 
-;; Load ops modules (registration references functions from parser/apply)
-(require 'carriage-op-sre)
-(require 'carriage-op-patch)
-(require 'carriage-op-file)
+;; Ensure 'ops' directory is on load-path for requiring op modules
+(let* ((this-dir (file-name-directory (or load-file-name buffer-file-name)))
+       (ops-dir (and this-dir (expand-file-name "ops" this-dir))))
+  (when (and ops-dir (file-directory-p ops-dir))
+    (add-to-list 'load-path ops-dir)))
+;; Ops modules are lazy-loaded by suite/parser when needed (no eager require here)
 
 (require 'carriage-mode)
 (require 'carriage-transport)
-;; Optional: enable gptel adapter when available (fallback to echo)
-(if (require 'gptel nil t)
-    (require 'carriage-transport-gptel)
-  (require 'carriage-transport-echo))
+;; Transports are loaded lazily by carriage-transport-dispatch per spec.
+;; Do not require adapters by default here.
 
 (provide 'carriage)
 ;;; carriage.el ends here

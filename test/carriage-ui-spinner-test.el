@@ -7,6 +7,7 @@
   "Spinner should start on sending and stop on idle; buffer-local and safe."
   (with-temp-buffer
     (let ((noninteractive nil))
+      (org-mode)
       (carriage-mode 1)
       (unwind-protect
           (progn
@@ -24,6 +25,7 @@
   "In batch (noninteractive=t), spinner must not start."
   (with-temp-buffer
     (let ((noninteractive t))
+      (org-mode)
       (carriage-mode 1)
       (carriage-ui-set-state 'sending)
       (should (or (null (bound-and-true-p carriage--ui-spinner-timer))

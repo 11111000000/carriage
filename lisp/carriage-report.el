@@ -6,6 +6,7 @@
 (require 'carriage-utils)
 (require 'carriage-apply)
 (require 'carriage-logging)
+(require 'carriage-ui)
 (require 'ediff)
 ;; Byte-compile hygiene: declare external function used conditionally.
 (declare-function carriage-sre-simulate-apply "carriage-op-sre" (plan-item repo-root))
@@ -16,22 +17,6 @@
 (defun carriage-report-buffer ()
   "Return the report buffer, creating it if necessary."
   (get-buffer-create carriage--report-buffer-name))
-
-(defface carriage-report-ok-face
-  '((t :inherit success))
-  "Face for OK items in report."
-  :group 'carriage)
-
-(defface carriage-report-warn-face
-  '((t :inherit warning))
-  "Face for warning items in report."
-  :group 'carriage)
-
-(defface carriage-report-err-face
-  '((t :inherit error))
-  "Face for error items in report."
-  :group 'carriage)
-
 
 
 (defun carriage--report-insert-line (cols &optional face)
@@ -60,10 +45,10 @@
 (defun carriage--report-row-face (status)
   "Return face symbol for STATUS."
   (pcase status
-    ('ok   'carriage-report-ok-face)
-    ('fail 'carriage-report-err-face)
-    ('warn 'carriage-report-warn-face)
-    (_     nil)))
+    ('ok    'carriage-report-ok-face)
+    ('fail  'carriage-report-err-face)
+    ((or 'warn 'skip) 'carriage-report-warn-face)
+    (_      nil)))
 
 (defun carriage--report-insert-header ()
   "Insert Org-table header and hline."
@@ -135,8 +120,9 @@ REPORT shape:
                               (if file (format " (file %s)" file) "")))))
           (insert "\n")))
       (carriage--report-insert-header)
-      (let* ((i 0))
-        (dolist (it (or (plist-get report :items) '()))
+      (let* ((items (or (plist-get report :items) '()))
+             (i 0))
+        (dolist (it items)
           (setq i (1+ i))
           (let* ((op          (plist-get it :op))
                  (file        (or (plist-get it :file) (plist-get it :path)))
@@ -156,13 +142,10 @@ REPORT shape:
                                ((stringp matches) matches)
                                ((null matches) "")
                                (t (format "%s" matches))))
-                 (action (concat (if has-preview "[Diff]" "") " [Ediff] [Apply]"))
-                 (row-beg (point)))
+                 (action (concat (if has-preview "[Diff]" "") " [Ediff] [Apply]")))
             (carriage--report-insert-line
              (list i op file status matches-str details preview-short action)
-             (carriage--report-row-face status))
-            (let* ((row-end (point)))
-              (carriage--report-attach-row row-beg row-end it has-preview)))))
+             nil))))
       ;; Align Org table columns for readability
       (save-excursion
         (goto-char (point-min))
@@ -170,6 +153,24 @@ REPORT shape:
           (beginning-of-line)
           (ignore-errors (require 'org-table))
           (condition-case _ (org-table-align) (error nil))))
+      ;; Reattach row properties and buttons after alignment
+      (save-excursion
+        (goto-char (point-min))
+        (when (re-search-forward "^|---" nil t)
+          (forward-line 1)
+          (let ((cur (or (plist-get report :items) '())))
+            (while (and cur (looking-at "^|"))
+              (let* ((it (car cur))
+                     (status (plist-get it :status))
+                     (diff   (or (plist-get it :diff) ""))
+                     (has-preview (and (stringp diff) (> (length diff) 0)))
+                     (row-beg (line-beginning-position))
+                     (row-end (line-end-position)))
+                (add-text-properties row-beg row-end (list 'carriage-report-item it
+                                                           'face (carriage--report-row-face status)))
+                (carriage--report-attach-row row-beg row-end it has-preview)
+                (setq cur (cdr cur))
+                (forward-line 1))))))
       (carriage--report-install-keys)
       (goto-char (point-min))
       (carriage-report-mode)

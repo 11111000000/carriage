@@ -14,7 +14,10 @@
 (require 'carriage-errors)
 ;; Avoid hard dependency on carriage-mode to break cycles at load time.
 (declare-function carriage-register-abort-handler "carriage-mode" (fn))
-(declare-function carriage-accept-llm-response "carriage-mode" (&optional input insert-marker))
+(declare-function carriage-insert-stream-chunk "carriage-mode" (string &optional type))
+(declare-function carriage-begin-reasoning "carriage-mode" ())
+(declare-function carriage-end-reasoning "carriage-mode" ())
+(declare-function carriage-stream-finalize "carriage-mode" (&optional errorp mark-last-iteration))
 
 (defgroup carriage-transport-gptel nil
   "GPTel transport adapter for Carriage."
@@ -94,8 +97,7 @@ On backend mismatch, logs and completes with error."
         (carriage-transport-complete t))
       (user-error "No transport adapter for backend: %s" backend))
     ;; Prepare environment for gptel
-    (let* ((acc "")
-           (first-chunk t)
+    (let* ((first-chunk t)
            (prompt (or (plist-get args :prompt)
                        (carriage--gptel--prompt source buffer (intern (format "%s" mode)))))
            (system (plist-get args :system))
@@ -129,12 +131,15 @@ On backend mismatch, logs and completes with error."
                 (setq first-chunk nil)
                 (with-current-buffer gptel-buffer
                   (carriage-transport-streaming)))
-              (setq acc (concat acc response))
+              (with-current-buffer gptel-buffer
+                (carriage-insert-stream-chunk response 'text))
               (carriage-traffic-log 'in "%s" response))
              ;; Reasoning block: log (do not accumulate)
              ((and (consp response) (eq (car response) 'reasoning))
               (let ((chunk (cdr response)))
                 (when (stringp chunk)
+                  (with-current-buffer gptel-buffer
+                    (carriage-insert-stream-chunk chunk 'reasoning))
                   (carriage-traffic-log 'in "[reasoning] %s" chunk))))
              ;; Tool events: note and continue
              ((and (consp response) (memq (car response) '(tool-call tool-result)))
@@ -142,23 +147,15 @@ On backend mismatch, logs and completes with error."
              ;; Completed successfully (t)
              ((eq response t)
               (carriage-traffic-log 'in "gptel: done")
-              (let ((accepted-ok nil))
-                (when (and (stringp acc) (not (string-empty-p (string-trim acc))))
-                  (condition-case e
-                      (progn
-                        (carriage-accept-llm-response acc ins-marker)
-                        (setq accepted-ok t))
-                    (error
-                     (with-current-buffer gptel-buffer
-                       (carriage-log "accept error: %s" (error-message-string e)))
-                     (setq accepted-ok nil))))
-                (with-current-buffer gptel-buffer
-                  (carriage-transport-complete (not accepted-ok)))))
+              (with-current-buffer gptel-buffer
+                (carriage-stream-finalize nil t)
+                (carriage-transport-complete nil)))
              ;; Aborted or error (nil or 'abort)
              ((or (null response) (eq response 'abort))
               (let ((msg (or (plist-get info :status) "error/abort")))
                 (carriage-traffic-log 'in "gptel: %s" msg))
               (with-current-buffer gptel-buffer
+                (carriage-stream-finalize t nil)
                 (carriage-transport-complete t))))))))))
 
 

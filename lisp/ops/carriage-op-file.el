@@ -14,7 +14,7 @@
 
 (defun carriage-op-create-prompt-fragment (ctx)
   "Prompt fragment for :op create. CTX may contain :delim."
-  (let ((delim (or (plist-get ctx :delim) "cafe01")))
+  (let ((delim (or (plist-get ctx :delim) (carriage-generate-delim))))
     (concat
      "CREATE:\n"
      "#+begin_patch (:version \"1\" :op \"create\" :file \"RELATIVE/PATH\" :delim \"" delim "\")\n"
@@ -27,7 +27,7 @@
 
 (defun carriage-op-rename-prompt-fragment (_ctx)
   "Prompt fragment for :op rename."
-  "RENAME:\n#+begin_patch (:version \"1\" :op \"rename\" :from \"OLD/PATH\" :to \"NEW/PATH\")\n#+end_patch\n")
+  "RENAME:\n#+begin_patch (:version \"1\" :op \"rename\" :from \"OLD/RELATIVE/PATH\" :to \"NEW/RELATIVE/PATH\")\n#+end_patch\n")
 
 ;;;; Parse
 
@@ -62,21 +62,21 @@
               (nreverse acc))))
       (unless (= (length segments) 1)
         (signal (carriage-error-symbol 'SRE_E_SEGMENTS_COUNT) (list (length segments))))
-      (carriage-normalize-path repo-root file)
-      (list (cons :version "1")
-            (cons :op 'create)
-            (cons :file file)
-            (cons :content (car segments))
-            (cons :mkdir mkdir)
-            (cons :ensure-final-newline ensure-final)))))
+      (let* ((norm (carriage-normalize-path repo-root file)))
+        (list (cons :version "1")
+              (cons :op 'create)
+              (cons :file (file-relative-name norm repo-root))
+              (cons :content (car segments))
+              (cons :mkdir mkdir)
+              (cons :ensure-final-newline ensure-final))))))
 
 (defun carriage-parse-delete (header _body repo-root)
   "Parse :op delete from HEADER under REPO-ROOT."
   (let* ((file (plist-get header :file)))
     (unless (and (stringp file) (not (string-empty-p file)))
       (signal (carriage-error-symbol 'OPS_E_PATH) (list file)))
-    (carriage-normalize-path repo-root file)
-    (list (cons :version "1") (cons :op 'delete) (cons :file file))))
+    (let* ((norm (carriage-normalize-path repo-root file)))
+      (list (cons :version "1") (cons :op 'delete) (cons :file (file-relative-name norm repo-root))))))
 
 (defun carriage-parse-rename (header _body repo-root)
   "Parse :op rename from HEADER under REPO-ROOT."
@@ -85,9 +85,12 @@
     (dolist (p (list from to))
       (unless (and (stringp p) (not (string-empty-p p)))
         (signal (carriage-error-symbol 'OPS_E_PATH) (list p))))
-    (carriage-normalize-path repo-root from)
-    (carriage-normalize-path repo-root to)
-    (list (cons :version "1") (cons :op 'rename) (cons :from from) (cons :to to))))
+    (let* ((norm-from (carriage-normalize-path repo-root from))
+           (norm-to   (carriage-normalize-path repo-root to)))
+      (list (cons :version "1")
+            (cons :op 'rename)
+            (cons :from (file-relative-name norm-from repo-root))
+            (cons :to   (file-relative-name norm-to repo-root))))))
 
 ;;;; Dry-run
 

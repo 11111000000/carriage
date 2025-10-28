@@ -19,6 +19,7 @@
           (carriage-mode-show-header-line t)
           (carriage-mode-show-mode-line-ui t))
       (let ((orig-hl header-line-format))
+        (org-mode)
         (carriage-mode 1)
         (unwind-protect
             (progn

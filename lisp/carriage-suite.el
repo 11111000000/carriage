@@ -26,7 +26,8 @@
    "Ты инструмент Carriage-mode. Отвечай строго и только блоками Org:\n"
    "- Разрешены ТОЛЬКО блоки #+begin_patch ... #+end_patch.\n"
    "- Ни одного символа вне блоков (никакого reasoning, пояснений вне блоков).\n"
-   "- Пути только относительные. DELIM и пути выбирает инструмент; не придумывай их сам.\n"))
+   "- Пути только относительные. DELIM (6 hex, нижний регистр) и пути подставляет инструмент; модель не выбирает и не изменяет DELIM.\n"
+   "- Запрещены base64-вставки; при необходимости инструмент выполнит fallback сам.\n"))
 
 (defun carriage-build-prompt (intent suite-id ctx)
   "Build (:system :prompt) for INTENT ('Ask|'Patch) and SUITE-ID with CTX.
@@ -37,6 +38,14 @@ CTX may contain keys like :payload, :delim, :files, etc. Payload is user task te
            :prompt (or (plist-get ctx :payload) "")))
     ('Patch
      (let* ((ops (carriage-suite-ops suite-id))
+            ;; Ensure op modules are loaded so their prompt fragments are registered.
+            (_ (dolist (op ops)
+                 (unless (carriage-format-get op "1")
+                   (pcase op
+                     ((or 'sre 'sre-batch) (load "ops/carriage-op-sre" t t))
+                     ('patch               (load "ops/carriage-op-patch" t t))
+                     ((or 'create 'delete 'rename) (load "ops/carriage-op-file" t t))
+                     (_ nil)))))
             (frags
              (cl-loop for op in ops
                       for rec = (carriage-format-get op "1")

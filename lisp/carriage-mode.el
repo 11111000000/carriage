@@ -39,6 +39,11 @@
   :type '(choice symbol string)
   :group 'carriage)
 
+(defcustom carriage-mode-state-file ".context/carriage/carriage-state.el"
+  "Project-relative path for per-project Carriage state persistence file."
+  :type 'string
+  :group 'carriage)
+
 (defcustom carriage-mode-auto-open-report t
   "Open report buffer automatically after dry-run."
   :type 'boolean :group 'carriage)
@@ -47,11 +52,11 @@
   "Require showing diffs before apply."
   :type 'boolean :group 'carriage)
 
-(defcustom carriage-mode-auto-open-log t
+(defcustom carriage-mode-auto-open-log nil
   "When non-nil, open *carriage-log* automatically on mode enable and when sending."
   :type 'boolean :group 'carriage)
 
-(defcustom carriage-mode-auto-open-traffic t
+(defcustom carriage-mode-auto-open-traffic nil
   "When non-nil, open *carriage-traffic* automatically when sending."
   :type 'boolean :group 'carriage)
 
@@ -59,9 +64,16 @@
   "Ask for confirmation before applying all blocks (C-c !)."
   :type 'boolean :group 'carriage)
 
-(defcustom carriage-mode-use-icons nil
+(defcustom carriage-mode-use-icons t
   "Use all-the-icons in mode-line if available."
   :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-include-reasoning 'block
+  "Policy for including reasoning during streaming:
+- 'block — print reasoning inside #+begin_reasoning/#+end_reasoning
+- 'ignore — do not insert reasoning into the source buffer (still logged)."
+  :type '(choice (const block) (const ignore))
+  :group 'carriage)
 
 (defcustom carriage-mode-wip-branch "carriage/WIP"
   "Default Git WIP branch name used for applying changes."
@@ -143,8 +155,15 @@ Set by transports/pipelines when starting an async activity; cleared on completi
   (if carriage-mode
       (progn
         (unless (derived-mode-p 'org-mode)
-          (setq carriage-mode nil)
-          (user-error "carriage-mode работает только в org-mode"))
+          (if (bound-and-true-p noninteractive)
+              (carriage-log "carriage-mode enabled outside org-mode (batch); limited UI")
+            (progn
+              (setq carriage-mode nil)
+              (user-error "carriage-mode работает только в org-mode"))))
+        (let ((root (carriage-project-root)))
+          (unless root
+            (setq carriage-mode nil)
+            (user-error "Git repository not detected")))
         (setq carriage-mode-intent carriage-mode-default-intent)
         (setq carriage-mode-suite  carriage-mode-default-suite)
         (setq carriage-mode-model carriage-mode-default-model)
@@ -188,6 +207,118 @@ Set by transports/pipelines when starting an async activity; cleared on completi
       (force-mode-line-update t))
     (carriage-log "carriage-mode disabled in %s" (buffer-name))))
 
+;; Streaming insertion state and helpers
+
+(defvar-local carriage--stream-beg-marker nil
+  "Buffer-local begin marker of the current streaming region.")
+(defvar-local carriage--stream-end-marker nil
+  "Buffer-local end marker of the current streaming region.")
+(defvar-local carriage--stream-origin-marker nil
+  "Buffer-local origin marker set at request time; first chunk will use it.")
+(defvar-local carriage--reasoning-open nil
+  "Non-nil when a #+begin_reasoning block is currently open for streaming.")
+
+(defun carriage-stream-reset (&optional origin-marker)
+  "Reset streaming state for current buffer and set ORIGIN-MARKER if provided.
+Does not modify buffer text; only clears markers/state so the next chunk opens a region."
+  (setq carriage--stream-beg-marker nil)
+  (setq carriage--stream-end-marker nil)
+  (setq carriage--stream-origin-marker (and (markerp origin-marker) origin-marker))
+  (setq carriage--reasoning-open nil)
+  t)
+
+(defun carriage-stream-region ()
+  "Return (BEG . END) of current streaming region in this buffer, or nil."
+  (when (and (markerp carriage--stream-beg-marker)
+             (markerp carriage--stream-end-marker)
+             (eq (marker-buffer carriage--stream-beg-marker) (current-buffer))
+             (eq (marker-buffer carriage--stream-end-marker) (current-buffer)))
+    (cons (marker-position carriage--stream-beg-marker)
+          (marker-position carriage--stream-end-marker))))
+
+(defun carriage--ensure-stream-region ()
+  "Ensure streaming region exists. Use origin marker if set; otherwise current point."
+  (unless (and (markerp carriage--stream-beg-marker)
+               (markerp carriage--stream-end-marker))
+    (let* ((pos (cond
+                 ((and (markerp carriage--stream-origin-marker)
+                       (buffer-live-p (marker-buffer carriage--stream-origin-marker)))
+                  (marker-position carriage--stream-origin-marker))
+                 (t (point)))))
+      (save-excursion
+        (goto-char pos)
+        (unless (bolp) (insert "\n")))
+      (setq carriage--stream-beg-marker (copy-marker pos t))
+      (setq carriage--stream-end-marker (copy-marker pos t)))))
+
+(defun carriage-begin-reasoning ()
+  "Open a #+begin_reasoning block at the end of streaming region if not open."
+  (when (eq carriage-mode-include-reasoning 'block)
+    (carriage--ensure-stream-region)
+    (unless carriage--reasoning-open
+      (let ((inhibit-read-only t))
+        (save-excursion
+          (goto-char (marker-position carriage--stream-end-marker))
+          (insert "#+begin_reasoning\n")
+          (set-marker carriage--stream-end-marker (point) (current-buffer)))
+        (setq carriage--reasoning-open t)))))
+
+(defun carriage-end-reasoning ()
+  "Close the #+begin_reasoning block if it is open."
+  (when carriage--reasoning-open
+    (let ((inhibit-read-only t))
+      (save-excursion
+        (goto-char (marker-position carriage--stream-end-marker))
+        (insert "\n#+end_reasoning\n")
+        (set-marker carriage--stream-end-marker (point) (current-buffer))))
+    (setq carriage--reasoning-open nil)
+    t))
+
+(defun carriage--stream-insert-at-end (s)
+  "Insert string S at the end of the current streaming region."
+  (carriage--ensure-stream-region)
+  (let ((inhibit-read-only t))
+    (save-excursion
+      (goto-char (marker-position carriage--stream-end-marker))
+      (insert s)
+      (set-marker carriage--stream-end-marker (point) (current-buffer)))))
+
+;;;###autoload
+(defun carriage-insert-stream-chunk (string &optional type)
+  "Insert STRING chunk into the current buffer streaming region.
+TYPE is either 'text (default) or 'reasoning.
+- 'text: append to the region as-is.
+- 'reasoning: if carriage-mode-include-reasoning='block, ensure an open
+  #+begin_reasoning and append inside; otherwise ignore (only traffic/logs)."
+  (let ((s (or string "")))
+    (pcase type
+      ((or 'reasoning :reasoning)
+       (when (eq carriage-mode-include-reasoning 'block)
+         (carriage-begin-reasoning)
+         (carriage--stream-insert-at-end s)))
+      (_
+       ;; Close reasoning if model unexpectedly sends text after reasoning end
+       ;; without (reasoning . t). This keeps blocks well-formed.
+       (when carriage--reasoning-open
+         (carriage-end-reasoning))
+       (carriage--stream-insert-at-end s))))
+  (point))
+
+;;;###autoload
+(defun carriage-stream-finalize (&optional errorp mark-last-iteration)
+  "Finalize the current streaming session.
+- Close an open reasoning block, if any.
+- When MARK-LAST-ITERATION and not ERRORP: mark the inserted region as \"last iteration\"
+  so that C-c ! can pick it up. This writes the Org property and text properties on blocks."
+  (ignore-errors (carriage-end-reasoning))
+  (when (and (not errorp) mark-last-iteration)
+    (let ((r (carriage-stream-region)))
+      (when (and (consp r)
+                 (numberp (car r)) (numberp (cdr r))
+                 (< (car r) (cdr r)))
+        (carriage-mark-last-iteration (car r) (cdr r)))))
+  t)
+
 ;;; Prompt construction helpers
 
 (defun carriage--build-context (source buffer)
@@ -222,15 +353,19 @@ SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
          (srcbuf  (current-buffer))
          (origin-marker (copy-marker (point) t))
          (ctx     (carriage--build-context 'buffer srcbuf))
-         (built   (carriage-build-prompt intent suite ctx))
-         (sys     (plist-get built :system))
-         (pr      (plist-get built :prompt)))
+         (built nil) (sys nil) (pr nil))
+
+    (setq built (carriage-build-prompt intent suite ctx)
+          sys   (plist-get built :system)
+          pr    (plist-get built :prompt))
     (carriage-log "send-buffer: intent=%s suite=%s backend=%s model=%s"
                   intent suite backend model)
     (when (and carriage-mode-auto-open-log (not (bound-and-true-p noninteractive)))
       (ignore-errors (carriage-show-log)))
     (when (and carriage-mode-auto-open-traffic (not (bound-and-true-p noninteractive)))
       (ignore-errors (carriage-show-traffic)))
+    (carriage-stream-reset origin-marker)
+    (carriage-stream-reset origin-marker)
     (let* ((unreg (carriage-transport-begin)))
       (carriage-traffic-log 'out "request begin: source=buffer backend=%s model=%s"
                             backend model)
@@ -261,9 +396,11 @@ SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
          (srcbuf  (current-buffer))
          (origin-marker (copy-marker (point) t))
          (ctx     (carriage--build-context 'subtree srcbuf))
-         (built   (carriage-build-prompt intent suite ctx))
-         (sys     (plist-get built :system))
-         (pr      (plist-get built :prompt)))
+         (built nil) (sys nil) (pr nil))
+
+    (setq built (carriage-build-prompt intent suite ctx)
+          sys   (plist-get built :system)
+          pr    (plist-get built :prompt))
     (carriage-log "send-subtree: intent=%s suite=%s backend=%s model=%s"
                   intent suite backend model)
     ;; Best-effort derive a small payload boundary for logs

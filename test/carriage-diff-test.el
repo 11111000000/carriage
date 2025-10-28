@@ -2,6 +2,7 @@
 
 (require 'ert)
 (require 'carriage)
+(require 'carriage-op-patch)
 
 (defun carriage-diff-test--git (dir &rest args)
   "Run git ARGS in DIR and return exit code."

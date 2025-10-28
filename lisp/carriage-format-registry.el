@@ -45,5 +45,10 @@ Returns an unregister zero-arg lambda."
   "Return list of unique OP symbols present in the registry."
   (delete-dups (mapcar (lambda (kv) (car (car kv))) carriage-format--registry)))
 
+;; Helper: check if a handler is registered for OP/VERSION
+(defun carriage-format-registered-p (op version)
+  "Return non-nil when OP/VERSION has a registered handler in the registry."
+  (and (carriage-format-get op version) t))
+
 (provide 'carriage-format-registry)
 ;;; carriage-format-registry.el ends here

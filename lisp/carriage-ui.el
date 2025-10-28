@@ -150,6 +150,8 @@ Negative values move icons up; positive move them down."
     (define-key map (kbd "C-c ?")     #'carriage-dry-run-at-point)
     (define-key map (kbd "C-c b c")   #'carriage-wip-checkout)
     (define-key map (kbd "C-c b l")   #'carriage-show-log)
+    (define-key map (kbd "C-c b t")   #'carriage-show-traffic)
+    (define-key map (kbd "C-c b L")   #'carriage-show-log-and-traffic)
     (define-key map (kbd "C-c b r")   #'carriage-wip-reset-soft)
     ;; Navigation placeholders (optional)
     (define-key map (kbd "M-n")       #'carriage-next-patch-block)
