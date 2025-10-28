@@ -1,5 +1,4 @@
 ;;; carriage-transport.el --- Transport integration helpers (M4)  -*- lexical-binding: t; -*-
-;; Code style: see spec/code-style-v1.org (let* local bindings; async-first; clean edges)
 
 (require 'cl-lib)
 (require 'subr-x)

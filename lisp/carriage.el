@@ -1,5 +1,4 @@
 ;;; carriage.el --- Carriage entry point  -*- lexical-binding: t; -*-
-;; Code style: see spec/code-style-v1.org (let* for local bindings; clean core + thin ports)
 
 (require 'carriage-errors)
 (carriage-define-errors)

@@ -1,5 +1,4 @@
 ;;; carriage-suite.el --- Suite composition and prompt builder  -*- lexical-binding: t; -*-
-;;
 
 (require 'cl-lib)
 (require 'subr-x)

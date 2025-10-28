@@ -1,6 +1,4 @@
 ;;; carriage-ui.el --- Keymap and minimal UI helpers  -*- lexical-binding: t; -*-
-;; Code style: see spec/code-style-v1.org (let* for local bindings; keep pure core + thin ports)
-;;
 
 (require 'cl-lib)
 (require 'subr-x)

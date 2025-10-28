@@ -1,6 +1,4 @@
 ;;; carriage-sre-core.el --- Core SRE helpers (shared)  -*- lexical-binding: t; -*-
-;;
-;; Code style: см. spec/code-style-v1.org (The Tao of Emacs Lisp Programming for LLMs)
 
 (require 'cl-lib)
 (require 'subr-x)

@@ -1,6 +1,4 @@
 ;;; carriage-mode.el --- Minor mode, commands, and UI glue  -*- lexical-binding: t; -*-
-;;
-;; Code style: см. spec/code-style-v1.org (The Tao of Emacs Lisp Programming for LLMs)
 
 (require 'cl-lib)
 (require 'subr-x)

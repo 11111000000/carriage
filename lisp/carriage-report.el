@@ -1,5 +1,4 @@
 ;;; carriage-report.el --- Report buffer and faces  -*- lexical-binding: t; -*-
-;; Code style: see spec/code-style-v1.org (let* in locals; UI-safe, no errors in report)
 
 (require 'cl-lib)
 (require 'subr-x)

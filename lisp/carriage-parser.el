@@ -1,5 +1,4 @@
 ;;; carriage-parser.el --- Parsers for patch blocks  -*- lexical-binding: t; -*-
-;; Code style: see spec/code-style-v1.org (use let* only)
 
 (require 'cl-lib)
 (require 'seq)

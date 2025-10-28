@@ -1,5 +1,4 @@
 ;;; carriage-format-registry.el --- (:op,:version) → parse/dry-run/apply + prompt-fragment  -*- lexical-binding: t; -*-
-;;
 
 (require 'cl-lib)
 (require 'subr-x)
