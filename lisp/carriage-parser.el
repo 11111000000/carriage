@@ -41,7 +41,7 @@
     (unless (and (stringp file) (not (string-empty-p file)))
       (signal (carriage-error-symbol 'SRE_E_PATH) (list file)))
     (unless (and (stringp delim) (string-match-p "\\`[0-9a-f]\\{6\\}\\'" delim))
-      (signal (carriage-error-symbol 'SRE_E_OP) (list "Invalid :delim")))
+      (signal (carriage-error-symbol 'SRE_E_DELIM) (list "Invalid :delim")))
     t))
 
 (defun carriage--sre-default-opts ()
@@ -591,7 +591,7 @@ greater number of segments to maximize robustness."
     (unless (and (stringp file) (not (string-empty-p file)))
       (signal (carriage-error-symbol 'OPS_E_PATH) (list file)))
     (unless (and (stringp delim) (string-match-p "\\`[0-9a-f]\\{6\\}\\'" delim))
-      (signal (carriage-error-symbol 'SRE_E_OP) (list "Invalid :delim")))
+      (signal (carriage-error-symbol 'OPS_E_DELIM) (list "Invalid :delim")))
     (let* ((segments (carriage--sre-scan-segments body delim)))
       (unless (= (length segments) 1)
         (signal (carriage-error-symbol 'SRE_E_SEGMENTS_COUNT) (list (length segments))))

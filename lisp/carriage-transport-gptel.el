@@ -10,8 +10,10 @@
 (require 'gptel)              ;; provided by the gptel package
 (require 'carriage-logging)
 (require 'carriage-ui)
-(require 'carriage-mode)
 (require 'carriage-transport)
+;; Avoid hard dependency on carriage-mode to break cycles at load time.
+(declare-function carriage-register-abort-handler "carriage-mode" (fn))
+(declare-function carriage-accept-llm-response "carriage-mode" (&optional input insert-marker))
 
 (defgroup carriage-transport-gptel nil
   "GPTel transport adapter for Carriage."

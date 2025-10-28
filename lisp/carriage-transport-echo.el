@@ -10,8 +10,9 @@
 (require 'subr-x)
 (require 'carriage-logging)
 (require 'carriage-ui)
-(require 'carriage-mode)
 (require 'carriage-transport)
+;; Avoid hard dependency on carriage-mode to break cycles at load time.
+(declare-function carriage-register-abort-handler "carriage-mode" (fn))
 
 (defgroup carriage-transport-echo nil
   "Echo transport adapter (development fallback)."

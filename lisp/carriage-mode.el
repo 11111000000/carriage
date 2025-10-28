@@ -10,8 +10,12 @@
 (require 'carriage-report)
 (require 'carriage-iteration)
 (require 'carriage-llm-registry)
-(require 'carriage-transport)
 (require 'carriage-ui)
+;; Defer transport to avoid circular require; call via autoloaded functions.
+(declare-function carriage-transport-begin "carriage-transport" (&optional abort-fn))
+(declare-function carriage-transport-streaming "carriage-transport" ())
+(declare-function carriage-transport-complete "carriage-transport" (&optional errorp))
+(declare-function carriage-transport-dispatch "carriage-transport" (&rest args))
 
 (defcustom carriage-mode-default-profile 'Code
   "Default profile for Carriage: `Ask' or `Code'."

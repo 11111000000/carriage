@@ -3,8 +3,10 @@
 (require 'cl-lib)
 (require 'subr-x)
 (require 'carriage-ui)
-(require 'carriage-mode)
 (require 'carriage-logging)
+;; Break circular dependency with carriage-mode: call its fns via declare-function.
+(declare-function carriage-register-abort-handler "carriage-mode" (fn))
+(declare-function carriage-clear-abort-handler "carriage-mode" ())
 
 (defvar carriage--transport-loading-adapter nil
   "Guard to prevent recursive/layered adapter loading in transport dispatcher.")
@@ -38,6 +40,7 @@ If ERRORP non-nil, set state to 'error; otherwise set 'idle."
   (carriage-log "Transport: complete (status=%s)" (if errorp "error" "ok"))
   t)
 
+;;;###autoload
 (defun carriage-transport-dispatch (&rest args)
   "Dispatch request ARGS to transport adapter with safe lazy loading.
 

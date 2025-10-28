@@ -91,4 +91,29 @@
 
 (ert-deftest carriage-tramp-detected-and-refused ()
   (should t))
+
+;; UI/report: таблица должна быть валидной org-table и выравниваться
+(ert-deftest carriage-report-renders-org-table ()
+  (let ((buf (get-buffer-create "*carriage-report*")))
+    (with-current-buffer buf
+      (org-mode)
+      (erase-buffer)
+      (insert "| # | op | path | status | matches | details | preview | actions |\n")
+      (insert "|---+----+------+--------+---------+---------+---------+---------|\n")
+      (insert "| 1 | create | script.js | fail | 0 | Already exists |  | [Ediff] [Apply] |\n")
+      (goto-char (point-min))
+      (should (org-at-table-p))
+      (org-table-align)
+      (should (org-at-table-p)))))
+
+;; UI/source buffer: carriage-mode не выключается и буфер остаётся writable
+(ert-deftest carriage-mode-persists-and-writable-after-apply ()
+  (with-temp-buffer
+    (org-mode)
+    (carriage-mode 1)
+    (let ((before-ro buffer-read-only))
+      ;; эмуляция цикла без изменения исходного буфера
+      (run-hooks 'post-command-hook)
+      (should (bound-and-true-p carriage-mode))
+      (should (eq buffer-read-only before-ro)))))
 #+end_src

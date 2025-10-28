@@ -5,6 +5,7 @@
 (require 'button)
 (require 'carriage-utils)
 (require 'carriage-apply)
+(require 'carriage-logging)
 (require 'ediff)
 ;; Byte-compile hygiene: declare external function used conditionally.
 (declare-function carriage-sre-simulate-apply "carriage-apply" (plan-item repo-root))
@@ -32,14 +33,18 @@
   :group 'carriage)
 
 (defun carriage--report-insert-line (cols &optional face)
-  "Insert a tabular LINE from COLS list. Apply FACE to the whole line."
-  (let* ((line (mapconcat (lambda (c) (or (and (stringp c) c)
-                                     (format "%s" c)))
-                          cols
-                          " | ")))
+  "Insert an Org-table row from COLS list, applying FACE to the whole row."
+  (let* ((cells
+          (mapcar (lambda (c)
+                    (let ((s (if (stringp c) c (format "%s" c))))
+                      (setq s (replace-regexp-in-string "[\n\r]+" " " s))
+                      (string-trim s)))
+                  cols))
+         (line (concat "| " (mapconcat #'identity cells " | ") " |"))
+         (beg (point)))
     (insert line "\n")
     (when face
-      (add-text-properties (- (point) (1+ (length line))) (point) `(face ,face)))))
+      (add-text-properties beg (point) (list 'face face)))))
 
 (defun carriage--report-summary-line (report)
   "Build a summary header line for REPORT."
@@ -59,9 +64,9 @@
     (_     nil)))
 
 (defun carriage--report-insert-header ()
-  "Insert table header lines."
+  "Insert Org-table header and hline."
   (carriage--report-insert-line '("#" "op" "path" "status" "matches" "details" "preview" "actions"))
-  (carriage--report-insert-line '("---" "---" "---" "---" "---" "---" "---" "---")))
+  (insert "|---+----+------+--------+---------+---------+---------+---------|\n"))
 
 (defun carriage--report-attach-row (row-beg row-end it has-preview)
   "Attach item IT to row [ROW-BEG, ROW-END) and create buttons. HAS-PREVIEW gates [Diff]."
@@ -136,20 +141,36 @@ REPORT shape:
                  (status      (plist-get it :status))
                  (matches     (plist-get it :matches))
                  (details     (or (plist-get it :details) ""))
-                 (preview     (or (plist-get it :diff) ""))
-                 (has-preview (and (stringp preview) (> (length preview) 0)))
+                 (preview-raw  (or (plist-get it :diff) ""))
+                 (has-preview  (and (stringp preview-raw) (> (length preview-raw) 0)))
+                 (preview-flat (if has-preview
+                                   (string-trim (replace-regexp-in-string "[\n\r]+" " " preview-raw))
+                                 ""))
                  (preview-short (if has-preview
-                                    (truncate-string-to-width preview 60 nil nil t)
+                                    (truncate-string-to-width preview-flat 60 nil nil t)
                                   ""))
+                 (matches-str (cond
+                               ((numberp matches) (number-to-string matches))
+                               ((stringp matches) matches)
+                               ((null matches) "")
+                               (t (format "%s" matches))))
                  (action (concat (if has-preview "[Diff]" "") " [Ediff] [Apply]"))
                  (row-beg (point)))
             (carriage--report-insert-line
-             (list i op file status (or matches "") details preview-short action)
+             (list i op file status matches-str details preview-short action)
              (carriage--report-row-face status))
             (let ((row-end (point)))
               (carriage--report-attach-row row-beg row-end it has-preview)))))
+      ;; Align Org table columns for readability
+      (save-excursion
+        (goto-char (point-min))
+        (when (re-search-forward "^| " nil t)
+          (beginning-of-line)
+          (ignore-errors (require 'org-table))
+          (condition-case _ (org-table-align) (error nil))))
       (carriage--report-install-keys)
       (goto-char (point-min))
+      (carriage-report-mode)
       (read-only-mode 1))
     buf))
 
@@ -158,7 +179,7 @@ REPORT shape:
   (interactive)
   (when report
     (carriage-report-render report))
-  (pop-to-buffer (carriage-report-buffer)))
+  (carriage--display-aux-buffer (carriage-report-buffer)))
 
 (defun carriage-report--item-at-point ()
   "Return report item plist stored at point, or nil."
@@ -180,7 +201,7 @@ If no preview is available, signal a user-visible message."
             (insert diff)
             (goto-char (point-min))
             (view-mode 1))
-          (pop-to-buffer buf))
+          (carriage--display-aux-buffer buf))
       (user-error "No diff preview available at point"))))
 
 (defun carriage--report-ediff-at-point-impl ()
@@ -284,12 +305,7 @@ In batch mode runs non-interactively and refreshes report."
   (setq buffer-read-only t)
   (setq truncate-lines t))
 
-;; Ensure report buffer uses our mode/keymap after rendering.
-(when (fboundp 'carriage-report-render)
-  (advice-add 'carriage-report-render :after
-              (lambda (&rest _)
-                (carriage-report-mode)
-                (use-local-map carriage-report-mode-map))))
+;; Report buffer mode is now set inside carriage-report-render; no advice needed.
 
 (provide 'carriage-report)
 ;;; carriage-report.el ends here

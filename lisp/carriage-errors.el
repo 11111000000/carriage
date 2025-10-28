@@ -14,6 +14,7 @@
     (SRE_E_REGEX_SYNTAX     carriage-sre-regex-syntax     "Неподдерживаемый синтаксис regexp (SRE_E_REGEX_SYNTAX)")
     (SRE_E_NO_MATCHES       carriage-sre-no-matches       "Совпадений не найдено (SRE_E_NO_MATCHES)")
     (SRE_E_EXPECT_MISMATCH  carriage-sre-expect-mismatch  "Число замен не соответствует :expect (SRE_E_EXPECT_MISMATCH)")
+    (SRE_E_DELIM            carriage-sre-delim            "Неверный :delim (SRE_E_DELIM)")
     (SRE_E_COLLISION_DELIM  carriage-sre-collision-delim  "Коллизия DELIM (SRE_E_COLLISION_DELIM)")
     (SRE_E_LIMITS           carriage-sre-limits           "Превышены лимиты размера (SRE_E_LIMITS)")
 
@@ -33,6 +34,7 @@
     (OPS_E_NOT_FOUND        carriage-ops-not-found        "Объект не найден (OPS_E_NOT_FOUND)")
     (OPS_E_PATH             carriage-ops-path             "Недопустимый путь (OPS_E_PATH)")
     (OPS_E_PERM             carriage-ops-perm             "Недостаточно прав (OPS_E_PERM)")
+    (OPS_E_DELIM            carriage-ops-delim            "Неверный :delim (OPS_E_DELIM)")
 
     (MODE_E_DISPATCH        carriage-mode-dispatch        "Неизвестные :version или :op (MODE_E_DISPATCH)")
     (GIT_E_APPLY            carriage-git-apply            "Ошибка git apply (GIT_E_APPLY)")
