@@ -220,7 +220,7 @@
       (signal (carriage-error-symbol 'SRE_E_OP) (list op)))
     (unless (and (stringp file) (not (string-empty-p file)))
       (signal (carriage-error-symbol 'SRE_E_PATH) (list file)))
-    (unless (and (stringp delim) (string-match-p "\\=[0-9a-f]\\{6\\}\\'" delim))
+    (unless (and (stringp delim) (string-match-p "\\`[0-9a-f]\\{6\\}\\'" delim))
       (signal (carriage-error-symbol 'SRE_E_DELIM) (list "Invalid :delim")))
     t))
 
@@ -494,6 +494,11 @@
          (pairs (carriage--sre-attach-opts-to-pairs
                  (if (eq op 'sre) (list pairs-raw) pairs-raw)
                  body1))
+         ;; Enforce FREEZE: limit pairs for sre-batch
+         (_ (let ((maxn (or (and (boundp 'carriage-mode-max-batch-pairs) carriage-mode-max-batch-pairs) 200)))
+              (when (and (eq op 'sre-batch) (> (length pairs) maxn))
+                (signal (carriage-error-symbol 'SRE_E_LIMITS)
+                        (list (format "Too many pairs: %d (max %d)" (length pairs) maxn))))))
          (norm-path (carriage-normalize-path repo-root file)))
     (dolist (p pairs)
       (let* ((opts (alist-get :opts p))
@@ -539,7 +544,8 @@
          (total-matches 0)
          (errors nil)
          (warns nil)
-         (previews '()))
+         (previews '())
+         (any-noop nil))
     (dolist (p pairs)
       (let* ((from (alist-get :from p))
              (to   (alist-get :to p))
@@ -573,7 +579,10 @@
           (when (and (eq occur 'all) (integerp expect) (not (= count expect)))
             (push (format "Expect mismatch: have %d, expect %d" count expect) errors))
           (when (and (eq occur 'first) (= count 0))
-            (push "No matches for :occur first" errors)))))
+            (if (and (boundp 'carriage-mode-sre-noop-on-zero-matches)
+                     carriage-mode-sre-noop-on-zero-matches)
+                (setq any-noop t)
+              (push "No matches for :occur first" errors))))))
     (let* ((preview (when previews (mapconcat #'identity (nreverse previews) "\n\n")))
            (warn-tail (when warns (format "; %s" (mapconcat #'identity (nreverse warns) "; "))))
            (itm-messages
@@ -588,6 +597,9 @@
                               :details (format "DELIM resynced %s→%s"
                                                (plist-get rs :old) (plist-get rs :new)))
                         acc)))
+              (when any-noop
+                (push (list :code 'SRE_W_NOOP :severity 'warn :file file
+                            :details "No matches (occur first)") acc))
               (nreverse acc))))
       (if errors
           (let ((base (list :op 'sre :status 'fail
@@ -600,14 +612,21 @@
                                       (or warn-tail ""))
                             :diff (or preview ""))))
             (if itm-messages (append base (list :_messages itm-messages)) base))
-        (let ((base (list :op 'sre :status 'ok
-                          :file file
-                          :matches total-matches
-                          :details (concat
-                                    (format "ok: pairs:%d matches:%d"
-                                            (length pairs) total-matches)
-                                    (or warn-tail ""))
-                          :diff (or preview ""))))
+        (let* ((status (if (and any-noop (= total-matches 0)) 'skip 'ok))
+               (details (if (eq status 'skip)
+                            (concat
+                             (format "skip: noop (occur first); pairs:%d matches:%d"
+                                     (length pairs) total-matches)
+                             (or warn-tail ""))
+                          (concat
+                           (format "ok: pairs:%d matches:%d"
+                                   (length pairs) total-matches)
+                           (or warn-tail ""))))
+               (base (list :op 'sre :status status
+                           :file file
+                           :matches total-matches
+                           :details details
+                           :diff (or preview ""))))
           (if itm-messages (append base (list :_messages itm-messages)) base))))))
 
 (defun carriage-sre-simulate-apply (plan-item repo-root)
@@ -686,19 +705,17 @@ Does not touch filesystem or Git; replaces content in-memory."
 
 ;;;; Registration
 
-(ignore
- (carriage-format-register 'sre "1"
-                           :parse #'carriage-parse-sre
-                           :dry-run #'carriage-dry-run-sre
-                           :apply #'carriage-apply-sre
-                           :prompt-fragment #'carriage-op-sre-prompt-fragment))
+(carriage-format-register 'sre "1"
+                          :parse #'carriage-parse-sre
+                          :dry-run #'carriage-dry-run-sre
+                          :apply #'carriage-apply-sre
+                          :prompt-fragment #'carriage-op-sre-prompt-fragment)
 
-(ignore
- (carriage-format-register 'sre-batch "1"
-                           :parse #'carriage-parse-sre
-                           :dry-run #'carriage-dry-run-sre
-                           :apply #'carriage-apply-sre
-                           :prompt-fragment #'carriage-op-sre-prompt-fragment))
+(carriage-format-register 'sre-batch "1"
+                          :parse #'carriage-parse-sre
+                          :dry-run #'carriage-dry-run-sre
+                          :apply #'carriage-apply-sre
+                          :prompt-fragment #'carriage-op-sre-prompt-fragment)
 
 (provide 'carriage-op-sre)
 ;;; carriage-op-sre.el ends here

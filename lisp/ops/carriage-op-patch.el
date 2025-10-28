@@ -32,8 +32,11 @@
        ((string-match "\\`\\+\\+\\+ \\(.*\\)\\'" line)
         (setq b (match-string 1 line))
         (setq count (1+ count)))))
-    (unless (= count 2)
+    (cond
+     ((< count 2)
       (signal (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX) (list "Missing ---/+++")))
+     ((> count 2)
+      (signal (carriage-error-symbol 'PATCH_E_MULTI_FILE) (list "Multiple ---/+++ pairs detected"))))
     (list a b)))
 
 (defun carriage--diff-validate-single-file (a b)
@@ -78,10 +81,10 @@
       (insert body)
       (goto-char (point-min))
       (when (re-search-forward "^[ \t]*\\(GIT binary patch\\|Binary files .* differ\\)\\b" nil t)
-        (signal (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX) (list "Binary diff not supported")))
+        (signal (carriage-error-symbol 'PATCH_E_BINARY) (list "Binary diff not supported")))
       (goto-char (point-min))
       (when (re-search-forward "^[ \t]*\\(rename \\(from\\|to\\)\\|copy \\(from\\|to\\)\\)\\b" nil t)
-        (signal (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX) (list "rename/copy not supported"))))
+        (signal (carriage-error-symbol 'PATCH_E_RENAME_COPY) (list "rename/copy not supported"))))
     (let* ((ab (carriage--diff-extract-paths body))
            (a (car ab))
            (b (cadr ab))
@@ -114,7 +117,13 @@
       (list :op 'patch :status 'fail :path path :details "git apply --check failed"
             :extra (list :exit (plist-get res :exit)
                          :stderr (plist-get res :stderr)
-                         :stdout (plist-get res :stdout))))))
+                         :stdout (plist-get res :stdout))
+            :_messages (list (list :code 'PATCH_E_GIT_CHECK
+                                   :severity 'error
+                                   :file path
+                                   :details (or (plist-get res :stderr)
+                                                (plist-get res :stdout)
+                                                "git apply --check failed")))))))
 
 (defun carriage-apply-diff (plan-item repo-root)
   "Apply unified diff with git apply --index; then git add/commit."
@@ -133,12 +142,11 @@
 
 ;;;; Registration
 
-(ignore
- (carriage-format-register 'patch "1"
-                           :parse #'carriage-parse-diff
-                           :dry-run #'carriage-dry-run-diff
-                           :apply #'carriage-apply-diff
-                           :prompt-fragment #'carriage-op-patch-prompt-fragment))
+(carriage-format-register 'patch "1"
+                          :parse #'carriage-parse-diff
+                          :dry-run #'carriage-dry-run-diff
+                          :apply #'carriage-apply-diff
+                          :prompt-fragment #'carriage-op-patch-prompt-fragment)
 
 (provide 'carriage-op-patch)
 ;;; carriage-op-patch.el ends here

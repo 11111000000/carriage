@@ -18,7 +18,7 @@
       (unwind-protect
           (let ((ml (carriage--modeline-string)))
             ;; Core buttons
-            (should (string-match-p "\\[Ask\\]\\|\\[Code\\]" ml))
+            (should (string-match-p "\\[Ask\\]\\|\\[Patch\\]" ml))
             (should (string-match-p "\\[idle\\]\\|\\[sending\\]\\|\\[streaming\\]\\|\\[dry-run\\]\\|\\[apply\\]\\|\\[error\\]" ml))
             (should (string-match-p "\\[Dry\\]" ml))
             (should (string-match-p "\\[Apply\\]" ml))

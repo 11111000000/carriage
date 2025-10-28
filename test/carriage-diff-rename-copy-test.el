@@ -28,7 +28,7 @@
           (setq raised nil))
       (error (setq raised t sym (car e))))
     (should raised)
-    (should (eq sym (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX)))))
+    (should (eq sym (carriage-error-symbol 'PATCH_E_RENAME_COPY)))))
 
 (ert-deftest carriage-parse-diff-copy-rejected ()
   "Diffs containing copy prefaces must be rejected in v1."
@@ -51,6 +51,6 @@
           (setq raised nil))
       (error (setq raised t sym (car e))))
     (should raised)
-    (should (eq sym (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX)))))
+    (should (eq sym (carriage-error-symbol 'PATCH_E_RENAME_COPY)))))
 
 ;;; carriage-diff-rename-copy-test.el ends here

@@ -32,8 +32,8 @@
           (setq raised nil))
       (error (setq raised t sym (car e))))
     (should raised)
-    ;; Expect syntax error due to extra ---/+++ pairs
-    (should (eq sym (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX)))))
+    ;; Expect multi-file error due to extra ---/+++ pairs
+    (should (eq sym (carriage-error-symbol 'PATCH_E_MULTI_FILE)))))
 
 
 (ert-deftest carriage-parse-diff-binary-rejected ()
@@ -51,7 +51,7 @@
           (setq raised nil))
       (error (setq raised t sym (car e))))
     (should raised)
-    (should (eq sym (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX)))))
+    (should (eq sym (carriage-error-symbol 'PATCH_E_BINARY)))))
 
 (ert-deftest carriage-parse-diff-path-mismatch-rejected ()
   "Reject diffs where a/ and b/ paths do not match."

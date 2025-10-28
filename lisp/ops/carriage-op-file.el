@@ -42,7 +42,7 @@
                            (plist-get header :ensure-final-newline) t)))
     (unless (and (stringp file) (not (string-empty-p file)))
       (signal (carriage-error-symbol 'OPS_E_PATH) (list file)))
-    (unless (and (stringp delim) (string-match-p "\\=[0-9a-f]\\{6\\}\\'" delim))
+    (unless (and (stringp delim) (string-match-p "\\`[0-9a-f]\\{6\\}\\'" delim))
       (signal (carriage-error-symbol 'OPS_E_DELIM) (list "Invalid :delim")))
     ;; Extract exactly one segment using SRE-like scanner: <<DELIM ... :DELIM
     (let* ((open (concat "<<" delim))
@@ -175,26 +175,23 @@
 
 ;;;; Registration
 
-(ignore
- (carriage-format-register 'create "1"
-                           :parse #'carriage-parse-create
-                           :dry-run #'carriage-dry-run-create
-                           :apply #'carriage-apply-create
-                           :prompt-fragment #'carriage-op-create-prompt-fragment))
+(carriage-format-register 'create "1"
+                          :parse #'carriage-parse-create
+                          :dry-run #'carriage-dry-run-create
+                          :apply #'carriage-apply-create
+                          :prompt-fragment #'carriage-op-create-prompt-fragment)
 
-(ignore
- (carriage-format-register 'delete "1"
-                           :parse #'carriage-parse-delete
-                           :dry-run #'carriage-dry-run-delete
-                           :apply #'carriage-apply-delete
-                           :prompt-fragment #'carriage-op-delete-prompt-fragment))
+(carriage-format-register 'delete "1"
+                          :parse #'carriage-parse-delete
+                          :dry-run #'carriage-dry-run-delete
+                          :apply #'carriage-apply-delete
+                          :prompt-fragment #'carriage-op-delete-prompt-fragment)
 
-(ignore
- (carriage-format-register 'rename "1"
-                           :parse #'carriage-parse-rename
-                           :dry-run #'carriage-dry-run-rename
-                           :apply #'carriage-apply-rename
-                           :prompt-fragment #'carriage-op-rename-prompt-fragment))
+(carriage-format-register 'rename "1"
+                          :parse #'carriage-parse-rename
+                          :dry-run #'carriage-dry-run-rename
+                          :apply #'carriage-apply-rename
+                          :prompt-fragment #'carriage-op-rename-prompt-fragment)
 
 (provide 'carriage-op-file)
 ;;; carriage-op-file.el ends here

@@ -97,6 +97,7 @@ Contract:
       ;; Unknown backend
       (_
        (carriage-log "Transport: unknown backend=%s" bsym)
+       (signal (carriage-error-symbol 'LLM_E_BACKEND) (list (format "Unknown transport backend: %s" bsym)))
        (carriage-transport-complete t)
        (user-error "Unknown transport backend: %s" bsym)))))
 

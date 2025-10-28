@@ -115,14 +115,9 @@ in small chunks on a timer. No content is inserted into the Org buffer."
                                   (carriage-transport-complete t)
                                   (when (timerp timer) (cancel-timer timer))
                                   (setq timer nil))))))
-          ;; Signal begin after scheduling so abort handler is installed
-          (carriage-transport-begin
-           (lambda ()
-             (when (timerp timer) (cancel-timer timer))
-             (carriage-traffic-log 'in "echo: aborted (begin-handler)")
-             (carriage-transport-complete t))))))))
 
-;; Entry-point: carriage-transport-echo-dispatch
 
-(provide 'carriage-transport-echo)
+          ;; Entry-point: carriage-transport-echo-dispatch
+
+          (provide 'carriage-transport-echo)
 ;;; carriage-transport-echo.el ends here

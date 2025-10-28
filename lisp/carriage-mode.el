@@ -82,6 +82,11 @@ as a “(+N more)” tail."
   "Maximum number of pairs allowed in an :op =sre-batch' block."
   :type 'integer :group 'carriage)
 
+(defcustom carriage-mode-sre-noop-on-zero-matches nil
+  "When non-nil, treat :occur first with 0 matches as NOOP: report 'skip with a warning.
+If nil (default v1 behavior), such cases are considered a failure in dry-run."
+  :type 'boolean :group 'carriage)
+
 (defcustom carriage-mode-show-header-line t
   "When non-nil, install a buffer-local header-line segment for Carriage."
   :type 'boolean :group 'carriage)
@@ -137,6 +142,9 @@ Set by transports/pipelines when starting an async activity; cleared on completi
   :group 'carriage
   (if carriage-mode
       (progn
+        (unless (derived-mode-p 'org-mode)
+          (setq carriage-mode nil)
+          (user-error "carriage-mode работает только в org-mode"))
         (setq carriage-mode-intent carriage-mode-default-intent)
         (setq carriage-mode-suite  carriage-mode-default-suite)
         (setq carriage-mode-model carriage-mode-default-model)
@@ -228,8 +236,6 @@ SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
                             backend model)
       (condition-case err
           (progn
-            ;; Hint UI that streaming started (adapter should call this too).
-            (carriage-transport-streaming)
             ;; Dispatch via transport (placeholder will log error if no adapter).
             (carriage-transport-dispatch :source 'buffer
                                          :backend backend
@@ -272,7 +278,6 @@ SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
                             backend model)
       (condition-case err
           (progn
-            (carriage-transport-streaming)
             (carriage-transport-dispatch :source 'subtree
                                          :backend backend
                                          :model model
