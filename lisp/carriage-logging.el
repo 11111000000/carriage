@@ -105,20 +105,24 @@ already showing BUFFER."
                     carriage-mode-aux-window-reuse
                   t))
          (win (and reuse (get-buffer-window buffer t))))
-    (cond
-     (win
-      ;; Reuse existing window but do not select it (preserve user focus).
-      (set-window-buffer win buffer))
-     (t
-      ;; Show in a side window and keep main window intact.
-      (display-buffer buffer
-                      `((display-buffer-reuse-window display-buffer-in-side-window)
-                        (side . ,side)
-                        ,@(if (memq side '(left right))
-                              `((window-width . ,size))
-                            `((window-height . ,size)))
-                        (slot . -1)
-                        (window-parameters . ((no-delete-other-windows . t)))))))))
+    (save-selected-window
+      (let ((inhibit-switch-frame t))
+        (cond
+         (win
+          ;; Reuse existing window but do not select it (preserve user focus).
+          (set-window-buffer win buffer))
+         (t
+          ;; Show in a side window and keep main window intact (no focus change).
+          (display-buffer buffer
+                          `((display-buffer-reuse-window display-buffer-in-side-window)
+                            (inhibit-same-window . t)
+                            (side . ,side)
+                            ,@(if (memq side '(left right))
+                                  `((window-width . ,size))
+                                `((window-height . ,size)))
+                            (slot . -1)
+                            (window-parameters . ((no-delete-other-windows . t)
+                                                  (no-other-window . t)))))))))))
 
 (defun carriage-show-log ()
   "Display the Carriage log buffer in a side window."

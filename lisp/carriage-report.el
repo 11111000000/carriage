@@ -175,11 +175,14 @@ REPORT shape:
     buf))
 
 (defun carriage-report-open (&optional report)
-  "Open the report buffer and optionally RENDER REPORT alist."
+  "Open the report buffer and optionally RENDER REPORT alist.
+Keeps focus and major-mode of the current buffer intact."
   (interactive)
   (when report
     (carriage-report-render report))
-  (carriage--display-aux-buffer (carriage-report-buffer)))
+  (save-selected-window
+    (carriage--display-aux-buffer (carriage-report-buffer))))
+
 
 (defun carriage-report--item-at-point ()
   "Return report item plist stored at point, or nil."
