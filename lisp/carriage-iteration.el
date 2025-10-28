@@ -2,6 +2,7 @@
 
 (require 'cl-lib)
 (require 'subr-x)
+(require 'carriage-logging)
 
 (defvar-local carriage--last-iteration-id nil
   "Buffer-local identifier of the last iteration.

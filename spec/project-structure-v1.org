@@ -10,7 +10,7 @@
 - lisp/ — исходники (ядро и модули):
   - carriage-*.el — ядро и домен: errors, logging, utils, git, parser, apply, iteration, ui, report, mode, entry.
   - transports/ — адаптеры LLM/агентов (например, gptel, JSON-RPC), опционально.
-  - ops/ — дополнительные операции в будущих версиях.
+  - ops/ — оп-модули (:op): один файл на формат; рядом публикуются фрагменты промптов. Suite собирает системный промпт из этих фрагментов.
   - ui/ — доп. компоненты UI/виджеты (опционально).
 - spec/ — спецификации (норматив и разъяснения).
 - test/ — ERT и интеграционные фикстуры (git-репо).
@@ -33,7 +33,7 @@
 - Интерактивные команды — ;;;###autoload.
 
 * Порядок загрузки
-- carriage.el: require errors→(carriage-define-errors)→logging→utils→git→parser→apply→mode.
+- carriage.el: require errors→(carriage-define-errors)→logging→utils→git→carriage-format-registry→carriage-suite→parser→apply→ops→mode.
 - Транспорты подключаются через абстракцию (см. llm-transport-v1), не require-ятся по умолчанию.
 
 * Тестирование/CI

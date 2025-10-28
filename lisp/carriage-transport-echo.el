@@ -43,9 +43,9 @@
 
 (defun carriage--echo--chunk-string (s n)
   "Return a list of chunks splitting S into pieces of at most N chars."
-  (let ((len (length s))
-        (i 0)
-        (acc '()))
+  (let* ((len (length s))
+         (i 0)
+         (acc '()))
     (while (< i len)
       (let* ((j (min len (+ i (max 1 n))))
              (chunk (substring s i j)))
@@ -108,7 +108,7 @@ in small chunks on a timer. No content is inserted into the Org buffer."
                                        (when first
                                          (setq first nil)
                                          (carriage-transport-streaming))
-                                       (let ((chunk (pop rest)))
+                                       (let* ((chunk (pop rest)))
                                          (carriage-traffic-log 'in "%s" chunk))))
                                  (error
                                   (carriage-log "Echo stream error: %s" (error-message-string e))

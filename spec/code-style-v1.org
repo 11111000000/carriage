@@ -1,3 +1,9 @@
+:PROPERTIES:
+:GPTEL_MODEL: gpt-5
+:GPTEL_BACKEND: AI Tunnel
+:GPTEL_SYSTEM:
+:END:
+
 * The Tao of Emacs Lisp Programming for LLMs
   The Way that is spoken guides the hands that code. Seek clarity without rigidity, flexibility without disorder, power without violence. Build clean cores and thin ports. Let data flow, effects touch lightly, and names serve the essence.
 
@@ -119,7 +125,7 @@
 ** Important
 Follow these rules strictly:
   - Use only valid, standard Emacs Lisp syntax.
-  - For local bindings, use only let or let*; never use let/, let!, or any invented form.
+  - For local bindings, use only let* ("let" with "star"); never use "let/", "let\", "let!", or any invented form.
   - For quasi-quoting, use a backquote ` before the list; unquote with , and splice with ,@ (e.g., `(foo ,bar ,@baz)). Never write `(, or any equals sign before a parenthesis.
   - Ensure all parentheses are balanced and the code has no syntax errors.
   - If you use cl-lib features, include (require 'cl-lib).

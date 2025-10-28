@@ -16,10 +16,11 @@
   - SRE: :range вне границ → clamp и предупреждение SRE_W_RANGE_CLAMP; одинаковое поведение dry-run/apply.
   - PATCH: многофайловый diff → отказ, /dev/null create/delete, :strip логика.
   - PATCH: rename/copy прелюдии → PATCH_E_RENAME_COPY; бинарные секции → PATCH_E_BINARY.
-  - File Ops: create/delete/rename — предусловия, :mkdir, :ensure-final-newline, конфликты путей и существование/отсутствие файлов; create: валидация :delim (=6 hex, \=[0-9a-f]\{6\}\'), негативный кейс при неверном токене.
+  - File Ops: create/delete/rename — предусловия, :mkdir, :ensure-final-newline, конфликты путей и существование/отсутствие файлов; create: валидация :delim (=6 hex, Emacs regexp \\`[0-9a-f]\\{6\\}\\'), негативный кейс при неверном токене.
 - Валидаторы regexp (Emacs flavor): неподдерживаемые конструкции → ошибка.
 - Нормализация путей: запрет абсолютов и «..».
 - TRAMP/remote: отказ при (file-remote-p) t.
+- NOOP-политика: при carriage-mode-sre-noop-on-zero-matches=t и :occur first с 0 совпадений → статус 'skip и предупреждение.
 
 ** Интеграционные
 - Тестовый git-репозиторий (временный каталог).
@@ -76,7 +77,7 @@
 (ert-deftest carriage-rename-validate-and-apply ()
   (should (fboundp 'carriage-parse-rename)))
 
-;; BUGFIX regression: create :delim must be exactly 6 lower hex; anchor with \= and \'
+;; BUGFIX regression: create :delim must be exactly 6 lower hex; anchor with \\` and \\'
 (ert-deftest carriage-create-delim-validation ()
   (let ((hdr '(:version "1" :op "create" :file "x" :delim "1db651"))
         (bad '(:version "1" :op "create" :file "x" :delim "ZZZZZZ")))

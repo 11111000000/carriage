@@ -15,7 +15,7 @@
 
 (defun carriage-git-ensure-repo (root)
   "Ensure ROOT looks like a git repo, signal if not."
-  (let ((res (carriage-git--run root "rev-parse" "--git-dir")))
+  (let* ((res (carriage-git--run root "rev-parse" "--git-dir")))
     (unless (eq (plist-get res :exit) 0)
       (signal (carriage-error-symbol 'GIT_E_APPLY) (list "Git repo not detected"))))
   t)

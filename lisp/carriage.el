@@ -1,4 +1,5 @@
 ;;; carriage.el --- Carriage entry point  -*- lexical-binding: t; -*-
+;; Code style: see spec/code-style-v1.org (let* for local bindings; clean core + thin ports)
 
 (require 'carriage-errors)
 (carriage-define-errors)
@@ -6,8 +7,18 @@
 (require 'carriage-logging)
 (require 'carriage-utils)
 (require 'carriage-git)
+;; Registries and suite builder (ops modules register themselves)
+(require 'carriage-format-registry)
+(require 'carriage-suite)
+
 (require 'carriage-parser)
 (require 'carriage-apply)
+
+;; Load ops modules (registration references functions from parser/apply)
+(require 'carriage-op-sre)
+(require 'carriage-op-patch)
+(require 'carriage-op-file)
+
 (require 'carriage-mode)
 (require 'carriage-transport)
 ;; Optional: enable gptel adapter when available (fallback to echo)

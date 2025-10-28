@@ -13,8 +13,8 @@
 (defun carriage--call-git (default-dir &rest args)
   "Call git with ARGS in DEFAULT-DIR, return (:exit :stdout :stderr).
 Capture stderr via a temporary file to avoid DEST type issues."
-  (let ((default-directory (file-name-as-directory (expand-file-name default-dir))))
-    (let ((stderr-file (make-temp-file "carriage-git-stderr-")))
+  (let* ((default-directory (file-name-as-directory (expand-file-name default-dir))))
+    (let* ((stderr-file (make-temp-file "carriage-git-stderr-")))
       (unwind-protect
           (with-temp-buffer
             (let* ((out (current-buffer))
@@ -28,7 +28,7 @@ Capture stderr via a temporary file to avoid DEST type issues."
 
 (defun carriage-project-root ()
   "Detect project root directory. Return absolute path or nil."
-  (let ((root nil))
+  (let* ((root nil))
     (condition-case _e
         (when (require 'project nil t)
           (let* ((proj (project-current nil))
@@ -84,7 +84,7 @@ Capture stderr via a temporary file to avoid DEST type issues."
 
 (defun carriage--plist-get* (plist &rest keys)
   "Get nested KEYS from PLIST treating it as plist."
-  (let ((cur plist))
+  (let* ((cur plist))
     (while (and keys cur)
       (setq cur (plist-get cur (car keys)))
       (setq keys (cdr keys)))
@@ -92,7 +92,7 @@ Capture stderr via a temporary file to avoid DEST type issues."
 
 (defun carriage--alist (plist)
   "Convert PLIST to an alist with symbol keys."
-  (let ((res nil) (p plist))
+  (let* ((res nil) (p plist))
     (while p
       (let ((k (car p)) (v (cadr p)))
         (setq res (cons (cons k v) res)))

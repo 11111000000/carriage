@@ -1,4 +1,5 @@
 ;;; carriage-transport.el --- Transport integration helpers (M4)  -*- lexical-binding: t; -*-
+;; Code style: see spec/code-style-v1.org (let* local bindings; async-first; clean edges)
 
 (require 'cl-lib)
 (require 'subr-x)
@@ -63,7 +64,7 @@ Contract:
          (apply #'carriage-transport-gptel-dispatch args))
         ;; One-shot lazy load guarded
         ((not carriage--transport-loading-adapter)
-         (let ((carriage--transport-loading-adapter t))
+         (let* ((carriage--transport-loading-adapter t))
            (when (and (require 'gptel nil t)
                       (require 'carriage-transport-gptel nil t))
              (carriage-log "Transport: gptel adapter loaded on demand"))
@@ -82,7 +83,7 @@ Contract:
         ((fboundp 'carriage-transport-echo-dispatch)
          (apply #'carriage-transport-echo-dispatch args))
         ((not carriage--transport-loading-adapter)
-         (let ((carriage--transport-loading-adapter t))
+         (let* ((carriage--transport-loading-adapter t))
            (when (require 'carriage-transport-echo nil t)
              (carriage-log "Transport: echo adapter loaded on demand"))
            (if (fboundp 'carriage-transport-echo-dispatch)

@@ -30,6 +30,7 @@
 - Порядок типов: delete → rename → create → patch → sre/sre-batch (./apply-pipeline-v1.org).
 - Групповое применение (C-c !) — остановка на первой ошибке, без автоматического отката.
 - Коммиты в ветку carriage/WIP; сообщения включают {op} и {file|path}.
+- NOOP-политика: carriage-mode-sre-noop-on-zero-matches учитывается (0 совпадений → 'skip при включении).
 
 * UI/UX
 - Клавиши и команды из ./ui-v1.org.
@@ -37,11 +38,11 @@
 
 * Безопасность
 - Политики из ./security-v1.org соблюдены: пути, EOL, лимиты, запреты.
-- TRAMP/remote — отключено или явно ограничено в v1.
+- TRAMP/remote — отключено в v1.
 
 * Промпты
-- Профили Ask/Code из ./prompt-profiles-v1.org.
-- В Code — строго только блоки =patch=; DELIM вставляет инструмент; пути относительные.
+- Интенты Ask/Patch и сьюиты из ./prompt-profiles-v1.org (Intent/Suite).
+- В Intent=Patch — строго только блоки =patch=; DELIM вставляет инструмент; пути относительные.
 
 * Тестирование
 - Юнит-тесты ERT для всех парсеров и аплаеров.

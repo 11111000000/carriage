@@ -1,4 +1,6 @@
 ;;; carriage-mode.el --- Minor mode, commands, and UI glue  -*- lexical-binding: t; -*-
+;;
+;; Code style: см. spec/code-style-v1.org (The Tao of Emacs Lisp Programming for LLMs)
 
 (require 'cl-lib)
 (require 'subr-x)
@@ -11,15 +13,22 @@
 (require 'carriage-iteration)
 (require 'carriage-llm-registry)
 (require 'carriage-ui)
+(require 'carriage-suite)
+(require 'carriage-sre-core)
 ;; Defer transport to avoid circular require; call via autoloaded functions.
 (declare-function carriage-transport-begin "carriage-transport" (&optional abort-fn))
 (declare-function carriage-transport-streaming "carriage-transport" ())
 (declare-function carriage-transport-complete "carriage-transport" (&optional errorp))
 (declare-function carriage-transport-dispatch "carriage-transport" (&rest args))
 
-(defcustom carriage-mode-default-profile 'Code
-  "Default profile for Carriage: `Ask' or `Code'."
-  :type '(choice (const Ask) (const Code))
+(defcustom carriage-mode-default-intent 'Patch
+  "Default Intent for Carriage: `Ask' or `Patch'."
+  :type '(choice (const Ask) (const Patch))
+  :group 'carriage)
+
+(defcustom carriage-mode-default-suite 'auto-v1
+  "Default Suite for Patch intent: one of 'auto-v1, 'sre-v1, 'patch-v1, 'file-ops-v1."
+  :type '(choice (const auto-v1) (const sre-v1) (const patch-v1) (const file-ops-v1))
   :group 'carriage)
 
 (defcustom carriage-mode-default-model "gptel-default"
@@ -52,7 +61,7 @@
   "Ask for confirmation before applying all blocks (C-c !)."
   :type 'boolean :group 'carriage)
 
-(defcustom carriage-mode-use-icons t
+(defcustom carriage-mode-use-icons nil
   "Use all-the-icons in mode-line if available."
   :type 'boolean :group 'carriage)
 
@@ -97,8 +106,11 @@ as a “(+N more)” tail."
 Note: v1 forbids binary patches; this option remains nil in v1 and is reserved for future versions."
   :type 'boolean :group 'carriage)
 
-(defvar-local carriage-mode-profile carriage-mode-default-profile
-  "Current Carriage profile for this buffer: =Ask' or =Code'.")
+(defvar-local carriage-mode-intent carriage-mode-default-intent
+  "Current Carriage Intent for this buffer: 'Ask or 'Patch.")
+
+(defvar-local carriage-mode-suite carriage-mode-default-suite
+  "Current Carriage Suite for this buffer (when Intent='Patch).")
 
 (defvar-local carriage-mode-model carriage-mode-default-model
   "Current Carriage model string for this buffer.")
@@ -127,7 +139,8 @@ Set by transports/pipelines when starting an async activity; cleared on completi
   :group 'carriage
   (if carriage-mode
       (progn
-        (setq carriage-mode-profile carriage-mode-default-profile)
+        (setq carriage-mode-intent carriage-mode-default-intent)
+        (setq carriage-mode-suite  carriage-mode-default-suite)
         (setq carriage-mode-model carriage-mode-default-model)
         (setq carriage-mode-backend carriage-mode-default-backend)
         ;; Ensure default backend:model is present in registry for completion.
@@ -169,11 +182,11 @@ Set by transports/pipelines when starting an async activity; cleared on completi
       (force-mode-line-update t))
     (carriage-log "carriage-mode disabled in %s" (buffer-name))))
 
-;;; Prompt construction (profiles Ask/Code)
+;;; Prompt construction helpers
 
-(defun carriage--build-prompt (profile source buffer)
-  "Return plist (:system :prompt) built from PROFILE and SOURCE for BUFFER.
-PROFILE is 'Ask or 'Code. SOURCE is 'buffer or 'subtree."
+(defun carriage--build-context (source buffer)
+  "Return context plist for prompt builder with at least :payload.
+SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
   (with-current-buffer buffer
     (let* ((mode (buffer-local-value 'major-mode buffer))
            (payload
@@ -188,53 +201,31 @@ PROFILE is 'Ask or 'Code. SOURCE is 'buffer or 'subtree."
                        (buffer-substring-no-properties beg end)))
                  (buffer-substring-no-properties (point-min) (point-max))))
               (_ (buffer-substring-no-properties (point-min) (point-max))))))
-      (pcase profile
-        ('Code
-         (list
-          :system
-          (concat
-           "Ты инструмент Carriage-mode. Отвечай строго и только блоками Org:\n"
-           "- Разрешены ТОЛЬКО блоки #+begin_patch ... #+end_patch.\n"
-           "- Ни одного символа вне блоков (никакого reasoning, пояснений и текста вне блоков).\n"
-           "- Поддерживаемые форматы: sre / sre-batch / patch / create / delete / rename (v1).\n"
-           "- DELIM и относительные пути выбирает инструмент; не придумывай их сам.\n"
-           "- Если результата нет — верни пустой допустимый блок соответствующего op.\n"
-           "Пример (create):\n"
-           "#+begin_patch (:version \"1\" :op \"create\" :file \"README.md\" :delim \"a1b2c3\")\n"
-           "<<a1b2c3\n"
-           "Hello\n"
-           ":a1b2c3\n"
-           "#+end_patch\n")
-          :prompt
-          (concat
-           "Задача:\n"
-           payload
-           "\nСформируй ответ ТОЛЬКО из допустимых begin_patch-блоков (см. v1). Без лишнего текста.")))
-        (_
-         ;; Ask: свободный ответ без патчей
-         (list :system "Режим диалога (Ask). Не генерируй begin_patch." :prompt payload))))))
+      (list :payload payload))))
 
 ;;; Commands (stubs/minimal implementations)
 
 ;;;###autoload
 (defun carriage-send-buffer ()
-  "Send entire buffer to LLM according to current profile."
+  "Send entire buffer to LLM according to current Intent/Suite."
   (interactive)
   (let* ((backend carriage-mode-backend)
          (model   carriage-mode-model)
-         (profile carriage-mode-profile)
+         (intent  carriage-mode-intent)
+         (suite   carriage-mode-suite)
          (srcbuf  (current-buffer))
          (origin-marker (copy-marker (point) t))
-         (built   (carriage--build-prompt profile 'buffer srcbuf))
+         (ctx     (carriage--build-context 'buffer srcbuf))
+         (built   (carriage-build-prompt intent suite ctx))
          (sys     (plist-get built :system))
          (pr      (plist-get built :prompt)))
-    (carriage-log "send-buffer: profile=%s backend=%s model=%s"
-                  profile backend model)
+    (carriage-log "send-buffer: intent=%s suite=%s backend=%s model=%s"
+                  intent suite backend model)
     (when (and carriage-mode-auto-open-log (not (bound-and-true-p noninteractive)))
       (ignore-errors (carriage-show-log)))
     (when (and carriage-mode-auto-open-traffic (not (bound-and-true-p noninteractive)))
       (ignore-errors (carriage-show-traffic)))
-    (let ((unreg (carriage-transport-begin)))
+    (let* ((unreg (carriage-transport-begin)))
       (carriage-traffic-log 'out "request begin: source=buffer backend=%s model=%s"
                             backend model)
       (condition-case err
@@ -257,18 +248,20 @@ PROFILE is 'Ask or 'Code. SOURCE is 'buffer or 'subtree."
 
 ;;;###autoload
 (defun carriage-send-subtree ()
-  "Send current org subtree to LLM according to current profile."
+  "Send current org subtree to LLM according to current Intent/Suite."
   (interactive)
   (let* ((backend carriage-mode-backend)
          (model   carriage-mode-model)
-         (profile carriage-mode-profile)
+         (intent  carriage-mode-intent)
+         (suite   carriage-mode-suite)
          (srcbuf  (current-buffer))
          (origin-marker (copy-marker (point) t))
-         (built   (carriage--build-prompt profile 'subtree srcbuf))
+         (ctx     (carriage--build-context 'subtree srcbuf))
+         (built   (carriage-build-prompt intent suite ctx))
          (sys     (plist-get built :system))
          (pr      (plist-get built :prompt)))
-    (carriage-log "send-subtree: profile=%s backend=%s model=%s"
-                  profile backend model)
+    (carriage-log "send-subtree: intent=%s suite=%s backend=%s model=%s"
+                  intent suite backend model)
     ;; Best-effort derive a small payload boundary for logs
     (when (derived-mode-p 'org-mode)
       (carriage-log "send-subtree: org-mode detected; using subtree-at-point as payload"))
@@ -276,7 +269,7 @@ PROFILE is 'Ask or 'Code. SOURCE is 'buffer or 'subtree."
       (ignore-errors (carriage-show-log)))
     (when (and carriage-mode-auto-open-traffic (not (bound-and-true-p noninteractive)))
       (ignore-errors (carriage-show-traffic)))
-    (let ((unreg (carriage-transport-begin)))
+    (let* ((unreg (carriage-transport-begin)))
       (carriage-traffic-log 'out "request begin: source=subtree backend=%s model=%s"
                             backend model)
       (condition-case err
@@ -393,11 +386,31 @@ PROFILE is 'Ask or 'Code. SOURCE is 'buffer or 'subtree."
     (message "Carriage: soft reset to %s" (or rev "HEAD~1"))))
 
 ;;;###autoload
-(defun carriage-toggle-profile ()
-  "Toggle profile between `Ask' and `Code'."
+(defun carriage-toggle-intent ()
+  "Toggle Intent between `Ask' and `Patch'."
   (interactive)
-  (setq carriage-mode-profile (if (eq carriage-mode-profile 'Ask) 'Code 'Ask))
-  (message "Carriage profile: %s" carriage-mode-profile))
+  (setq carriage-mode-intent (if (eq carriage-mode-intent 'Ask) 'Patch 'Ask))
+  (message "Carriage intent: %s" carriage-mode-intent)
+  (force-mode-line-update t))
+
+;;;###autoload
+(defun carriage-select-suite (&optional suite)
+  "Select Suite for Patch intent (auto-v1|sre-v1|patch-v1|file-ops-v1)."
+  (interactive)
+  (let* ((choices
+          (condition-case _e
+              (let ((ids (and (fboundp 'carriage-suite-ids) (carriage-suite-ids))))
+                (if (and ids (listp ids))
+                    (mapcar (lambda (s) (if (symbolp s) (symbol-name s) (format "%s" s))) ids)
+                  '("auto-v1" "sre-v1" "patch-v1" "file-ops-v1")))
+            (error '("auto-v1" "sre-v1" "patch-v1" "file-ops-v1"))))
+         (default (if (symbolp carriage-mode-suite)
+                      (symbol-name carriage-mode-suite)
+                    (or carriage-mode-suite "auto-v1")))
+         (sel (or suite (completing-read "Suite: " choices nil t default))))
+    (setq carriage-mode-suite (intern sel))
+    (message "Carriage suite: %s" carriage-mode-suite)
+    (force-mode-line-update t)))
 
 ;;;###autoload
 (defun carriage-select-model (&optional model)
@@ -515,12 +528,12 @@ Return a single string with blocks concatenated by blank lines."
   (with-temp-buffer
     (insert text)
     (goto-char (point-min))
-    (let ((chunks '()))
+    (let* ((chunks '()))
       (while (re-search-forward "^[ \t]*#\\+begin_patch\\b" nil t)
-        (let ((beg (match-beginning 0)))
+        (let* ((beg (match-beginning 0)))
           (unless (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
             (goto-char (point-max)))
-          (let ((end (line-end-position)))
+          (let* ((end (line-end-position)))
             (push (buffer-substring-no-properties beg end) chunks))
           (forward-line 1)))
       (mapconcat #'identity (nreverse chunks) "\n\n"))))
@@ -586,10 +599,10 @@ Return cons (BEG . END) of inserted region."
   (with-current-buffer buf
     (save-excursion
       (when pos (goto-char pos))
-      (let ((ins-beg (point)))
+      (let* ((ins-beg (point)))
         (unless (bolp) (insert "\n"))
         (insert blocks "\n")
-        (let ((ins-end (point)))
+        (let* ((ins-end (point)))
           (carriage-log "accept: inserted region %d..%d (%d chars)"
                         ins-beg ins-end (- ins-end ins-beg))
           (carriage-mark-last-iteration ins-beg ins-end)
@@ -626,7 +639,7 @@ Return the dry-run report plist."
            (buf (car target))
            (pos (cdr target)))
       (with-current-buffer buf
-        (let ((root (or (carriage-project-root) default-directory)))
+        (let* ((root (or (carriage-project-root) default-directory)))
           (carriage-traffic-log 'in "Accepted LLM response (%d chars)" (length raw))
           (carriage-log "accept: extracted blocks bytes=%d" (string-bytes blocks))
           (ignore (carriage--insert-blocks-and-mark buf pos blocks))

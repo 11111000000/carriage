@@ -7,14 +7,14 @@
 - Норматив интерфейса пользователя: навигация, применение, визуализация.
 
 * Keymap (org-mode только)
-- C-c M-RET — отправить весь документ (Ask/Code зависит от профиля).
+- C-c M-RET — отправить весь документ (поведение зависит от Intent: Ask|Patch).
 - C-c RET — отправить текущее поддерево.
 - C-c C-c — dry-run → подтверждение → применить блок =patch= под точкой.
 - C-c ! — применить все блоки из «последней итерации».
 - C-c ? — только dry-run текущего блока (или всей «последней итерации» при префикс-аргументе).
 - M-n / M-p — навигация по блокам =patch=.
 - C-c b c — создать/перейти на ветку carriage/WIP.
-- C-c b l — показать лог применений (буфер отчёта).
+- C-c b l — показать лог применений (буфер лога).
 - C-c b r — откат последнего коммита (soft reset).
 
 * Header-line
@@ -24,7 +24,8 @@
 
 * Mode-line
 - Сегменты и кнопки (кликабельно; без мыши — дублируются командами/клавишами):
-  - Профиль: [Ask|Code] — переключение профиля (toggle).
+  - Intent: [Ask|Patch] — переключение намерения ответа (toggle).
+  - Suite: [auto|sre|patch|fileops] — выбор набора допустимых операций/шаблонов.
   - Модель: [BACKEND:MODEL] — выбор модели.
   - Состояние: [idle|sending|streaming|dry-run|apply|error] + индикатор-спиннер для sending/streaming.
   - Управление циклом:
@@ -47,13 +48,12 @@
   - [Icons] — carriage-mode-use-icons (t/nil) — использовать иконки.
 
 - Иконки (при наличии all-the-icons; иначе — текстовые метки в [скобках]):
-  - Профиль: Ask — material "chat" | Code — material "code".
-  - Модель: octicon "cpu" или material "memory".
+  - Intent: Ask — material "chat" | Patch — material "code".  - Модель: octicon "cpu" или material "memory".
   - Состояния: sending — spinner, streaming — waves, dry-run — faicon "flask", apply — material "check_circle", error — material "error".
   - Кнопки:
     - Dry — faicon "flask".
     - Apply — material "check_circle".
-    - All — octicon "rocket" или "play".
+    - All — octicon "rocket" или material "play_arrow".
     - Abort — octicon "stop".
     - Report — octicon "file-text".
     - Diff — octicon "git-compare".
@@ -67,6 +67,7 @@
   - sending → streaming (получение частичного ответа).
   - streaming → idle (если блоки не распознаны) | dry-run (если запущено C-c ?/C-c C-c над «последней итерацией»).
   - dry-run → apply → idle | error.
+  - Норма: переход sending→streaming инициируется транспортом на первом чанке; UI/команды не переводят состояние в streaming заранее.
   - Любая стадия → error при тайм-ауте/исключении.
   - Примечание: UI обязан отображать одинаковые диапазоны :range для dry-run/apply (см. SRE v1 — консистентность «эффективного диапазона»).
 
@@ -138,7 +139,7 @@
 
 * Mode-line: сегменты, состояния и обновление
 - Сегменты (в порядке слева направо, минимальная реализация):
-  - [Ask|Code], [gptel:MODEL], [STATE+spinner], [Dry] [Apply] [All] [Abort] [Report], [Diff] [Ediff], [WIP] [Reset]
+  - [Ask|Patch] [Suite:auto|sre|patch|fileops], [gptel:MODEL], [STATE+spinner], [Dry] [Apply] [All] [Abort] [Report], [Diff] [Ediff], [WIP] [Reset]
   - Тумблеры: [AutoRpt] [ShowDiffs] [ConfirmAll] [Icons]
 - Состояния STATE:
   - idle | sending | streaming | dry-run | apply | error.

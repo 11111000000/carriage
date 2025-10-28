@@ -1,4 +1,5 @@
 ;;; carriage-report.el --- Report buffer and faces  -*- lexical-binding: t; -*-
+;; Code style: see spec/code-style-v1.org (let* in locals; UI-safe, no errors in report)
 
 (require 'cl-lib)
 (require 'subr-x)
@@ -8,7 +9,7 @@
 (require 'carriage-logging)
 (require 'ediff)
 ;; Byte-compile hygiene: declare external function used conditionally.
-(declare-function carriage-sre-simulate-apply "carriage-apply" (plan-item repo-root))
+(declare-function carriage-sre-simulate-apply "carriage-op-sre" (plan-item repo-root))
 
 (defconst carriage--report-buffer-name "*carriage-report*"
   "Name of the Carriage report buffer.")
@@ -36,7 +37,7 @@
   "Insert an Org-table row from COLS list, applying FACE to the whole row."
   (let* ((cells
           (mapcar (lambda (c)
-                    (let ((s (if (stringp c) c (format "%s" c))))
+                    (let* ((s (if (stringp c) c (format "%s" c))))
                       (setq s (replace-regexp-in-string "[\n\r]+" " " s))
                       (string-trim s)))
                   cols))
@@ -114,13 +115,13 @@ REPORT shape:
   (:plan PLAN
    :summary (:ok N :fail M :skipped K)
    :items ((:op OP :file PATH :status STATUS :details STR :diff PREVIEW :_plan PLAN-ITEM) ...))"
-  (let ((buf (carriage-report-buffer)))
+  (let* ((buf (carriage-report-buffer)))
     (with-current-buffer buf
       (read-only-mode -1)
       (erase-buffer)
       (insert (carriage--report-summary-line report))
       ;; Render top-level messages if present
-      (let ((msgs (plist-get report :messages)))
+      (let* ((msgs (plist-get report :messages)))
         (when (and msgs (listp msgs))
           (insert "messages:\n")
           (dolist (m msgs)
@@ -133,7 +134,7 @@ REPORT shape:
                               (if file (format " (file %s)" file) "")))))
           (insert "\n")))
       (carriage--report-insert-header)
-      (let ((i 0))
+      (let* ((i 0))
         (dolist (it (or (plist-get report :items) '()))
           (setq i (1+ i))
           (let* ((op          (plist-get it :op))
@@ -159,7 +160,7 @@ REPORT shape:
             (carriage--report-insert-line
              (list i op file status matches-str details preview-short action)
              (carriage--report-row-face status))
-            (let ((row-end (point)))
+            (let* ((row-end (point)))
               (carriage--report-attach-row row-beg row-end it has-preview)))))
       ;; Align Org table columns for readability
       (save-excursion
@@ -174,6 +175,7 @@ REPORT shape:
       (read-only-mode 1))
     buf))
 
+;;;###autoload
 (defun carriage-report-open (&optional report)
   "Open the report buffer and optionally RENDER REPORT alist.
 Keeps focus and major-mode of the current buffer intact."
@@ -237,7 +239,7 @@ If no preview is available, signal a user-visible message."
          (let* ((diff (or (plist-get it :diff) (and plan (alist-get :diff plan))))
                 (path (or (plist-get it :path) (and plan (alist-get :path plan))))
                 (abs  (and path (ignore-errors (carriage-normalize-path root path)))))
-           (let ((patch-file (and diff (make-temp-file "carriage-ediff-" nil ".diff"))))
+           (let* ((patch-file (and diff (make-temp-file "carriage-ediff-" nil ".diff"))))
              (unwind-protect
                  (progn
                    (when patch-file
@@ -289,12 +291,11 @@ In batch mode runs non-interactively and refreshes report."
         (carriage-report-open rep)
         rep))))
 
-(require 'button)
-(require 'ediff)
+
 
 (unless (boundp 'carriage-report-mode-map)
   (defvar carriage-report-mode-map
-    (let ((map (make-sparse-keymap)))
+    (let* ((map (make-sparse-keymap)))
       (set-keymap-parent map special-mode-map)
       (define-key map (kbd "RET") #'carriage-report-show-diff-at-point)
       (define-key map (kbd "e")   #'carriage-report-ediff-at-point)

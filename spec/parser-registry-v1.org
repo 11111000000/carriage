@@ -4,7 +4,7 @@
 #+options: toc:2 num:t
 
 * Назначение
-- Единая таблица сопоставления (:version, :op) → parser/dry-run/apply.
+- Единая таблица сопоставления (:version, :op) → parse/dry-run/apply + prompt-fragment.
 - Централизованное правило имени блока: используется только =patch=.
 
 * Имя спец-блока
@@ -23,6 +23,7 @@
 - parse(op, header-plist, body-text, repo-root) → plan-item | error
 - dry-run(plan-item, repo-root) → report
 - apply(plan-item, repo-root) → result
+- prompt-fragment(op, version) → STRING | FUNCTION (CTX → STRING)
 
 * Эталонные символы (референсные имена функций)
 - sre / sre-batch (общая реализация):

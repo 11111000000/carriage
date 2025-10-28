@@ -11,7 +11,7 @@
 - carriage-mode
   - Минор-режим; включает функциональность только в org-mode буферах.
 - carriage-send-buffer (C-c M-RET)
-  - Отправить весь документ в LLM с активным профилем (Ask/Code).
+  - Отправить весь документ в LLM с активным Intent (Ask|Patch).
 - carriage-send-subtree (C-c RET)
   - Отправить текущее поддерево org.
 - carriage-apply-at-point (C-c C-c)
@@ -28,8 +28,10 @@
   - Показать трафик LLM (вход/выход).
 - carriage-wip-reset-soft (C-c b r)
   - Откат последнего коммита (soft reset).
-- carriage-toggle-profile
-  - Переключить Ask/Code.
+- carriage-toggle-intent
+  - Переключить Intent (Ask|Patch).
+- carriage-select-suite
+  - Выбрать Suite (auto|sre|patch|fileops).
 - carriage-select-backend
   - Выбрать бэкенд (транспорт) LLM.
 - carriage-select-model
@@ -50,7 +52,8 @@
   - carriage-clear-logs () → t
 
 * Переменные Customize
-- carriage-mode-default-profile (symbol) — 'Ask | 'Code
+- carriage-mode-default-intent (symbol) — 'Ask | 'Patch
+- carriage-mode-default-suite (symbol) — 'auto-v1 | 'sre-v1 | 'patch-v1 | 'file-ops-v1
 - carriage-mode-default-backend (symbol|string) — имя бэкенда транспорта по умолчанию (например, 'gptel)
 - carriage-mode-default-model (string) — имя модели для выбранного бэкенда
 - carriage-mode-wip-branch (string) — "carriage/WIP"
@@ -66,6 +69,7 @@
 - carriage-mode-use-icons (boolean) — nil
 - carriage-mode-allow-patch-binary (boolean) — nil (v1)
 - carriage-mode-max-batch-pairs (integer) — лимит пар в SRE-BATCH
+- carriage-mode-sre-noop-on-zero-matches (boolean) — noop при 0 совпадений для :occur first
 - carriage-mode-log-max-lines (integer) — предел строк для *carriage-log*/*carriage-report*.
 - carriage-mode-traffic-max-lines (integer) — предел строк для *carriage-traffic*.
 - carriage-mode-aux-window-side (symbol) — сторона бокового окна для логов/трафика: left|right|top|bottom.

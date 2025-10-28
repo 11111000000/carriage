@@ -14,6 +14,27 @@
   - Реализация в lisp/ops/<op>.el (или carriage-<op>.el); тесты ERT.
   - Без зависимостей на UI (строго).
 
+* Сьюиты (Suites)
+- Suite — композиция разрешённых :op и собранного системного промпта.
+- Роль Suite — определить белый список :ops (:ops-allowed) и стратегию сборки единого системного промпта из фрагментов форматов.
+- Норматив для op-модулей (lisp/ops/<op>.el):
+  - Зарегистрировать parse/dry-run/apply в реестре (см. ./parser-registry-v1.org).
+  - Опубликовать промпт-фрагмент для композиции Suite: строка или функция (CTX → STRING), рекомендуемое имя символа: carriage-op-<op>-prompt-fragment.
+  - Документировать формат отдельным файлом в spec/*-v1.org (EBNF, ошибки).
+- Сборка Suite (алгоритм):
+  1) Выбрать (:ops-allowed ...).
+  2) Сконкатенировать промпт-фрагменты разрешённых :ops, добавить общие guardrails: только begin_patch/end_patch, один блок = одна операция, относительные пути, DELIM задаёт инструмент.
+  3) Инструмент подставляет переменные окружения (DELIM=шестнадцатеричный 6-символьный токен, пути, контекст).
+  4) Сформированный system/prompt передаётся транспорту.
+- Базовые сьюиты v1:
+  - 'sre-v1 → (sre, sre-batch, create, delete, rename).
+  - 'patch-v1 → (patch, rename).
+  - 'file-ops-v1 → (create, delete, rename).
+  - 'auto-v1 → все :op v1.
+- UI:
+  - Предоставляет выбор suite и toggle intent (Ask|Patch) в модлайне.
+  - При Intent=Patch ответы ДОЛЖНЫ состоять только из блоков begin_patch/end_patch.
+
 * Транспорты LLM/агенты
 - Абстракция: ./llm-transport-v1.org (carriage-llm-request/abort, события, capabilities).
 - Адаптеры: lisp/transports/<backend>.el; не трогают UI/глобальные переменные.

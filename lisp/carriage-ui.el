@@ -1,4 +1,6 @@
 ;;; carriage-ui.el --- Keymap and minimal UI helpers  -*- lexical-binding: t; -*-
+;; Code style: see spec/code-style-v1.org (let* for local bindings; keep pure core + thin ports)
+;;
 
 (require 'cl-lib)
 (require 'subr-x)
@@ -49,7 +51,7 @@ Negative values move icons up; positive move them down."
    ((symbolp fp) (ignore-errors (face-attribute fp :foreground nil 'default)))
    ((and (listp fp) (keywordp (car fp))) (plist-get fp :foreground))
    ((listp fp)
-    (let ((fg nil))
+    (let* ((fg nil))
       (dolist (el fp)
         (unless fg
           (setq fg (carriage-ui--faceprop-foreground el))))
@@ -110,7 +112,7 @@ Negative values move icons up; positive move them down."
   :group 'carriage-ui)
 
 (defvar carriage-mode-map
-  (let ((map (make-sparse-keymap)))
+  (let* ((map (make-sparse-keymap)))
     (define-key map (kbd "C-c M-RET") #'carriage-send-buffer)
     (define-key map (kbd "C-c RET")   #'carriage-send-subtree)
     (define-key map (kbd "C-c C-c")   #'carriage-apply-at-point)
@@ -263,17 +265,17 @@ Emits debug logs with the resulting face property/foreground."
   (when (carriage-ui--icons-available-p)
     (let ((res
            (pcase key
-             ;; Profile
+             ;; Intent
              ('ask  (when (fboundp 'all-the-icons-material)
                       (all-the-icons-material "chat"
                                               :height carriage-mode-icon-height
                                               :v-adjust carriage-mode-icon-v-adjust
                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face)))))
-             ('code (when (fboundp 'all-the-icons-material)
-                      (all-the-icons-material "code"
-                                              :height carriage-mode-icon-height
-                                              :v-adjust carriage-mode-icon-v-adjust
-                                              :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
+             ('patch (when (fboundp 'all-the-icons-material)
+                       (all-the-icons-material "code"
+                                               :height carriage-mode-icon-height
+                                               :v-adjust carriage-mode-icon-v-adjust
+                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
              ;; Model/backend (prefer Material; fallback to Octicon CPU)
              ('model (cond
                       ((fboundp 'all-the-icons-material)
@@ -304,11 +306,11 @@ Emits debug logs with the resulting face property/foreground."
                                                :height carriage-mode-icon-height
                                                :v-adjust carriage-mode-icon-v-adjust
                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
-                       ((fboundp 'all-the-icons-octicon)
-                        (all-the-icons-octicon "play"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
+                       ((fboundp 'all-the-icons-material)
+                        (all-the-icons-material "play_arrow"
+                                                :height carriage-mode-icon-height
+                                                :v-adjust carriage-mode-icon-v-adjust
+                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
                        (t nil)))
              ('abort  (when (fboundp 'all-the-icons-octicon)
                         (all-the-icons-octicon "stop"
@@ -477,7 +479,7 @@ reflects toggle state (muted when off, bright when on)."
   (interactive)
   (if (carriage-ui--maybe-in-report-buffer)
       (call-interactively #'carriage-report-show-diff-at-point)
-    (let ((buf (get-buffer "*carriage-report*")))
+    (let* ((buf (get-buffer "*carriage-report*")))
       (if buf
           (progn (pop-to-buffer buf)
                  (message "Select a row, then press RET or [Diff]"))
@@ -488,7 +490,7 @@ reflects toggle state (muted when off, bright when on)."
   (interactive)
   (if (carriage-ui--maybe-in-report-buffer)
       (call-interactively #'carriage-report-ediff-at-point)
-    (let ((buf (get-buffer "*carriage-report*")))
+    (let* ((buf (get-buffer "*carriage-report*")))
       (if buf
           (progn (pop-to-buffer buf)
                  (message "Select a row, then press e or [Ediff]"))
@@ -497,20 +499,29 @@ reflects toggle state (muted when off, bright when on)."
 (defun carriage-ui--modeline ()
   "Build Carriage modeline segment (M3: icons optional + spinner + extended actions)."
   (let* ((use-icons (carriage-ui--icons-available-p))
-         ;; Profile
-         (profile-label
+         ;; Intent and Suite
+         (intent-label
           (if use-icons
-              (or (if (and (boundp 'carriage-mode-profile)
-                           (eq carriage-mode-profile 'Ask))
+              (or (if (and (boundp 'carriage-mode-intent)
+                           (eq carriage-mode-intent 'Ask))
                       (carriage-ui--icon 'ask)
-                    (carriage-ui--icon 'code))
-                  (format "[%s]" (if (eq carriage-mode-profile 'Ask) "Ask" "Code")))
-            (format "[%s]" (if (and (boundp 'carriage-mode-profile)
-                                    (eq carriage-mode-profile 'Ask))
-                               "Ask" "Code"))))
-         (profile-btn (carriage-ui--ml-button profile-label
-                                              #'carriage-toggle-profile
-                                              "Toggle Ask/Code profile"))
+                    (carriage-ui--icon 'patch))
+                  (format "[%s]" (if (eq carriage-mode-intent 'Ask) "Ask" "Patch")))
+            (format "[%s]" (if (and (boundp 'carriage-mode-intent)
+                                    (eq carriage-mode-intent 'Ask))
+                               "Ask" "Patch"))))
+         (intent-btn (carriage-ui--ml-button intent-label
+                                             #'carriage-toggle-intent
+                                             "Toggle Ask/Patch intent"))
+         (suite-str (let ((s (and (boundp 'carriage-mode-suite) carriage-mode-suite)))
+                      (cond
+                       ((symbolp s) (symbol-name s))
+                       ((stringp s) s)
+                       (t "auto-v1"))))
+         (suite-label (format "[Suite:%s]" suite-str))
+         (suite-btn (carriage-ui--ml-button suite-label
+                                            #'carriage-select-suite
+                                            "Select Suite (auto|sre|patch|fileops)"))
          ;; Backend:Model
          (backend-str (let ((b (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
                         (cond
@@ -520,8 +531,7 @@ reflects toggle state (muted when off, bright when on)."
          (model-str (or (and (boundp 'carriage-mode-model) carriage-mode-model) "model"))
          (bm-text (format "[%s:%s]" backend-str model-str))
          (bm-label (if use-icons
-                       (let ((ic (
-                                  carriage-ui--icon 'model)))
+                       (let* ((ic (carriage-ui--icon 'model)))
                          (if ic (concat ic " " bm-text) bm-text))
                      bm-text))
          (backend-model-btn (carriage-ui--ml-button bm-label
@@ -560,10 +570,27 @@ reflects toggle state (muted when off, bright when on)."
          (t-all   (carriage-ui--toggle "[ConfirmAll]" 'carriage-mode-confirm-apply-all  #'carriage-toggle-confirm-apply-all "Toggle confirm apply-all" 'confirm))
          (t-icons (carriage-ui--toggle "[Icons]"      'carriage-mode-use-icons          #'carriage-toggle-use-icons         "Toggle icons in UI" 'icons)))
     (mapconcat #'identity
-               (list profile-btn backend-model-btn state
+               (list intent-btn suite-btn backend-model-btn state
                      dry apply all abort report diff ediff wip reset
                      t-auto t-diffs t-all t-icons)
                " ")))
+
+;; Code style: см. spec/code-style-v1.org (The Tao of Emacs Lisp Programming for LLMs)
+
+(defvar carriage--icon-intent-ask "A"
+  "Modeline marker for Ask intent.")
+(defvar carriage--icon-intent-patch "P"
+  "Modeline marker for Patch intent.")
+
+(defun carriage-ui--segment-intent-suite ()
+  "Return a short modeline segment for Intent/Suite."
+  (let* ((intent (and (boundp 'carriage-mode-intent) carriage-mode-intent))
+         (suite  (and (boundp 'carriage-mode-suite) carriage-mode-suite))
+         (i (pcase intent
+              ('Patch carriage--icon-intent-patch)
+              (_     carriage--icon-intent-ask)))
+         (s (if (symbolp suite) (symbol-name suite) (or suite ""))))
+    (format "[%s|%s]" i (if (string-empty-p s) "-" s))))
 
 (provide 'carriage-ui)
 ;;; carriage-ui.el ends here

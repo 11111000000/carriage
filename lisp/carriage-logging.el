@@ -60,7 +60,7 @@ For left/right sides this is window-width; for top/bottom — window-height."
 (defun carriage--append-line-capped (buffer string max-lines)
   "Append STRING and newline to BUFFER, cap to MAX-LINES.
 STRING may be any object; it will be coerced to a string via `format'."
-  (let ((s (if (stringp string) string (format "%s" string))))
+  (let* ((s (if (stringp string) string (format "%s" string))))
     (with-current-buffer buffer
       (goto-char (point-max))
       (insert s)
@@ -72,7 +72,7 @@ STRING may be any object; it will be coerced to a string via `format'."
 
 (defun carriage-log (fmt &rest args)
   "Log a formatted message FMT with ARGS to the general log."
-  (let ((buf (carriage-log-buffer)))
+  (let* ((buf (carriage-log-buffer)))
     (carriage--append-line-capped buf (apply #'format fmt args) carriage-mode-log-max-lines)))
 
 (defun carriage-traffic-log (dir fmt &rest args)
@@ -106,7 +106,7 @@ already showing BUFFER."
                   t))
          (win (and reuse (get-buffer-window buffer t))))
     (save-selected-window
-      (let ((inhibit-switch-frame t))
+      (let* ((inhibit-switch-frame t))
         (cond
          (win
           ;; Reuse existing window but do not select it (preserve user focus).
