@@ -1,0 +1,69 @@
+#+title: Apply Engines v1 — Абстракция движков применения
+#+author: Carriage Team
+#+language: ru
+#+options: toc:2 num:t
+
+- Назначение
+- Ввести слой «движков применения» (apply engines) с единым контрактом и возможностью переключения.
+- Обеспечить полностью асинхронное, событийное выполнение шагов пайплайна без блокировки UI.
+
+- Термины
+- Движок применения (Engine) — реализация набора операций применения план-элементов (patch, sre, file-ops) с dry-run и apply.
+- Реестр движков — таблица (symbol → impl), выбираемая переменной настроек.
+- Default-движок v1: 'git — для patch использует git apply; для file-ops — FS+git add/mv/rm по политике стадирования; для SRE — прямое переписывание файла.
+
+- Контракты (интерфейсы, Elisp-уровень)
+- Регистрация:
+  - carriage-register-apply-engine (symbol name plist-impl) → t
+    - plist-impl содержит функции-коллбеки:
+      :dry-run (op plan-item repo on-done on-fail)
+      :apply   (op plan-item repo on-done on-fail)
+      :capabilities (op → plist) ; опционально
+    - Функции обязаны работать асинхронно: сразу возвращать и вызывать on-done/on-fail позже (в main thread через run-at-time 0).
+- Диспетчер:
+  - carriage-apply-engine () → SYMBOL ; активный движок
+  - carriage-select-apply-engine (interactive) — выбрать движок из реестра.
+- Событийная модель:
+  - Вызов :dry-run/:apply должен:
+    - Стартовать неблокирующий процесс/операцию (make-process/start-file-process, либо run-at-time 0).
+    - Логировать «begin/exec/pid/wait/exit» события (минимум: dir, cmd, pid, exit).
+    - Гарантировать, что on-done/on-fail вызываются ровно один раз.
+
+- Поведение по умолчанию (движок 'git)
+- patch:
+  - dry-run: git apply --check --verbose --directory=<root> [-p strip] [доп.флаги].
+  - apply: git apply [--index при policy='index] --directory=<root> [-p strip].
+- sre:
+  - dry-run: симуляция замен; сбор мини-диффа.
+  - apply: запись в рабочее дерево; опциональная индексация по policy.
+- file-ops:
+  - create: mkdir -p (если :mkdir t), запись, ensure-final-newline, индексация по policy.
+  - delete: git rm (или удаление + индексирование) по policy.
+  - rename: git mv.
+- Все шаги — асинхронны, через процессы и sentinels; без accept-process-output-петель.
+
+- Асинхронность (норматив)
+- apply-пайплайн формируется как цепочка шагов: шаг N завершился → запускаем шаг N+1 (через sentinel/колбэк).
+- UI не блокируется: никаких длительных ожиданий в основном потоке.
+- Отмена:
+  - carriage-apply-abort: попытка kill-process активного шага; текущий шаг завершает on-fail с кодом aborted; пайплайн закрывается.
+- Таймауты:
+  - На каждый процесс задаётся таймаут (см. FREEZE: git timeout); при истечении — kill-process → on-fail (timeout).
+
+- Политика :apply в заголовке блока patch
+- В v1 :apply в заголовке допускается, но носит сугубо информационный/исторический характер и игнорируется.
+- Фактический движок задаётся конфигурацией пользователя (переменная/команда выбора движка).
+- Для совместимости парсер не должен падать при наличии :apply; он не влияет на выбор движка.
+
+- Диагностика и логирование
+- Каждый шаг формирует записи:
+  - begin (op, path, engine, bytes?, strip?)
+  - exec (dir, cmd-string)
+  - pid (number)
+  - exit (code, stdout-bytes, stderr-bytes)
+  - timeout/aborted (если применимо)
+- Логи не должны приводить к блокировке (быстрая фильтрация, усечение по лимиту).
+
+- Тесты и соответствие
+- См. ./testing-v1.org: не блокировать UI, корректные переходы состояния, устойчивость к ошибкам, единичные вызовы колбэков, выбор движка.
+- См. ./compliance-checklist-v1.org: переключение движка, поведение по умолчанию ('git), асинхронность выполнения.
