@@ -114,7 +114,10 @@
                   (carriage-log "engine[git] sentinel error: %s" (error-message-string e))
                   (funcall finalize nil 128 'sentinel-error))))))
            (pid (process-id proc))
-           (timeout (or (and (numberp carriage-engine-git-timeout-seconds)
+           (timeout (or (and (boundp 'carriage-apply-timeout-seconds)
+                             (numberp carriage-apply-timeout-seconds)
+                             carriage-apply-timeout-seconds)
+                        (and (numberp carriage-engine-git-timeout-seconds)
                              carriage-engine-git-timeout-seconds)
                         30))
            (timer
@@ -142,20 +145,35 @@
 
 (defun carriage-engine-git--args-apply-check (strip patch-file)
   "Build argv for git apply --check with STRIP and PATCH-FILE."
-  (append '("apply" "--check" "--verbose")
-          (when (and (integerp strip) (>= strip 0))
-            (list "-p" (number-to-string strip)))
-          (list patch-file)))
+  (let* ((extra (when (boundp 'carriage-apply-engine-extra-args)
+                  (let ((v carriage-apply-engine-extra-args))
+                    (cond
+                     ((and (listp v) (plist-member v :check)) (plist-get v :check))
+                     ((and (listp v)) (alist-get :check v))
+                     (t nil))))))
+    (append '("apply" "--check" "--verbose")
+            (when (and (listp extra) extra) extra)
+            (when (and (integerp strip) (>= strip 0))
+              (list "-p" (number-to-string strip)))
+            (list patch-file))))
 
 (defun carriage-engine-git--args-apply (strip patch-file)
   "Build argv for git apply (maybe --index) with STRIP and PATCH-FILE."
-  (append '("apply")
-          (when (carriage-engine-git--policy-index-p) '("--index"))
-          (when (boundp 'carriage-git-apply-extra-args)
-            (and (listp carriage-git-apply-extra-args) carriage-git-apply-extra-args))
-          (when (and (integerp strip) (>= strip 0))
-            (list "-p" (number-to-string strip)))
-          (list patch-file)))
+  (let* ((extra-global (when (boundp 'carriage-git-apply-extra-args)
+                         (and (listp carriage-git-apply-extra-args) carriage-git-apply-extra-args)))
+         (extra (when (boundp 'carriage-apply-engine-extra-args)
+                  (let ((v carriage-apply-engine-extra-args))
+                    (cond
+                     ((and (listp v) (plist-member v :apply)) (plist-get v :apply))
+                     ((and (listp v)) (alist-get :apply v))
+                     (t nil))))))
+    (append '("apply")
+            (when (carriage-engine-git--policy-index-p) '("--index"))
+            (when (and (listp extra) extra) extra)
+            (when (and (listp extra-global) extra-global) extra-global)
+            (when (and (integerp strip) (>= strip 0))
+              (list "-p" (number-to-string strip)))
+            (list patch-file))))
 
 (defun carriage-engine-git--log-begin (kind item)
   "Log begin message for KIND (:dry-run/:apply) and ITEM."

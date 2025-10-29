@@ -13,6 +13,21 @@
   :type '(choice symbol)
   :group 'carriage-engines)
 
+(defcustom carriage-apply-engine-extra-args nil
+  "Extra arguments for apply engines (per-kind list).
+For 'git engine, this is a plist/alist with optional keys:
+  :apply (list of strings)  ; appended to git apply invocation
+  :check (list of strings)  ; appended to git apply --check
+Example: '(:apply (\"--reject\" \"--whitespace=nowarn\") :check (\"--verbose\"))."
+  :type '(repeat sexp)
+  :group 'carriage-engines)
+
+(defcustom carriage-apply-timeout-seconds nil
+  "Per-step timeout in seconds for apply engines.
+When non-nil, takes precedence over engine-specific timeouts."
+  :type '(choice (const :tag "Engine default" nil) integer)
+  :group 'carriage-engines)
+
 (defvar carriage-apply-engine--registry nil
   "Alist registry of apply engines.
 Shape: ((SYM . (:name STRING :dry-run FN :apply FN :capabilities FN?)) ...).")
