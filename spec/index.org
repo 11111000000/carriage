@@ -20,6 +20,7 @@
 - FREEZE/лимиты/DELIM: ./index.org (секция FREEZE).
 - Политика путей, symlink, TRAMP: ./security-v1.org.
 - Конвейер применения и dry-run/подтверждение: ./apply-pipeline-v1.org.
+- Движки применения (Apply Engines): ./apply-engines-v1.org.
 - Правила unified diff: ./patch-unified-diff-v1.org.
 - Операции create/delete/rename: ./file-ops-v1.org.
 - Формат SRE/SRE-BATCH: ./sre-v1.org.
@@ -44,6 +45,7 @@
   - ./project-structure-v1.org — структура проекта, слои и зависимости.
   - ./extensibility-points-v1.org — точки расширения (ops, транспорты, UI).
   - ./parser-registry-v1.org — диспетчеризация (:version,:op) → парсер/апплаер.
+  - ./apply-engines-v1.org — абстракция движков применения (реестр, контракты).
   - ./apply-pipeline-v1.org — Dry-run, применение, атомарность, порядок.
   - ./git-integration-v1.org — Git, ветка WIP, безопасность путей.
   - ./security-v1.org — политики безопасности и ограничения.

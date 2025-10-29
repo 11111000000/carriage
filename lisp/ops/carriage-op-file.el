@@ -128,53 +128,61 @@
 ;;;; Apply
 
 (defun carriage-apply-create (plan-item repo-root)
-  "Create a new file and commit."
+  "Create a new file. Commit is not performed here; optional staging per policy."
   (let* ((file (alist-get :file plan-item))
          (content (alist-get :content plan-item))
          (mkdir (alist-get :mkdir plan-item))
          (ensure-cell (assq :ensure-final-newline plan-item))
          (ensure-final (if ensure-cell (cdr ensure-cell) t))
-         (abs (carriage-normalize-path repo-root file)))
+         (abs (carriage-normalize-path repo-root file))
+         (stage (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy)))
     (let ((payload (or content "")))
       (when (and ensure-final
                  (> (length payload) 0)
                  (not (eq (aref payload (1- (length payload))) ?\n)))
         (setq payload (concat payload "\n")))
       (carriage-write-file-string abs payload mkdir))
-    (carriage-git-add repo-root file)
-    (carriage-git-commit repo-root (format "carriage: create %s" file))
+    (when (eq stage 'index)
+      (carriage-git-add repo-root file))
     (list :op 'create :status 'ok :file file :details "Created")))
 
 (defun carriage-apply-delete (plan-item repo-root)
-  "Delete file via git rm and commit."
-  (let* ((file (alist-get :file plan-item)))
-    (carriage-git-rm repo-root file)
-    (carriage-git-commit repo-root (format "carriage: delete %s" file))
-    (list :op 'delete :status 'ok :file file :details "Deleted")))
+  "Delete file. For staging policy 'index use git rm; otherwise delete from FS. No commit."
+  (let* ((file (alist-get :file plan-item))
+         (stage (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy))
+         (abs (carriage-normalize-path repo-root file)))
+    (cond
+     ((eq stage 'index)
+      (carriage-git-rm repo-root file)
+      (list :op 'delete :status 'ok :file file :details "Deleted (staged)"))
+     (t
+      (if (file-exists-p abs)
+          (progn (delete-file abs)
+                 (list :op 'delete :status 'ok :file file :details "Deleted"))
+        (list :op 'delete :status 'fail :file file :details "Not found"))))))
 
 (defun carriage-apply-rename (plan-item repo-root)
-  "Rename file via git mv and commit."
+  "Rename file. For staging policy 'index use git mv; otherwise rename on FS. No commit."
   (let* ((from (alist-get :from plan-item))
          (to   (alist-get :to plan-item))
-         (abs-to (carriage-normalize-path repo-root to))
-         (to-dir (file-name-directory abs-to)))
+         (abs-from (carriage-normalize-path repo-root from))
+         (abs-to   (carriage-normalize-path repo-root to))
+         (to-dir (file-name-directory abs-to))
+         (stage (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy)))
     (when (and to-dir (not (file-directory-p to-dir)))
       (make-directory to-dir t))
-    (let ((mvres (carriage-git-mv repo-root from to)))
-      (if (not (and (plist-get mvres :exit) (zerop (plist-get mvres :exit))))
-          (list :op 'rename :status 'fail :file (format "%s -> %s" from to)
-                :details "git mv failed"
-                :extra (list :exit (plist-get mvres :exit)
-                             :stderr (plist-get mvres :stderr)
-                             :stdout (plist-get mvres :stdout)))
-        (let ((cres (carriage-git-commit repo-root (format "carriage: rename %s -> %s" from to))))
-          (if (and (plist-get cres :exit) (zerop (plist-get cres :exit)))
-              (list :op 'rename :status 'ok :file (format "%s -> %s" from to) :details "Renamed")
+    (if (eq stage 'index)
+        (let ((mvres (carriage-git-mv repo-root from to)))
+          (if (and (plist-get mvres :exit) (zerop (plist-get mvres :exit)))
+              (list :op 'rename :status 'ok :file (format "%s -> %s" from to) :details "Renamed (staged)")
             (list :op 'rename :status 'fail :file (format "%s -> %s" from to)
-                  :details "Commit failed"
-                  :extra (list :exit (plist-get cres :exit)
-                               :stderr (plist-get cres :stderr)
-                               :stdout (plist-get cres :stdout)))))))))
+                  :details "git mv failed"
+                  :extra (list :exit (plist-get mvres :exit)
+                               :stderr (plist-get mvres :stderr)
+                               :stdout (plist-get mvres :stdout)))))
+      (progn
+        (rename-file abs-from abs-to)
+        (list :op 'rename :status 'ok :file (format "%s -> %s" from to) :details "Renamed")))))
 
 ;;;; Registration
 

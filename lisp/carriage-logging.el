@@ -37,12 +37,20 @@ For left/right sides this is window-width; for top/bottom — window-height."
 (defconst carriage--traffic-buffer-name "*carriage-traffic*")
 
 (defun carriage-log-buffer ()
-  "Return the log buffer, creating it if necessary."
-  (get-buffer-create carriage--log-buffer-name))
+  "Return the log buffer, creating it if necessary. Ensure read-only special mode with 'q' to close."
+  (let* ((buf (get-buffer-create carriage--log-buffer-name)))
+    (with-current-buffer buf
+      (unless (derived-mode-p 'carriage-aux-mode)
+        (carriage-aux-mode)))
+    buf))
 
 (defun carriage-traffic-buffer ()
-  "Return the traffic buffer, creating it if necessary."
-  (get-buffer-create carriage--traffic-buffer-name))
+  "Return the traffic buffer, creating it if necessary. Ensure read-only special mode with 'q' to close."
+  (let* ((buf (get-buffer-create carriage--traffic-buffer-name)))
+    (with-current-buffer buf
+      (unless (derived-mode-p 'carriage-aux-mode)
+        (carriage-aux-mode)))
+    buf))
 
 (defun carriage--buffer-line-count (buffer)
   "Count lines in BUFFER."
@@ -53,22 +61,25 @@ For left/right sides this is window-width; for top/bottom — window-height."
   "Trim BUFFER to MAX-LINES from the end."
   (with-current-buffer buffer
     (when (> (carriage--buffer-line-count buffer) max-lines)
-      (goto-char (point-max))
-      (forward-line (- max-lines))
-      (delete-region (point-min) (point)))))
+      (let ((inhibit-read-only t))
+        (goto-char (point-max))
+        (forward-line (- max-lines))
+        (delete-region (point-min) (point))))))
 
 (defun carriage--append-line-capped (buffer string max-lines)
   "Append STRING and newline to BUFFER, cap to MAX-LINES.
-STRING may be any object; it will be coerced to a string via `format'."
+STRING may be any object; it will be coerced to a string via =format'."
   (let* ((s (if (stringp string) string (format "%s" string))))
     (with-current-buffer buffer
-      (goto-char (point-max))
-      (insert s)
-      (unless (or (string-empty-p s)
-                  (eq (aref s (1- (length s))) ?\n))
-        (insert "\n")))
+      (let ((inhibit-read-only t))
+        (goto-char (point-max))
+        (insert s)
+        (unless (or (string-empty-p s)
+                    (eq (aref s (1- (length s))) ?\n))
+          (insert "\n"))))
     (carriage--trim-buffer-lines buffer max-lines)
     buffer))
+
 
 (defun carriage-log (fmt &rest args)
   "Log a formatted message FMT with ARGS to the general log."
@@ -85,11 +96,12 @@ STRING may be any object; it will be coerced to a string via `format'."
   "Clear log and traffic buffers."
   (dolist (b (list (carriage-log-buffer) (carriage-traffic-buffer)))
     (with-current-buffer b
-      (erase-buffer)))
+      (let ((inhibit-read-only t))
+        (erase-buffer))))
   (message "Carriage logs cleared.")
   t)
 
-(defun carriage--display-aux-buffer (buffer &optional side size reuse)
+(defun carriage--display-aux-buffer (buffer &optional side size reuse slot)
   "Display BUFFER in a side window without replacing the current window.
 SIDE defaults to =carriage-mode-aux-window-side'. SIZE defaults to
 =carriage-mode-aux-window-size'. When REUSE (or
@@ -120,9 +132,10 @@ already showing BUFFER."
                             ,@(if (memq side '(left right))
                                   `((window-width . ,size))
                                 `((window-height . ,size)))
-                            (slot . -1)
-                            (window-parameters . ((no-delete-other-windows . t)
-                                                  (no-other-window . t)))))))))))
+                            (slot . ,(or slot -1))
+                            (window-parameters . ((no-delete-other-windows . t)))))))))))
+
+
 
 (defun carriage-show-log ()
   "Display the Carriage log buffer in a side window."
@@ -130,7 +143,8 @@ already showing BUFFER."
   (carriage--display-aux-buffer (carriage-log-buffer)
                                 carriage-mode-aux-window-side
                                 carriage-mode-aux-window-size
-                                carriage-mode-aux-window-reuse))
+                                carriage-mode-aux-window-reuse
+                                0))
 
 (defun carriage-show-traffic ()
   "Display the Carriage traffic buffer in a side window."
@@ -138,7 +152,8 @@ already showing BUFFER."
   (carriage--display-aux-buffer (carriage-traffic-buffer)
                                 carriage-mode-aux-window-side
                                 carriage-mode-aux-window-size
-                                carriage-mode-aux-window-reuse))
+                                carriage-mode-aux-window-reuse
+                                1))
 
 ;;;###autoload
 (defun carriage-show-log-and-traffic ()
@@ -146,8 +161,21 @@ already showing BUFFER."
   (interactive)
   (let ((reuse (and (boundp 'carriage-mode-aux-window-reuse) carriage-mode-aux-window-reuse))
         (size  (and (boundp 'carriage-mode-aux-window-size) carriage-mode-aux-window-size)))
-    (carriage--display-aux-buffer (carriage-log-buffer) 'right size reuse)
-    (carriage--display-aux-buffer (carriage-traffic-buffer) 'right size reuse)))
+    (carriage--display-aux-buffer (carriage-log-buffer) 'right size reuse 0)
+    (carriage--display-aux-buffer (carriage-traffic-buffer) 'right size reuse 1)))
+
+;; Auxiliary buffers major mode (read-only, 'q' to close window)
+(defvar carriage-aux-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map special-mode-map)
+    (define-key map (kbd "q") #'quit-window)
+    map)
+  "Keymap for Carriage auxiliary buffers (*carriage-log*, *carriage-traffic*).")
+
+(define-derived-mode carriage-aux-mode special-mode "Carriage-Aux"
+  "Major mode for Carriage auxiliary buffers."
+  (setq buffer-read-only t)
+  (setq truncate-lines t))
 
 (provide 'carriage-logging)
 ;;; carriage-logging.el ends here

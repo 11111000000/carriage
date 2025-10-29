@@ -16,11 +16,14 @@
   - Возможность сброса (soft reset) последнего коммита через команду UI.
 
 * Команды git (референс)
-- Проверка: git apply --check --directory=<root> [--reject] [--verbose]
-- Применение: git apply --index --directory=<root> [--reject]
-- Индексация: git add <path>
-- Коммит: git commit -m "carriage: {op} {file}"
-- Переименование: git mv (для :op rename из других спецификаций)
+- Эти команды описывают реализацию движка 'git по умолчанию:
+  - Проверка: git apply --check --directory=<root> [--reject] [--verbose]
+  - Применение: git apply [--index] --directory=<root> [--reject] (флаг --index включается при carriage-apply-stage-policy='index)
+  - Индексация: git add <path> (только при policy='index или в отдельных командах стадирования)
+  - Коммит: git commit -m "…" — выполняется отдельными командами пользователя (не частью apply)
+  - Переименование: git mv (для :op rename из других спецификаций)
+- Наблюдаемость: каждый вызов движка фиксируется (begin/exec/pid/exit/timeout) в *carriage-log*; автокоммита в apply нет.
+- Другие движки могут реализовывать эквивалентную семантику (см. ./apply-engines-v1.org).
 
 * Незакоммиченные изменения
 - Политика (настройка):

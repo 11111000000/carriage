@@ -30,6 +30,12 @@
   - Открыть лог и трафик одновременно в правых боковых окнах.
 - carriage-wip-reset-soft (C-c b r)
   - Откат последнего коммита (soft reset).
+- carriage-commit-changes (C-c b m)
+  - Выполнить коммит всех изменений согласно политике стадирования; один коммит.
+- carriage-commit-last-iteration (C-c b i)
+  - Выполнить коммит только файлов, изменённых «последней итерацией».
+- carriage-select-apply-engine (C-c b e)
+  - Выбрать/переключить движок применения (из реестра).
 - carriage-toggle-intent
   - Переключить Intent (Ask|Patch).
 - carriage-select-suite
@@ -44,7 +50,12 @@
   - carriage-parse-blocks-in-region (beg end) → PLAN
   - carriage-collect-last-iteration-blocks () → PLAN
   - carriage-dry-run-plan (PLAN) → REPORT
-  - carriage-apply-plan (PLAN) → RESULT
+  - carriage-apply-plan (PLAN) → RESULT             ; синхронная обёртка (deprecated)
+  - carriage-apply-plan-async (PLAN ROOT CB) → TOKEN ; асинхронный запуск пайплайна; CB(REPORT); TOKEN для abort
+- Реестр движков:
+  - carriage-register-apply-engine (SYMBOL NAME IMPL) → t
+  - carriage-apply-engine () → SYMBOL
+  - carriage-select-apply-engine () → SYMBOL
 - Служебные:
   - carriage-project-root () → DIR
   - carriage-generate-delim () → STRING
@@ -61,7 +72,7 @@
 
 * Переменные Customize
 - carriage-mode-default-intent (symbol) — 'Ask | 'Patch
-- carriage-mode-default-suite (symbol) — 'auto-v1 | 'sre-v1 | 'patch-v1 | 'file-ops-v1
+- carriage-mode-default-suite (symbol) — 'patch-v1 (default)
 - carriage-mode-default-backend (symbol|string) — имя бэкенда транспорта по умолчанию (например, 'gptel)
 - carriage-mode-default-model (string) — имя модели для выбранного бэкенда
 - carriage-mode-state-file (string) — путь к файлу состояния в проекте (".context/carriage/carriage-state.el")
@@ -85,6 +96,13 @@
 - carriage-mode-aux-window-side (symbol) — сторона бокового окна для логов/трафика: left|right|top|bottom.
 - carriage-mode-aux-window-size (number) — относительный размер бокового окна (0–1).
 - carriage-mode-aux-window-reuse (boolean) — переиспользовать уже открытое окно для буферов логов/трафика.
+- carriage-apply-stage-policy (symbol) — 'none | 'index — политика стадирования (по умолчанию 'none).
+- carriage-apply-async (boolean) — t; выполнять пайплайн асинхронно.
+- carriage-apply-engine (symbol) — 'git (по умолчанию); имя активного движка из реестра.
+- carriage-apply-engine-extra-args (alist) — дополнительные аргументы для движков (например, для 'git: (:apply ("--reject" "--whitespace=nowarn") :check ("--verbose"))).
+- carriage-apply-timeout-seconds (number) — таймаут шага движка (см. FREEZE).
+- carriage-apply-auto-commit (boolean) — nil; временная совместимость, автокоммит в apply (deprecated).
+- carriage-commit-default-message (string|function) — шаблон сообщения коммита по умолчанию.
 
 * Лица (faces)
 - carriage-patch-valid-face

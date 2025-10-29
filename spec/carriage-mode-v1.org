@@ -60,7 +60,7 @@
 - Единый интерфейс для всех форматов:
   - parse → план операций
   - dry-run → отчёт, числа замен/валидность diff
-  - apply → изменения в рабочем дереве + git add/commit
+  - apply → изменения в рабочем дереве (+ опциональная индексация); без коммита
 
 * Применение (см. ./apply-pipeline-v1.org)
 - Порядок: dry-run → предпросмотр → подтверждение → apply.
@@ -68,7 +68,7 @@
 - Внутригрупповый порядок:
   - delete → rename → create → patch → sre/sre-batch.
   - Для одного файла: create перед sre; rename перед sre (с новым путём); patch — перед sre, если оба присутствуют.
-- Коммиты: по умолчанию один коммит на блок; опционально squash.
+- Коммит — отдельная команда пользователя (после правок); по умолчанию автокоммит отключён.
 
 * Интеграция с Git (см. ./git-integration-v1.org)
 - Определение корня: project.el → git rev-parse.
@@ -81,7 +81,7 @@
 
 * Конфигурация (Customize)
 - carriage-mode-default-intent ('Ask | 'Patch)
-- carriage-mode-default-suite ('auto-v1 | 'sre-v1 | 'patch-v1 | 'file-ops-v1)
+- carriage-mode-default-suite ('patch-v1)
 - carriage-mode-default-backend (symbol|string), carriage-mode-default-model (string)
 - carriage-mode-state-file (string) — путь к файлу персистентного состояния в проекте (".context/carriage/carriage-state.el")
 - carriage-mode-wip-branch (string)

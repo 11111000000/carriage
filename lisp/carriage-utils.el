@@ -20,7 +20,8 @@ code (124) is returned with :stderr set to \"timeout\"."
 (defun carriage--call-git (default-dir &rest args)
   "Call git with ARGS in DEFAULT-DIR, return (:exit :stdout :stderr).
 Respects `carriage-mode-git-timeout-seconds'. Uses `make-process' and
-`accept-process-output' in a loop to avoid blocking the UI."
+`accept-process-output' in a loop to avoid blocking the UI. Emits detailed logs
+about the lifecycle (spawn, wait ticks, timeout/exit) to help diagnose stalls."
   (let* ((default-directory (file-name-as-directory (expand-file-name default-dir))))
     (let* ((stdout-buf (generate-new-buffer " *carriage-git-stdout*"))
            (stderr-buf (generate-new-buffer " *carriage-git-stderr*"))
@@ -28,7 +29,12 @@ Respects `carriage-mode-git-timeout-seconds'. Uses `make-process' and
            (done nil)
            (proc nil)
            (timeout (or carriage-mode-git-timeout-seconds 15))
-           (deadline (+ (float-time) (max 0 timeout))))
+           (deadline (+ (float-time) (max 0 timeout)))
+           (start (float-time))
+           (tick 0))
+      (carriage-log "git: exec dir=%s cmd=%s"
+                    default-directory
+                    (mapconcat #'identity (cons "git" (mapcar (lambda (x) (format "%s" x)) args)) " "))
       (unwind-protect
           (progn
             (setq proc
@@ -41,14 +47,26 @@ Respects `carriage-mode-git-timeout-seconds'. Uses `make-process' and
                    :connection-type 'pipe
                    :sentinel (lambda (p _e)
                                (when (memq (process-status p) '(exit signal))
-                                 (with-current-buffer (process-buffer p)
-                                   (setq exit-code (process-exit-status p)))
+                                 (setq exit-code (condition-case _
+                                                     (process-exit-status p)
+                                                   (error exit-code)))
                                  (setq done t)))))
-            ;; Wait loop with timeout
+            (when (process-live-p proc)
+              (carriage-log "git: pid=%s spawned" (process-id proc)))
+            ;; Wait loop with timeout, emit 1s ticks
             (while (and (not done) (< (float-time) deadline))
-              (accept-process-output proc 0.05))
+              (accept-process-output proc 0.05)
+              (let ((elapsed (- (float-time) start)))
+                (when (>= elapsed (1+ tick))
+                  (setq tick (1+ tick))
+                  (carriage-log "git: waiting pid=%s elapsed=%.2fs"
+                                (and (process-live-p proc) (process-id proc))
+                                elapsed))))
             ;; Timeout handling
             (when (and (not done) (process-live-p proc))
+              (let ((elapsed (- (float-time) start)))
+                (carriage-log "git: timeout after %.2fs; interrupt/kill pid=%s"
+                              elapsed (process-id proc)))
               (ignore-errors (interrupt-process proc))
               (ignore-errors (kill-process proc))
               (setq exit-code 124)
@@ -59,6 +77,9 @@ Respects `carriage-mode-git-timeout-seconds'. Uses `make-process' and
               (when (and (= (or exit-code -1) 124)
                          (or (null stderr) (string-empty-p stderr)))
                 (setq stderr "timeout"))
+              (carriage-log "git: exit=%s stdout-bytes=%d stderr-bytes=%d"
+                            (or exit-code -1)
+                            (length (or stdout "")) (length (or stderr "")))
               (list :exit (or exit-code -1)
                     :stdout stdout
                     :stderr stderr)))

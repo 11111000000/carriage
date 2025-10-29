@@ -29,7 +29,9 @@
 * Применение
 - Порядок типов: delete → rename → create → patch → sre/sre-batch (./apply-pipeline-v1.org).
 - Групповое применение: см. ./apply-pipeline-v1.org (остановка на первой ошибке; без авт. отката).
-- Коммиты: см. ./git-integration-v1.org (ветка carriage/WIP; шаблон сообщений).
+- Асинхронность: шаги выполняются неблокирующе; переходы по событиям движка; доступна отмена шага/пайплайна и таймауты.
+- Движки: реализован выбор и реестр движков; по умолчанию используется 'git; ключ :apply в заголовке игнорируется.
+- Коммиты: apply не выполняет commit; коммит — отдельные команды (carriage-commit-changes, carriage-commit-last-iteration); см. ./git-integration-v1.org.
 - NOOP-политика: см. ./apply-pipeline-v1.org и ./api-v1.org (carriage-mode-sre-noop-on-zero-matches).
 
 * UI/UX

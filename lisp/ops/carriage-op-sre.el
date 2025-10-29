@@ -671,9 +671,11 @@ Does not touch filesystem or Git; replaces content in-memory."
         (list :after new-text :count changed)))))
 
 (defun carriage-apply-sre (plan-item repo-root)
-  "Apply SRE pairs by rewriting file and committing via Git."
+  "Apply SRE pairs by rewriting file. Commit is not performed here.
+Optional staging per `carriage-apply-stage-policy'."
   (let* ((file (alist-get :file plan-item))
-         (abs (carriage-normalize-path (or repo-root default-directory) file)))
+         (abs (carriage-normalize-path (or repo-root default-directory) file))
+         (stage (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy)))
     (unless (file-exists-p abs)
       (cl-return-from carriage-apply-sre
         (list :op 'sre :status 'fail :file file :details "File not found")))
@@ -706,8 +708,8 @@ Does not touch filesystem or Git; replaces content in-memory."
           (list :op 'sre :status 'fail :file file :details "No changes")
         (progn
           (carriage-write-file-string abs new-text t)
-          (carriage-git-add repo-root file)
-          (carriage-git-commit repo-root (format "carriage: sre %s (replaced %d)" file changed))
+          (when (eq stage 'index)
+            (carriage-git-add repo-root file))
           (list :op 'sre :status 'ok :file file :details (format "Applied %d replacements" changed)))))))
 
 ;;;; Registration

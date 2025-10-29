@@ -21,11 +21,35 @@
 (defun carriage-parse (op header-plist body-text repo-root)
   "Dispatch parse via registry by OP for HEADER-PLIST and BODY-TEXT under REPO-ROOT.
 
+Normalizes some non-standard forms produced by LLM:
+- :op \"replace\" → treat as :op \"patch\"
+- For patch-like ops: coerce :strip to 1 (a/b prefixes) if header specifies another value.
+
 If handler is not yet registered, attempt a lazy require of the op-module
 from lisp/ops/* and retry the registry lookup before failing."
-  (let* ((op-sym (if (symbolp op) op (intern (format "%s" op))))
-         (rec    (and (fboundp 'carriage-format-get) (carriage-format-get op-sym "1")))
-         (fn     (and rec (plist-get rec :parse))))
+  (let* (;; Normalize op to a symbol
+         (op-sym0 (if (symbolp op) op (intern (format "%s" op))))
+         ;; Map known aliases to canonical ops
+         (op-sym  (pcase op-sym0
+                    ('replace 'patch)
+                    ;; Accept 'diff as alias just in case
+                    ('diff 'patch)
+                    (_ op-sym0)))
+         ;; Adjust header plist if we normalized op or need to coerce :strip
+         (hdr1 (let ((hdr header-plist))
+                 (when (and (not (eq op-sym0 op-sym))
+                            (plist-member hdr :op))
+                   ;; Keep header consistent for downstream parsers
+                   (setq hdr (plist-put hdr :op (symbol-name op-sym))))
+                 (when (eq op-sym 'patch)
+                   ;; For unified diff with a/ and b/ prefixes, :strip must be 1 in v1.
+                   ;; Some LLMs emit :strip 0 — coerce it here to be lenient at parse time.
+                   (when (and (plist-member hdr :strip)
+                              (not (= (or (plist-get hdr :strip) 1) 1)))
+                     (setq hdr (plist-put hdr :strip 1))))
+                 hdr))
+         (rec (and (fboundp 'carriage-format-get) (carriage-format-get op-sym "1")))
+         (fn  (and rec (plist-get rec :parse))))
     (unless (functionp fn)
       ;; Lazy-load the op module by feature name and retry.
       (pcase op-sym
@@ -36,9 +60,9 @@ from lisp/ops/* and retry the registry lookup before failing."
       (setq rec (and (fboundp 'carriage-format-get) (carriage-format-get op-sym "1"))
             fn  (and rec (plist-get rec :parse))))
     (if (functionp fn)
-        (funcall fn header-plist body-text repo-root)
+        (funcall fn hdr1 body-text repo-root)
       (signal (carriage-error-symbol 'MODE_E_DISPATCH)
-              (list (format "Unknown op or unregistered handler: %S" op))))))
+              (list (format "Unknown op or unregistered handler: %S" op-sym))))))
 
 ;;;; Ops-specific parsing moved to ops modules (lisp/ops/*).
 ;;;; This file now contains only registry dispatch and Org scanning helpers.

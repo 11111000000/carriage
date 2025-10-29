@@ -51,7 +51,7 @@
   )
 
 (defun carriage-apply-sre (plan-item repo-root)
-  "Применить пары по порядку, затем git add/commit."
+  "Применить пары по порядку; при необходимости — индексация по политике; без коммита."
   )
 
 (defun carriage-parse-diff (header body repo-root)
@@ -64,7 +64,7 @@
   )
 
 (defun carriage-apply-diff (plan-item repo-root)
-  "git apply --index; git add; commit."
+  "Делегировать применение активному движку: по умолчанию 'git использует git apply [--index]; без коммита."
   )
 
 (defun carriage-parse-create (header body repo-root)

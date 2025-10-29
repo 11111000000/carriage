@@ -42,7 +42,6 @@
 * Элемент плана: PATCH (unified diff одного файла)
 - Каркас:
   - (:version "1" :op 'patch
-     :apply 'git-apply
      :strip 1
      :path "relative/path"         ; путь, извлечённый из ---/+++
      :diff STRING)                 ; исходный unified diff тела блока
@@ -72,11 +71,13 @@
 * Отчёт dry-run (Report)
 - Структура:
   - (:plan PLAN
+     :engine SYMBOL                ; активный движок ('git и т.п.)
      :summary (:ok N :fail M :skipped K)
      :items ((:op OP :file "path" :status 'ok|'fail|'skip
               :details STRING
-              :diff PREVIEW-DIFF-STRING ; для SRE
-              :matches K) ... )
+              :diff PREVIEW-DIFF-STRING ; для SRE/preview
+              :matches K
+              :pid PID? :elapsed-ms INT? :engine SYMBOL?) ... )
      :messages ((:code SYMBOL :severity 'info|'warn|'error
                  :file "path" :details STRING :hint STRING? ) ... ))
 - Требования:
@@ -87,7 +88,7 @@
 - (:code SYMBOL :severity 'info|'warn|'error
    :file "path"? :op OP? :details STRING :hint STRING?)
 - Примеры :code:
-  - 'SRE_E_SEGMENTS_COUNT, 'SRE_E_OCCУР_EXPECT
+  - 'SRE_E_SEGMENTS_COUNT, 'SRE_E_OCCUR_EXPECT
   - 'SRE_W_RANGE_CLAMP, 'SRE_W_DELIM_RESYNC
   - 'PATCH_E_GIT_CHECK, 'PATCH_E_MULTI_FILE
   - 'MODE_E_DISPATCH, 'IO_E_PATH
@@ -104,7 +105,7 @@
                  (:from "\\btimeout\\s/=\\s*30\\b" :to "timeout=60" :opts (:match regex :occur all :expect 3))))))
 
 (setq example-patch-plan
-      '((:version "1" :op 'patch :apply 'git-apply :strip 1
+      '((:version "1" :op 'patch :strip 1
          :path "src/foo.el" :diff "--- a/src/foo.el\n+++ b/src/foo.el\n@@ ...")))
 
 (setq example-create-plan
@@ -113,6 +114,7 @@
 
 (setq example-report
       '(:plan nil
+        :engine 'git
         :summary (:ok 2 :fail 1 :skipped 0)
         :items ((:op 'sre :file "src/foo.el" :status 'ok :matches 1 :details "ok")
                 (:op 'patch :path "src/app.py" :status 'fail :details "git apply --check failed"))

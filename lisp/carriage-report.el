@@ -180,12 +180,15 @@ REPORT shape:
 ;;;###autoload
 (defun carriage-report-open (&optional report)
   "Open the report buffer and optionally RENDER REPORT alist.
-Keeps focus and major-mode of the current buffer intact."
+Keeps focus and major-mode of the current buffer intact.
+
+The report buffer is shown in a top side window (above the main window)."
   (interactive)
   (when report
     (carriage-report-render report))
   (save-selected-window
-    (carriage--display-aux-buffer (carriage-report-buffer))))
+    ;; Show report in a top side window so it is easy to reach via window navigation.
+    (carriage--display-aux-buffer (carriage-report-buffer) 'top 0.33 t)))
 
 
 (defun carriage-report--item-at-point ()
@@ -279,7 +282,7 @@ In noninteractive (batch) mode, prepare data and never signal an error."
 
 ;;;###autoload
 (defun carriage-report-apply-at-point ()
-  "Apply the report item at point using its stored plan and root.
+  "Apply the report item at point using its stored plan and root (async by default).
 In batch mode runs non-interactively and refreshes report."
   (interactive)
   (let* ((it (carriage-report--item-at-point)))
@@ -289,9 +292,19 @@ In batch mode runs non-interactively and refreshes report."
            (root      (or (plist-get it :_root) (carriage-project-root) default-directory)))
       (unless (and plan-item root)
         (user-error "No plan/root stored on this row"))
-      (let* ((rep (carriage-apply-plan (list plan-item) root)))
-        (carriage-report-open rep)
-        rep))))
+      (carriage-ui-set-state 'apply)
+      (if (and (boundp 'carriage-apply-async) carriage-apply-async (fboundp 'make-thread) (not noninteractive))
+          (progn
+            (carriage-log "report-apply: async apply scheduled for %s" (plist-get it :path))
+            (carriage-apply-plan-async
+             (list plan-item) root
+             (lambda (rep)
+               (carriage-report-open rep)
+               (carriage-ui-set-state 'idle))))
+        (let* ((rep (carriage-apply-plan (list plan-item) root)))
+          (carriage-report-open rep)
+          (carriage-ui-set-state 'idle)
+          rep)))))
 
 
 
@@ -302,6 +315,7 @@ In batch mode runs non-interactively and refreshes report."
       (define-key map (kbd "RET") #'carriage-report-show-diff-at-point)
       (define-key map (kbd "e")   #'carriage-report-ediff-at-point)
       (define-key map (kbd "a")   #'carriage-report-apply-at-point)
+      (define-key map (kbd "q")   #'quit-window)
       map)
     "Keymap for Carriage report buffers."))
 

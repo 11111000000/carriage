@@ -48,7 +48,8 @@
 ** Применение (create)
 - Создать каталоги при необходимости (:mkdir t).
 - Записать файл; если содержимое не заканчивается переводом строки и :ensure-final-newline=t — добавить завершающую новую строку.
-- git add путь; коммит: "carriage: create <path>".
+- Индексация по политике стадирования (carriage-apply-stage-policy); по умолчанию — без индексации.
+- Коммит не выполняется в apply; он запускается отдельной командой пользователя.
 
 ** Пример (create)
 #+begin_patch (:version "1" :op "create" :file "docs/intro.md" :delim "cafe01")
@@ -76,8 +77,8 @@ Welcome to Carriage.
 - Сообщить о намерении удалить файл; показать размер и последнее изменение (по желанию инструмента).
 
 ** Применение (delete)
-- git rm --cached --force <path> (или git rm, в зависимости от состояния).
-- Коммит: "carriage: delete <path>".
+- Удалить файл через git rm (или git rm --cached --force, в зависимости от состояния); стадирование определяется политикой.
+- Коммит — отдельная команда пользователя (не часть apply).
 
 ** Пример (delete)
 #+begin_patch (:version "1" :op "delete" :file "tmp/old.log")
@@ -104,7 +105,7 @@ Welcome to Carriage.
 
 ** Применение (rename)
 - git mv :from :to
-- Коммит: "carriage: rename <from> → <to>"
+- Коммит — отдельная команда пользователя (не часть apply).
 
 ** Пример (rename)
 #+begin_patch (:version "1" :op "rename" :from "lib/legacy.c" :to "src/core/legacy.c")

@@ -12,6 +12,18 @@
   "If non-nil, ensure and checkout WIP branch before applying a plan."
   :type 'boolean :group 'carriage)
 
+(defcustom carriage-apply-stage-policy 'none
+  "Policy for staging changes during apply:
+- 'none  — modify working tree only (default), do not stage.
+- 'index — stage changes into index (e.g., git apply --index, git add)."
+  :type '(choice (const none) (const index))
+  :group 'carriage)
+
+(defcustom carriage-apply-async t
+  "When non-nil, run apply-plan asynchronously in a Lisp thread to avoid UI blocking.
+If threads are unavailable or in batch mode, falls back to synchronous execution."
+  :type 'boolean :group 'carriage)
+
 (defun carriage--report-ok (op &rest kv)
   "Build ok report alist with OP and extra KV plist."
   (append (list :op op :status 'ok) kv))
@@ -147,6 +159,32 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
           :summary (list :ok ok :fail fail :skipped skip)
           :items (nreverse items)
           :messages (nreverse msgs))))
+
+(defun carriage-apply-plan-async (plan repo-root &optional callback)
+  "Run (carriage-apply-plan PLAN REPO-ROOT) asynchronously when possible.
+If CALLBACK is non-nil, schedule it on the main thread with the report plist.
+In batch mode or when threads are unavailable, runs synchronously and returns report."
+  (if (and carriage-apply-async
+           (fboundp 'make-thread)
+           (not (bound-and-true-p noninteractive)))
+      (let ((p plan) (root repo-root))
+        (carriage-log "async-apply: spawn thread items=%d" (length p))
+        (make-thread
+         (lambda ()
+           (let* ((rep (carriage-apply-plan p root))
+                  (sum (plist-get rep :summary)))
+             (run-at-time 0 nil
+                          (lambda ()
+                            (carriage-log "async-apply: done ok=%s fail=%s"
+                                          (or (plist-get sum :ok) 0) (or (plist-get sum :fail) 0))
+                            (when (functionp callback)
+                              (condition-case e
+                                  (funcall callback rep)
+                                (error
+                                 (carriage-log "async-apply: callback error: %s" (error-message-string e))))))))))
+        "carriage-apply-thread"))
+  ;; Fallback sync
+  (carriage-apply-plan plan repo-root))
 
 (provide 'carriage-apply)
 ;;; carriage-apply.el ends here

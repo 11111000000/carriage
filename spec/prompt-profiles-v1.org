@@ -68,7 +68,7 @@
 
 ** PATCH (unified diff, один файл)
 - Шаблон:
-  - #+begin_patch (:version "1" :op "patch" :apply "git-apply" :strip 1)
+  - #+begin_patch (:version "1" :op "patch" :strip 1)
   - <unified diff РОВНО ОДНОГО файла>
   - #+end_patch
 - Замечания:

@@ -14,10 +14,10 @@
   "Return prompt fragment for unified diff (one file)."
   (concat
    "Формат PATCH (unified diff одного файла):\n"
-   "#+begin_patch (:version \"1\" :op \"patch\" :apply \"git-apply\" :strip 1)\n"
+   "#+begin_patch (:version \"1\" :op \"patch\" :strip 1)\n"
    "--- a/RELATIVE/PATH\n+++ b/RELATIVE/PATH\n@@ -L1,Len1 +L2,Len2 @@\n-OLD\n+NEW\n"
    "#+end_patch\n"
-   "- Ровно один файл на блок, rename/copy запрещены.\n"))
+   "- Ровно один файл на блок, rename/copy запрещены; apply без коммита.\n"))
 
 ;;;; Internal helpers
 
@@ -107,57 +107,73 @@
 ;;;; Dry-run & Apply
 
 (defun carriage-dry-run-diff (plan-item repo-root)
-  "Run git apply --check for unified diff."
+  "Run git apply --check for unified diff, with detailed logging."
   (let* ((diff  (or (alist-get :diff plan-item)  (plist-get plan-item :diff)))
          (strip (or (alist-get :strip plan-item) (plist-get plan-item :strip)))
          (path  (or (alist-get :path plan-item)  (plist-get plan-item :path))))
     (if (not (and (stringp diff) (> (length diff) 0)))
-        (list :op 'patch :status 'fail :path path :details "Empty diff"
-              :_messages (list (list :code 'PATCH_E_DIFF_SYNTAX
-                                     :severity 'error
-                                     :file path
-                                     :details "Empty diff")))
-      (let* ((res (carriage-git-apply-check repo-root diff :strip strip)))
-        (if (and (plist-get res :exit) (zerop (plist-get res :exit)))
-            (list :op 'patch :status 'ok :path path :details "git apply --check ok")
-          (list :op 'patch :status 'fail :path path :details "git apply --check failed"
-                :extra (list :exit (plist-get res :exit)
-                             :stderr (plist-get res :stderr)
-                             :stdout (plist-get res :stdout))
-                :_messages (list (list :code 'PATCH_E_GIT_CHECK
+        (progn
+          (carriage-log "patch: dry-run abort — empty diff (path=%s)" (or path "<nil>"))
+          (list :op 'patch :status 'fail :path path :details "Empty diff"
+                :_messages (list (list :code 'PATCH_E_DIFF_SYNTAX
                                        :severity 'error
                                        :file path
-                                       :details (or (plist-get res :stderr)
-                                                    (plist-get res :stdout)
-                                                    "git apply --check failed")))))))))
+                                       :details "Empty diff"))))
+      (progn
+        (carriage-log "patch: dry-run --check begin path=%s strip=%s bytes=%d"
+                      (or path "<unknown>") (or strip 1) (length diff))
+        (let* ((res (carriage-git-apply-check repo-root diff :strip strip))
+               (exit (plist-get res :exit))
+               (stderr (plist-get res :stderr))
+               (stdout (plist-get res :stdout)))
+          (carriage-log "patch: --check exit=%s stderr=%s"
+                        (or exit "<nil>")
+                        (if (and (stringp stderr) (> (length stderr) 0))
+                            (string-trim stderr) "<empty>"))
+          (if (and exit (zerop exit))
+              (list :op 'patch :status 'ok :path path :details "git apply --check ok")
+            (list :op 'patch :status 'fail :path path :details "git apply --check failed"
+                  :extra (list :exit exit :stderr stderr :stdout stdout)
+                  :_messages (list (list :code 'PATCH_E_GIT_CHECK
+                                         :severity 'error
+                                         :file path
+                                         :details (or stderr stdout "git apply --check failed"))))))))))
 
 (defun carriage-apply-diff (plan-item repo-root)
-  "Apply unified diff with git apply --index; then git add/commit."
+  "Apply unified diff with git apply; optional staging per `carriage-apply-stage-policy'."
   (let* ((diff  (or (alist-get :diff plan-item)  (plist-get plan-item :diff)))
          (strip (or (alist-get :strip plan-item) (plist-get plan-item :strip)))
-         (path  (or (alist-get :path plan-item)  (plist-get plan-item :path))))
+         (path  (or (alist-get :path plan-item)  (plist-get plan-item :path)))
+         (stage (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy)))
     (if (not (and (stringp diff) (> (length diff) 0)))
-        (list :op 'patch :status 'fail :path path :details "Empty diff"
-              :_messages (list (list :code 'PATCH_E_DIFF_SYNTAX
-                                     :severity 'error
-                                     :file path
-                                     :details "Empty diff")))
-      (let* ((apply-res (carriage-git-apply-index repo-root diff :strip strip)))
-        (if (and (plist-get apply-res :exit) (zerop (plist-get apply-res :exit)))
-            (progn
-              (when path (carriage-git-add repo-root path))
-              (carriage-git-commit repo-root (format "carriage: patch %s" (or path "<unknown>")))
-              (list :op 'patch :status 'ok :path path :details "git apply --index ok"))
-          (list :op 'patch :status 'fail :path path :details "git apply --index failed"
-                :extra (list :exit (plist-get apply-res :exit)
-                             :stderr (plist-get apply-res :stderr)
-                             :stdout (plist-get apply-res :stdout))
-                :_messages (list (list :code 'PATCH_E_APPLY
+        (progn
+          (carriage-log "patch: apply abort — empty diff (path=%s)" (or path "<nil>"))
+          (list :op 'patch :status 'fail :path path :details "Empty diff"
+                :_messages (list (list :code 'PATCH_E_DIFF_SYNTAX
                                        :severity 'error
                                        :file path
-                                       :details (or (plist-get apply-res :stderr)
-                                                    (plist-get apply-res :stdout)
-                                                    "git apply --index failed")))))))))
+                                       :details "Empty diff"))))
+      (progn
+        (carriage-log "patch: apply begin path=%s strip=%s bytes=%d"
+                      (or path "<unknown>") (or strip 1) (length diff))
+        (let* ((apply-res (if (eq stage 'index)
+                              (carriage-git-apply-index repo-root diff :strip strip)
+                            (carriage-git-apply repo-root diff :strip strip)))
+               (a-exit (plist-get apply-res :exit))
+               (a-stderr (plist-get apply-res :stderr))
+               (a-stdout (plist-get apply-res :stdout)))
+          (carriage-log "patch: git apply exit=%s stderr=%s"
+                        (or a-exit "<nil>")
+                        (if (and (stringp a-stderr) (> (length a-stderr) 0))
+                            (string-trim a-stderr) "<empty>"))
+          (if (and a-exit (zerop a-exit))
+              (list :op 'patch :status 'ok :path path :details "git apply ok")
+            (list :op 'patch :status 'fail :path path :details "git apply failed"
+                  :extra (list :exit a-exit :stderr a-stderr :stdout a-stdout)
+                  :_messages (list (list :code 'PATCH_E_APPLY
+                                         :severity 'error
+                                         :file path
+                                         :details (or a-stderr a-stdout "git apply failed"))))))))))
 
 ;;;; Registration
 

@@ -24,7 +24,7 @@
   :type '(choice (const Ask) (const Patch))
   :group 'carriage)
 
-(defcustom carriage-mode-default-suite 'auto-v1
+(defcustom carriage-mode-default-suite 'patch-v1
   "Default Suite for Patch intent: one of 'auto-v1, 'sre-v1, 'patch-v1, 'file-ops-v1."
   :type '(choice (const auto-v1) (const sre-v1) (const patch-v1) (const file-ops-v1))
   :group 'carriage)
@@ -121,6 +121,11 @@ If nil (default v1 behavior), such cases are considered a failure in dry-run."
 Note: v1 forbids binary patches; this option remains nil in v1 and is reserved for future versions."
   :type 'boolean :group 'carriage)
 
+(defcustom carriage-commit-default-message "carriage: apply changes"
+  "Default commit message used by Commit commands.
+May be a string or a function of zero args returning string."
+  :type '(choice string function) :group 'carriage)
+
 (defvar-local carriage-mode-intent carriage-mode-default-intent
   "Current Carriage Intent for this buffer: 'Ask or 'Patch.")
 
@@ -180,7 +185,9 @@ Set by transports/pipelines when starting an async activity; cleared on completi
         (unless (bound-and-true-p noninteractive)
           (when carriage-mode-show-header-line
             (setq carriage--mode-prev-header-line-format header-line-format)
-            (setq-local header-line-format '(:eval (carriage-ui--header-line))))
+            (setq-local header-line-format '(:eval (carriage-ui--header-line)))
+            (add-hook 'post-command-hook #'carriage-ui--headerline-post-command nil t)
+            (add-hook 'window-scroll-functions #'carriage-ui--headerline-window-scroll nil t))
           (when carriage-mode-show-mode-line-ui
             (setq carriage--mode-modeline-construct '(:eval (carriage-ui--modeline)))
             (setq-local mode-line-format
@@ -195,6 +202,8 @@ Set by transports/pipelines when starting an async activity; cleared on completi
       (when (local-variable-p 'header-line-format)
         (setq-local header-line-format carriage--mode-prev-header-line-format))
       (setq carriage--mode-prev-header-line-format nil)
+      (remove-hook 'post-command-hook #'carriage-ui--headerline-post-command t)
+      (remove-hook 'window-scroll-functions #'carriage-ui--headerline-window-scroll t)
       (when (and carriage--mode-modeline-construct
                  (local-variable-p 'mode-line-format))
         (setq-local mode-line-format
@@ -446,7 +455,7 @@ SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
 
 ;;;###autoload
 (defun carriage-apply-at-point ()
-  "Dry-run → confirm → apply for the patch block at point."
+  "Dry-run → confirm → apply for the patch block at point (async by default)."
   (interactive)
   (let* ((root (or (carriage-project-root) default-directory))
          (plan-item (condition-case e
@@ -468,15 +477,23 @@ SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
         (when (or (not carriage-mode-show-diffs)
                   (y-or-n-p "Apply this block? "))
           (carriage-ui-set-state 'apply)
-          (let ((ap (carriage-apply-plan (list plan-item) root)))
-            (when (not noninteractive)
-              (carriage-report-open ap)))
-          (carriage-ui-set-state 'idle))))))
+          (if (and (boundp 'carriage-apply-async) carriage-apply-async (fboundp 'make-thread) (not noninteractive))
+              (progn
+                (carriage-log "apply-at-point: async apply scheduled")
+                (carriage-apply-plan-async
+                 (list plan-item) root
+                 (lambda (rep)
+                   (when (not noninteractive)
+                     (carriage-report-open rep))
+                   (carriage-ui-set-state 'idle))))
+            (let ((ap (carriage-apply-plan (list plan-item) root)))
+              (when (not noninteractive)
+                (carriage-report-open ap))
+              (carriage-ui-set-state 'idle))))))))
 
 ;;;###autoload
 (defun carriage-apply-last-iteration ()
-  "Dry-run → подтверждение → применение всех блоков «последней итерации».
-В v1 эта команда берёт все блоки в текущем буфере как «последнюю итерацию»."
+  "Dry-run → подтверждение → применение всех блоков «последней итерации» (async по умолчанию)."
   (interactive)
   (let* ((root (or (carriage-project-root) default-directory))
          (plan (carriage-collect-last-iteration-blocks root)))
@@ -500,10 +517,19 @@ SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
           (when (or (not carriage-mode-show-diffs)
                     (y-or-n-p "Применить группу блоков? "))
             (carriage-ui-set-state 'apply)
-            (let ((ap (carriage-apply-plan plan root)))
-              (when (not noninteractive)
-                (carriage-report-open ap)))
-            (carriage-ui-set-state 'idle)))))))
+            (if (and (boundp 'carriage-apply-async) carriage-apply-async (fboundp 'make-thread) (not noninteractive))
+                (progn
+                  (carriage-log "apply-all: async apply scheduled (%d items)" (length plan))
+                  (carriage-apply-plan-async
+                   plan root
+                   (lambda (rep)
+                     (when (not noninteractive)
+                       (carriage-report-open rep))
+                     (carriage-ui-set-state 'idle))))
+              (let ((ap (carriage-apply-plan plan root)))
+                (when (not noninteractive)
+                  (carriage-report-open ap))
+                (carriage-ui-set-state 'idle)))))))))
 
 ;;;###autoload
 (defun carriage-wip-checkout ()
@@ -524,6 +550,68 @@ SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
       (user-error "Git repository not detected"))
     (carriage-git-reset-soft root (or rev "HEAD~1"))
     (message "Carriage: soft reset to %s" (or rev "HEAD~1"))))
+
+(defun carriage--commit--default-message ()
+  "Return default commit message from `carriage-commit-default-message'."
+  (let ((v (and (boundp 'carriage-commit-default-message) carriage-commit-default-message)))
+    (cond
+     ((functionp v) (ignore-errors (funcall v)))
+     ((stringp v) v)
+     (t "carriage: apply changes"))))
+
+;;;###autoload
+(defun carriage-commit-changes (&optional message)
+  "Commit all changes according to staging policy as a single commit.
+- If staging policy is 'none, stage everything (git add -A) before commit.
+- If staging policy is 'index, commit current index as-is."
+  (interactive)
+  (let* ((root (carriage-project-root))
+         (msg (or message (read-string "Commit message: " (carriage--commit--default-message)))))
+    (unless root
+      (user-error "Git repository not detected"))
+    (when (not (eq (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy) 'index))
+      (ignore-errors (carriage-git-add-all root)))
+    (let* ((res (carriage-git-commit root msg))
+           (exit (plist-get res :exit))
+           (stderr (string-trim (or (plist-get res :stderr) ""))))
+      (if (and exit (zerop exit))
+          (message "Carriage: committed changes")
+        (user-error "Commit failed: %s" (if (string-empty-p stderr) (format "%S" res) stderr))))))
+
+;;;###autoload
+(defun carriage-commit-last-iteration (&optional message)
+  "Commit only files changed by the last iteration as a single commit.
+Stages as needed depending on staging policy; with 'none, runs git add -A then restricts commit to those paths."
+  (interactive)
+  (let* ((root (carriage-project-root)))
+    (unless root
+      (user-error "Git repository not detected"))
+    (let* ((plan (carriage-collect-last-iteration-blocks root))
+           (files
+            (cl-loop for it in plan
+                     for op = (alist-get :op it)
+                     append
+                     (pcase op
+                       ((or 'sre 'create 'delete)
+                        (let ((f (alist-get :file it))) (if f (list f) '())))
+                       ('patch
+                        (let ((p (alist-get :path it))) (if p (list p) '())))
+                       ('rename
+                        (delq nil (list (alist-get :from it) (alist-get :to it))))
+                       (_ '()))))
+           (msg (or message (read-string "Commit message: " (carriage--commit--default-message)))))
+      (when (null files)
+        (user-error "No files in last iteration"))
+      ;; Stage as necessary
+      (when (not (eq (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy) 'index))
+        (ignore-errors (carriage-git-add-all root)))
+      ;; Commit restricted to files
+      (let* ((res (apply #'carriage-git-commit root msg files))
+             (exit (plist-get res :exit))
+             (stderr (string-trim (or (plist-get res :stderr) ""))))
+        (if (and exit (zerop exit))
+            (message "Carriage: committed last iteration (%d file(s))" (length files))
+          (user-error "Commit failed: %s" (if (string-empty-p stderr) (format "%S" res) stderr)))))))
 
 ;;;###autoload
 (defun carriage-toggle-intent ()

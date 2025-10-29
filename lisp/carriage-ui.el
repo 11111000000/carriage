@@ -153,6 +153,8 @@ Negative values move icons up; positive move them down."
     (define-key map (kbd "C-c b t")   #'carriage-show-traffic)
     (define-key map (kbd "C-c b L")   #'carriage-show-log-and-traffic)
     (define-key map (kbd "C-c b r")   #'carriage-wip-reset-soft)
+    (define-key map (kbd "C-c b m")   #'carriage-commit-changes)
+    (define-key map (kbd "C-c b i")   #'carriage-commit-last-iteration)
     ;; Navigation placeholders (optional)
     (define-key map (kbd "M-n")       #'carriage-next-patch-block)
     (define-key map (kbd "M-p")       #'carriage-prev-patch-block)
@@ -257,10 +259,12 @@ Negative values move icons up; positive move them down."
     (or (and dir (not (string-empty-p dir)) dir) "-")))
 
 (defun carriage-ui--org-outline-path ()
-  "Return org outline path (A › B › C) at point, or nil if not available."
+  "Return org outline path (A › B › C) at point, or nil if not available.
+Do NOT use Org's outline path cache to avoid stale values while moving."
   (when (and (derived-mode-p 'org-mode)
              (fboundp 'org-get-outline-path))
-    (let* ((path (ignore-errors (org-get-outline-path t t))))
+    ;; Use-cache=nil for instant updates when point moves across headings.
+    (let* ((path (ignore-errors (org-get-outline-path t nil))))
       (when (and path (listp path) (> (length path) 0))
         (mapconcat (lambda (s) (if (stringp s) s (format "%s" s))) path " › ")))))
 
@@ -321,6 +325,43 @@ Emits debug logs with the resulting face property/foreground."
                                               :v-adjust carriage-mode-icon-v-adjust
                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face))))
                       (t nil)))
+             ;; Header-line sections
+             ('project (cond
+                        ((fboundp 'all-the-icons-octicon)
+                         (all-the-icons-octicon "repo"
+                                                :height carriage-mode-icon-height
+                                                :v-adjust carriage-mode-icon-v-adjust
+                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
+                        ((fboundp 'all-the-icons-material)
+                         (all-the-icons-material "folder"
+                                                 :height carriage-mode-icon-height
+                                                 :v-adjust carriage-mode-icon-v-adjust
+                                                 :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
+                        (t nil)))
+             ('file    (cond
+                        ((fboundp 'all-the-icons-octicon)
+                         (all-the-icons-octicon "file-text"
+                                                :height carriage-mode-icon-height
+                                                :v-adjust carriage-mode-icon-v-adjust
+                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face))))
+                        ((fboundp 'all-the-icons-material)
+                         (all-the-icons-material "description"
+                                                 :height carriage-mode-icon-height
+                                                 :v-adjust carriage-mode-icon-v-adjust
+                                                 :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face))))
+                        (t nil)))
+             ('heading (cond
+                        ((fboundp 'all-the-icons-material)
+                         (all-the-icons-material "chevron_right"
+                                                 :height carriage-mode-icon-height
+                                                 :v-adjust carriage-mode-icon-v-adjust
+                                                 :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-yellow-face))))
+                        ((fboundp 'all-the-icons-octicon)
+                         (all-the-icons-octicon "bookmark"
+                                                :height carriage-mode-icon-height
+                                                :v-adjust carriage-mode-icon-v-adjust
+                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-yellow-face))))
+                        (t nil)))
              ;; Actions
              ('dry    (when (fboundp 'all-the-icons-faicon)
                         (all-the-icons-faicon "flask"
@@ -380,12 +421,15 @@ Emits debug logs with the resulting face property/foreground."
       res)))
 
 (defun carriage-ui--header-line ()
-  "Build header-line: project › buffer › org-outline-path with graceful degradation.
-Respects =carriage-mode-headerline-max-width' and hides outline on narrow/TTY.
-When outline is visible in org-mode, make it clickable to jump to heading."
+  "Build header-line: [icon] project › [icon] buffer › org-outline-path (no icon for heading).
+- Graceful degradation in TTY and narrow windows (hide outline).
+- Outline segment is clickable in org-mode to jump to the heading."
   (let* ((project (carriage-ui--project-name))
          (bufname (buffer-name))
          (outline (carriage-ui--org-outline-path))
+         (use-icons (carriage-ui--icons-available-p))
+         (p-icon (and use-icons (carriage-ui--icon 'project)))
+         (f-icon (and use-icons (carriage-ui--icon 'file)))
          (sep " › ")
          ;; Window width and policy
          (w (or (ignore-errors (window-total-width)) 80))
@@ -396,36 +440,72 @@ When outline is visible in org-mode, make it clickable to jump to heading."
          (avail (max 0 (- maxw reserve)))
          (tty (not (display-graphic-p)))
          (show-outline (and (not tty) outline (> avail 30)))
-         (base (concat project sep bufname))
+         (pseg (if p-icon (concat p-icon " " project) project))
+         (bseg (if f-icon (concat f-icon " " bufname) bufname))
+         (oseg-text (or outline ""))
+         (oseg0 oseg-text)
+         (base (concat pseg sep bseg))
          (full (if show-outline
-                   (concat base (when show-outline sep) (or outline ""))
+                   (concat base sep oseg0)
                  base)))
     ;; If exceeds, start truncating from outline, then buffer, then project
     (when (> (length full) avail)
       (when show-outline
-        (let ((ol-max (max 10 (- avail (length base) (length sep)))))
-          (setq outline (carriage-ui--truncate-middle outline ol-max))
-          (setq full (concat base sep outline))))
+        (let* ((ol-max (max 10 (- avail (length base) (length sep)))))
+          (setq oseg0 (carriage-ui--truncate-middle oseg0 ol-max))
+          (setq full (concat base sep oseg0))))
       (when (> (length full) avail)
-        (let* ((buf-max (max 10 (- avail (length project) (length sep)))))
-          (setq bufname (carriage-ui--truncate-middle bufname buf-max))
-          (setq base (concat project sep bufname))
-          (setq full (if show-outline (concat base sep outline) base))))
+        (let* ((buf-max (max 10 (- avail (length pseg) (length sep)))))
+          (setq bseg (carriage-ui--truncate-middle bseg buf-max))
+          (setq base (concat pseg sep bseg))
+          (setq full (if show-outline (concat base sep oseg0) base))))
       (when (> (length full) avail)
-        (setq project (carriage-ui--truncate-middle project (max 5 (- avail (length sep) (length bufname)))))
-        (setq base (concat project sep bufname))
-        (setq full (if show-outline (concat base sep outline) base))))
+        (setq pseg (carriage-ui--truncate-middle pseg (max 5 (- avail (length sep) (length bseg)))))
+        (setq base (concat pseg sep bseg))
+        (setq full (if show-outline (concat base sep oseg0) base))))
     ;; Clickable outline (optional)
     (if show-outline
         (let* ((omap (let ((m (make-sparse-keymap)))
                        (define-key m [header-line mouse-1] #'carriage-ui-goto-outline)
                        m))
-               (oprop (propertize (or outline "")
+               (oprop (propertize oseg0
                                   'mouse-face 'mode-line-highlight
                                   'help-echo "Перейти к заголовку (mouse-1)"
                                   'local-map omap)))
           (concat base sep oprop))
       full)))
+
+;; Cache and refresh outline segment on cursor move to ensure timely header updates.
+(defvar-local carriage-ui--last-outline-path-str nil
+  "Cached outline path string for the current buffer's header-line refresh.")
+(defvar-local carriage-ui--last-outline-level nil
+  "Cached outline level at point for fast header-line refresh.")
+(defvar-local carriage-ui--last-outline-title nil
+  "Cached outline heading title at point for fast header-line refresh.")
+
+(defun carriage-ui--headerline-post-command ()
+  "Post-command hook: refresh header-line instantly when Org outline context changes.
+Updates on any change of outline path, heading level, or heading title."
+  (when (derived-mode-p 'org-mode)
+    (let* ((cur-path (or (carriage-ui--org-outline-path) ""))
+           (info (ignore-errors
+                   (save-excursion
+                     (org-back-to-heading t)
+                     (cons (org-outline-level)
+                           (org-get-heading 'no-tags 'no-todo 'no-priority 'no-comment)))))
+           (lvl (car info))
+           (ttl (cdr info)))
+      (when (or (not (equal cur-path carriage-ui--last-outline-path-str))
+                (not (equal lvl carriage-ui--last-outline-level))
+                (not (equal ttl carriage-ui--last-outline-title)))
+        (setq carriage-ui--last-outline-path-str cur-path)
+        (setq carriage-ui--last-outline-level lvl)
+        (setq carriage-ui--last-outline-title ttl)
+        (force-mode-line-update t)))))
+
+(defun carriage-ui--headerline-window-scroll (_win _start)
+  "Refresh header-line on window scroll for instant visual updates."
+  (force-mode-line-update t))
 
 (defun carriage-ui--ml-button (label fn help)
   "Return a clickable LABEL that invokes FN, preserving LABEL's text properties."
@@ -586,6 +666,7 @@ reflects toggle state (muted when off, bright when on)."
          (diff-label   (or (and use-icons (carriage-ui--icon 'diff))   "[Diff]"))
          (ediff-label  (or (and use-icons (carriage-ui--icon 'ediff))  "[Ediff]"))
          (wip-label    (or (and use-icons (carriage-ui--icon 'wip))    "[WIP]"))
+         (commit-label "[Commit]")
          (reset-label  (or (and use-icons (carriage-ui--icon 'reset))  "[Reset]"))
          (dry    (carriage-ui--ml-button dry-label    #'carriage-dry-run-at-point      "Dry-run at point"))
          (apply  (carriage-ui--ml-button apply-label  #'carriage-apply-at-point        "Apply at point"))
@@ -595,6 +676,7 @@ reflects toggle state (muted when off, bright when on)."
          (diff   (carriage-ui--ml-button diff-label   #'carriage-ui--diff-button       "Show diff (report)"))
          (ediff  (carriage-ui--ml-button ediff-label  #'carriage-ui--ediff-button      "Open Ediff (report)"))
          (wip    (carriage-ui--ml-button wip-label    #'carriage-wip-checkout          "Switch to WIP branch"))
+         (commit (carriage-ui--ml-button commit-label #'carriage-commit-changes        "Commit changes"))
          (reset  (carriage-ui--ml-button reset-label  #'carriage-wip-reset-soft        "Soft reset last commit"))
          ;; Toggles (text conveys meaning; active ones emphasized)
          (t-auto  (carriage-ui--toggle "[AutoRpt]"    'carriage-mode-auto-open-report   #'carriage-toggle-auto-open-report   "Toggle auto-open report" 'auto))
@@ -603,7 +685,7 @@ reflects toggle state (muted when off, bright when on)."
          (t-icons (carriage-ui--toggle "[Icons]"      'carriage-mode-use-icons          #'carriage-toggle-use-icons         "Toggle icons in UI" 'icons)))
     (mapconcat #'identity
                (list intent-btn suite-btn backend-model-btn state
-                     dry apply all abort report diff ediff wip reset
+                     dry apply all abort report diff ediff wip commit reset
                      t-auto t-diffs t-all t-icons)
                " ")))
 
