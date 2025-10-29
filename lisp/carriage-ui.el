@@ -3,6 +3,7 @@
 (require 'cl-lib)
 (require 'subr-x)
 (require 'carriage-utils)
+(declare-function carriage-select-apply-engine "carriage-apply-engine" (&optional engine))
 
 (defgroup carriage-ui nil
   "UI components for Carriage."
@@ -155,6 +156,7 @@ Negative values move icons up; positive move them down."
     (define-key map (kbd "C-c b r")   #'carriage-wip-reset-soft)
     (define-key map (kbd "C-c b m")   #'carriage-commit-changes)
     (define-key map (kbd "C-c b i")   #'carriage-commit-last-iteration)
+    (define-key map (kbd "C-c b e")   #'carriage-select-apply-engine)
     ;; Navigation placeholders (optional)
     (define-key map (kbd "M-n")       #'carriage-next-patch-block)
     (define-key map (kbd "M-p")       #'carriage-prev-patch-block)
@@ -668,6 +670,16 @@ reflects toggle state (muted when off, bright when on)."
          (wip-label    (or (and use-icons (carriage-ui--icon 'wip))    "[WIP]"))
          (commit-label "[Commit]")
          (reset-label  (or (and use-icons (carriage-ui--icon 'reset))  "[Reset]"))
+         ;; Engine indicator and selector
+         (engine-str (let ((e (and (boundp 'carriage-apply-engine) carriage-apply-engine)))
+                       (cond
+                        ((symbolp e) (symbol-name e))
+                        ((stringp e) e)
+                        (t "git"))))
+         (engine-label (format "[Engine:%s]" engine-str))
+         (engine (carriage-ui--ml-button engine-label
+                                         #'carriage-select-apply-engine
+                                         "Select apply engine"))
          (dry    (carriage-ui--ml-button dry-label    #'carriage-dry-run-at-point      "Dry-run at point"))
          (apply  (carriage-ui--ml-button apply-label  #'carriage-apply-at-point        "Apply at point"))
          (all    (carriage-ui--ml-button all-label    #'carriage-apply-last-iteration  "Apply last iteration"))
@@ -685,7 +697,7 @@ reflects toggle state (muted when off, bright when on)."
          (t-icons (carriage-ui--toggle "[Icons]"      'carriage-mode-use-icons          #'carriage-toggle-use-icons         "Toggle icons in UI" 'icons)))
     (mapconcat #'identity
                (list intent-btn suite-btn backend-model-btn state
-                     dry apply all abort report diff ediff wip commit reset
+                     dry apply all abort report diff ediff wip engine commit reset
                      t-auto t-diffs t-all t-icons)
                " ")))
 

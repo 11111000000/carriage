@@ -293,7 +293,7 @@ In batch mode runs non-interactively and refreshes report."
       (unless (and plan-item root)
         (user-error "No plan/root stored on this row"))
       (carriage-ui-set-state 'apply)
-      (if (and (boundp 'carriage-apply-async) carriage-apply-async (fboundp 'make-thread) (not noninteractive))
+      (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
           (progn
             (carriage-log "report-apply: async apply scheduled for %s" (plist-get it :path))
             (carriage-apply-plan-async

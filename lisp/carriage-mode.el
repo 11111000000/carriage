@@ -18,6 +18,7 @@
 (declare-function carriage-transport-streaming "carriage-transport" ())
 (declare-function carriage-transport-complete "carriage-transport" (&optional errorp))
 (declare-function carriage-transport-dispatch "carriage-transport" (&rest args))
+(declare-function carriage-select-apply-engine "carriage-apply-engine" (&optional engine))
 
 (defcustom carriage-mode-default-intent 'Patch
   "Default Intent for Carriage: `Ask' or `Patch'."
@@ -477,7 +478,7 @@ SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
         (when (or (not carriage-mode-show-diffs)
                   (y-or-n-p "Apply this block? "))
           (carriage-ui-set-state 'apply)
-          (if (and (boundp 'carriage-apply-async) carriage-apply-async (fboundp 'make-thread) (not noninteractive))
+          (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
               (progn
                 (carriage-log "apply-at-point: async apply scheduled")
                 (carriage-apply-plan-async
@@ -517,7 +518,7 @@ SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
           (when (or (not carriage-mode-show-diffs)
                     (y-or-n-p "Применить группу блоков? "))
             (carriage-ui-set-state 'apply)
-            (if (and (boundp 'carriage-apply-async) carriage-apply-async (fboundp 'make-thread) (not noninteractive))
+            (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
                 (progn
                   (carriage-log "apply-all: async apply scheduled (%d items)" (length plan))
                   (carriage-apply-plan-async

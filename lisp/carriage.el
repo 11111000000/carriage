@@ -13,13 +13,18 @@
 (require 'carriage-parser)
 (require 'carriage-apply)
 
-;; Ensure 'ops' directory is on load-path for requiring op modules
+;; Ensure 'ops' and 'engines' directories are on load-path for requiring modules
 (let* ((this-dir (file-name-directory (or load-file-name buffer-file-name)))
-       (ops-dir (and this-dir (expand-file-name "ops" this-dir))))
+       (ops-dir (and this-dir (expand-file-name "ops" this-dir)))
+       (engines-dir (and this-dir (expand-file-name "engines" this-dir))))
   (when (and ops-dir (file-directory-p ops-dir))
-    (add-to-list 'load-path ops-dir)))
+    (add-to-list 'load-path ops-dir))
+  (when (and engines-dir (file-directory-p engines-dir))
+    (add-to-list 'load-path engines-dir)))
 ;; Ops modules are lazy-loaded by suite/parser when needed (no eager require here)
 
+(require 'carriage-apply-engine)
+(require 'carriage-engine-git)
 (require 'carriage-mode)
 (require 'carriage-transport)
 ;; Transports are loaded lazily by carriage-transport-dispatch per spec.

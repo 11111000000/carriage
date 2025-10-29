@@ -1,5 +1,4 @@
-;;; carriage-op-patch.el --- Unified diff patch handlers and prompt fragment  -*- lexical-binding: t; -*-
-;;
+;;; carriage-op-patch.el --- Unified diff (patch) handlers v1  -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
 (require 'subr-x)
@@ -10,178 +9,159 @@
 (require 'carriage-git)
 (require 'carriage-format-registry)
 
-(defun carriage-op-patch-prompt-fragment (_ctx)
-  "Return prompt fragment for unified diff (one file)."
-  (concat
-   "Формат PATCH (unified diff одного файла):\n"
-   "#+begin_patch (:version \"1\" :op \"patch\" :strip 1)\n"
-   "--- a/RELATIVE/PATH\n+++ b/RELATIVE/PATH\n@@ -L1,Len1 +L2,Len2 @@\n-OLD\n+NEW\n"
-   "#+end_patch\n"
-   "- Ровно один файл на блок, rename/copy запрещены; apply без коммита.\n"))
+(defun carriage--patch--reject-rename-copy (text)
+  "Signal when TEXT contains rename/copy prelude forbidden in v1."
+  (when (or (string-match-p "^rename from " text)
+            (string-match-p "^rename to " text)
+            (string-match-p "^copy from " text)
+            (string-match-p "^copy to " text))
+    (signal (carriage-error-symbol 'PATCH_E_RENAME_COPY)
+            (list "rename/copy prelude not supported in v1"))))
 
-;;;; Internal helpers
+(defun carriage--patch--reject-binary (text)
+  "Signal when TEXT contains binary patch markers forbidden in v1."
+  (when (or (string-match-p "^GIT binary patch" text)
+            (string-match-p "^Binary files differ" text))
+    (signal (carriage-error-symbol 'PATCH_E_BINARY)
+            (list "binary patches are not supported in v1"))))
 
-(defun carriage--diff-extract-paths (body)
-  "Extract --- and +++ paths from BODY. Return (A B)."
-  (let ((a nil) (b nil) (count 0))
-    (dolist (line (split-string body "\n"))
-      (cond
-       ((string-match "\\`--- \\(.*\\)\\'" line)
-        (setq a (match-string 1 line))
-        (setq count (1+ count)))
-       ((string-match "\\`\\+\\+\\+ \\(.*\\)\\'" line)
-        (setq b (match-string 1 line))
-        (setq count (1+ count)))))
-    (cond
-     ((< count 2)
-      (signal (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX) (list "Missing ---/+++")))
-     ((> count 2)
-      (signal (carriage-error-symbol 'PATCH_E_MULTI_FILE) (list "Multiple ---/+++ pairs detected"))))
-    (list a b)))
+(defun carriage--patch--extract-paths (text)
+  "Return plist (:old OLD :new NEW) from TEXT using ---/+++ lines.
+OLD/NEW are raw header payloads after \"--- \" and \"+++ \"."
+  (with-temp-buffer
+    (insert text)
+    (goto-char (point-min))
+    (let* ((old nil) (new nil))
+      (when (re-search-forward "^---[ \t]+\\(.+\\)$" nil t)
+        (setq old (string-trim (match-string 1))))
+      (goto-char (point-min))
+      (when (re-search-forward "^\\+\\+\\+[ \t]+\\(.+\\)$" nil t)
+        (setq new (string-trim (match-string 1))))
+      (list :old old :new new))))
 
-(defun carriage--diff-validate-single-file (a b)
-  "Validate A and B paths refer to a single file or /dev/null cases."
+(defun carriage--patch--single-file-p (text)
+  "Return non-nil if TEXT contains at most one pair of ---/+++ headers."
+  (let ((count 0))
+    (with-temp-buffer
+      (insert text)
+      (goto-char (point-min))
+      (while (re-search-forward "^---[ \t]+" nil t)
+        (setq count (1+ count))))
+    (<= count 1)))
+
+(defun carriage--patch--normalize-path (root old new)
+  "From OLD/NEW header payloads compute RELPATH for single-file patch.
+Supports (/dev/null,b/path) for create and (a/path,/dev/null) for delete.
+Returns RELPATH string."
   (cond
-   ((and (string= a "/dev/null")
-         (string-match "\\`b/\\(.+\\)\\'" b))
-    (cons nil (match-string 1 b)))
-   ((and (string-match "\\`a/\\(.+\\)\\'" a)
-         (string= b "/dev/null"))
-    (cons (match-string 1 a) nil))
-   ((and (string-match "\\`a/\\(.+\\)\\'" a)
-         (string-match "\\`b/\\(.+\\)\\'" b))
-    (let ((ap (match-string 1 a))
-          (bp (match-string 1 b)))
-      (unless (string= ap bp)
-        (signal (carriage-error-symbol 'PATCH_E_PATH_MISMATCH) (list a b)))
-      (cons ap bp)))
+   ;; Create
+   ((and (stringp old) (stringp new)
+         (string-prefix-p "/dev/null" old)
+         (string-prefix-p "b/" new))
+    (let* ((rel (substring new 2))
+           (_abs (carriage-normalize-path root rel)))
+      rel))
+   ;; Delete
+   ((and (stringp old) (stringp new)
+         (string-prefix-p "a/" old)
+         (string-prefix-p "/dev/null" new))
+    (let* ((rel (substring old 2))
+           (_abs (carriage-normalize-path root rel)))
+      rel))
+   ;; Modify existing
+   ((and (stringp old) (stringp new)
+         (string-prefix-p "a/" old)
+         (string-prefix-p "b/" new))
+    (let* ((r1 (substring old 2))
+           (r2 (substring new 2)))
+      (unless (string= r1 r2)
+        (signal (carriage-error-symbol 'PATCH_E_MULTI_FILE)
+                (list (format "Paths differ: a/%s vs b/%s" r1 r2))))
+      (let ((_abs (carriage-normalize-path root r1)))
+        r1)))
    (t
-    (signal (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX) (list "Unexpected paths")))))
-
-;;;; Parse
+    (signal (carriage-error-symbol 'PATCH_E_MULTI_FILE)
+            (list (format "Unsupported ---/+++ pair: %S / %S" old new))))))
 
 (defun carriage-parse-diff (header body repo-root)
-  "Parse unified diff block BODY with HEADER under REPO-ROOT."
-  (ignore repo-root)
+  "Parse unified diff (v1).
+Ignores header :apply key entirely; determines :path from ---/+++ lines.
+Returns a plan item alist: (:version \"1\" :op 'patch :strip N :path REL :diff BODY)."
   (let* ((version (plist-get header :version))
          (op (plist-get header :op))
-         (strip (if (plist-member header :strip)
-                    (plist-get header :strip)
-                  1))
-         (apply-key (plist-get header :apply)))
+         ;; Ignore any :apply key in header (v1 behavior).
+         (_ignored-apply (and (plist-member header :apply) (plist-get header :apply)))
+         ;; :strip defaults to 1; coerce to 1 when unspecified or invalid.
+         (strip (let* ((v (plist-get header :strip)))
+                  (if (and (integerp v) (>= v 0)) v 1))))
     (unless (string= version "1")
       (signal (carriage-error-symbol 'PATCH_E_VERSION) (list version)))
-    (unless (string= op "patch")
+    (unless (member (format "%s" op) '("patch" :patch patch))
       (signal (carriage-error-symbol 'PATCH_E_OP) (list op)))
-    (when (plist-member header :apply)
-      (unless (string= apply-key "git-apply")
-        (signal (carriage-error-symbol 'PATCH_E_APPLY)
-                (list (format "Unsupported :apply: %S" apply-key)))))
-    (with-temp-buffer
-      (insert body)
-      (goto-char (point-min))
-      (when (re-search-forward "^[ \t]*\\(GIT binary patch\\|Binary files .* differ\\)\\b" nil t)
-        (signal (carriage-error-symbol 'PATCH_E_BINARY) (list "Binary diff not supported")))
-      (goto-char (point-min))
-      (when (re-search-forward "^[ \t]*\\(rename \\(from\\|to\\)\\|copy \\(from\\|to\\)\\)\\b" nil t)
-        (signal (carriage-error-symbol 'PATCH_E_RENAME_COPY) (list "rename/copy not supported"))))
-    (let* ((ab (carriage--diff-extract-paths body))
-           (a (car ab))
-           (b (cadr ab))
-           (pair (carriage--diff-validate-single-file a b))
-           (rel (or (car pair) (cdr pair))))
-      (when (carriage--path-looks-unsafe-p rel)
-        (signal (carriage-error-symbol 'PATCH_E_PATH) (list rel)))
-      (let ((expected-strip 1))
-        (when (and (plist-member header :strip)
-                   (not (= strip expected-strip)))
-          (signal (carriage-error-symbol 'PATCH_E_STRIP)
-                  (list (format "Expected :strip=%d, got %s" expected-strip strip)))))
-      (list (cons :version "1")
-            (cons :op 'patch)
-            (cons :apply 'git-apply)
-            (cons :strip strip)
-            (cons :path rel)
-            (cons :diff body)))))
-
-;;;; Dry-run & Apply
+    ;; Hard limits and forbidden preludes
+    (when (> (string-bytes body) (* 4 1024 1024))
+      (signal (carriage-error-symbol 'PATCH_E_LIMITS) (list "Patch body exceeds 4MiB")))
+    (carriage--patch--reject-rename-copy body)
+    (carriage--patch--reject-binary body)
+    ;; Ensure single-file diff (one ---/+++ pair)
+    (unless (carriage--patch--single-file-p body)
+      (signal (carriage-error-symbol 'PATCH_E_MULTI_FILE) (list "Multiple files in one patch")))
+    (let* ((paths (carriage--patch--extract-paths body))
+           (old (plist-get paths :old))
+           (new (plist-get paths :new)))
+      (unless (and old new)
+        (signal (carriage-error-symbol 'PATCH_E_HEADER) (list "Missing ---/+++ headers")))
+      (let* ((rel (carriage--patch--normalize-path repo-root old new)))
+        (list (cons :version "1")
+              (cons :op 'patch)
+              (cons :strip strip)
+              (cons :path rel)
+              (cons :diff body))))))
 
 (defun carriage-dry-run-diff (plan-item repo-root)
-  "Run git apply --check for unified diff, with detailed logging."
-  (let* ((diff  (or (alist-get :diff plan-item)  (plist-get plan-item :diff)))
-         (strip (or (alist-get :strip plan-item) (plist-get plan-item :strip)))
-         (path  (or (alist-get :path plan-item)  (plist-get plan-item :path))))
-    (if (not (and (stringp diff) (> (length diff) 0)))
-        (progn
-          (carriage-log "patch: dry-run abort — empty diff (path=%s)" (or path "<nil>"))
-          (list :op 'patch :status 'fail :path path :details "Empty diff"
-                :_messages (list (list :code 'PATCH_E_DIFF_SYNTAX
-                                       :severity 'error
-                                       :file path
-                                       :details "Empty diff"))))
-      (progn
-        (carriage-log "patch: dry-run --check begin path=%s strip=%s bytes=%d"
-                      (or path "<unknown>") (or strip 1) (length diff))
-        (let* ((res (carriage-git-apply-check repo-root diff :strip strip))
-               (exit (plist-get res :exit))
-               (stderr (plist-get res :stderr))
-               (stdout (plist-get res :stdout)))
-          (carriage-log "patch: --check exit=%s stderr=%s"
-                        (or exit "<nil>")
-                        (if (and (stringp stderr) (> (length stderr) 0))
-                            (string-trim stderr) "<empty>"))
-          (if (and exit (zerop exit))
-              (list :op 'patch :status 'ok :path path :details "git apply --check ok")
-            (list :op 'patch :status 'fail :path path :details "git apply --check failed"
-                  :extra (list :exit exit :stderr stderr :stdout stdout)
-                  :_messages (list (list :code 'PATCH_E_GIT_CHECK
-                                         :severity 'error
-                                         :file path
-                                         :details (or stderr stdout "git apply --check failed"))))))))))
+  "Run git apply --check for PLAN-ITEM and build a report row."
+  (let* ((strip (or (alist-get :strip plan-item) 1))
+         (path  (or (alist-get :path plan-item) "-"))
+         (diff  (or (alist-get :diff plan-item) ""))
+         (res   (carriage-git-apply-check repo-root diff :strip strip))
+         (exit  (plist-get res :exit))
+         (stderr (string-trim (or (plist-get res :stderr) "")))
+         (stdout (string-trim (or (plist-get res :stdout) ""))))
+    (if (and (numberp exit) (zerop exit))
+        (list :op 'patch :status 'ok :path path :details "git apply --check ok")
+      (list :op 'patch :status 'fail :path path
+            :details (if (string-empty-p stderr) "git apply --check failed" stderr)
+            :_messages (list (list :code 'PATCH_E_GIT_CHECK
+                                   :severity 'error
+                                   :file path
+                                   :details (or (and (not (string-empty-p stderr)) stderr)
+                                                (and (not (string-empty-p stdout)) stdout)
+                                                "git apply --check failed")))))))
 
 (defun carriage-apply-diff (plan-item repo-root)
-  "Apply unified diff with git apply; optional staging per `carriage-apply-stage-policy'."
-  (let* ((diff  (or (alist-get :diff plan-item)  (plist-get plan-item :diff)))
-         (strip (or (alist-get :strip plan-item) (plist-get plan-item :strip)))
-         (path  (or (alist-get :path plan-item)  (plist-get plan-item :path)))
-         (stage (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy)))
-    (if (not (and (stringp diff) (> (length diff) 0)))
-        (progn
-          (carriage-log "patch: apply abort — empty diff (path=%s)" (or path "<nil>"))
-          (list :op 'patch :status 'fail :path path :details "Empty diff"
-                :_messages (list (list :code 'PATCH_E_DIFF_SYNTAX
-                                       :severity 'error
-                                       :file path
-                                       :details "Empty diff"))))
-      (progn
-        (carriage-log "patch: apply begin path=%s strip=%s bytes=%d"
-                      (or path "<unknown>") (or strip 1) (length diff))
-        (let* ((apply-res (if (eq stage 'index)
-                              (carriage-git-apply-index repo-root diff :strip strip)
-                            (carriage-git-apply repo-root diff :strip strip)))
-               (a-exit (plist-get apply-res :exit))
-               (a-stderr (plist-get apply-res :stderr))
-               (a-stdout (plist-get apply-res :stdout)))
-          (carriage-log "patch: git apply exit=%s stderr=%s"
-                        (or a-exit "<nil>")
-                        (if (and (stringp a-stderr) (> (length a-stderr) 0))
-                            (string-trim a-stderr) "<empty>"))
-          (if (and a-exit (zerop a-exit))
-              (list :op 'patch :status 'ok :path path :details "git apply ok")
-            (list :op 'patch :status 'fail :path path :details "git apply failed"
-                  :extra (list :exit a-exit :stderr a-stderr :stdout a-stdout)
-                  :_messages (list (list :code 'PATCH_E_APPLY
-                                         :severity 'error
-                                         :file path
-                                         :details (or a-stderr a-stdout "git apply failed"))))))))))
+  "Apply patch synchronously (v1 sync wrapper).
+Delegates to git apply or git apply --index depending on staging policy."
+  (let* ((strip (or (alist-get :strip plan-item) 1))
+         (path  (or (alist-get :path plan-item) "-"))
+         (diff  (or (alist-get :diff plan-item) ""))
+         (use-index (eq (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy) 'index))
+         (res (if use-index
+                  (carriage-git-apply-index repo-root diff :strip strip)
+                (carriage-git-apply repo-root diff :strip strip)))
+         (exit  (plist-get res :exit))
+         (stderr (string-trim (or (plist-get res :stderr) "")))
+         (stdout (string-trim (or (plist-get res :stdout) ""))))
+    (if (and (numberp exit) (zerop exit))
+        (list :op 'patch :status 'ok :path path :details (if use-index "Applied (indexed)" "Applied"))
+      (list :op 'patch :status 'fail :path path
+            :details (if (string-empty-p stderr) "git apply failed" stderr)
+            :extra (list :exit exit :stderr stderr :stdout stdout)))))
 
-;;;; Registration
-
+;;; Registration
 (carriage-format-register 'patch "1"
-                          :parse #'carriage-parse-diff
+                          :parse   #'carriage-parse-diff
                           :dry-run #'carriage-dry-run-diff
-                          :apply #'carriage-apply-diff
-                          :prompt-fragment #'carriage-op-patch-prompt-fragment)
+                          :apply   #'carriage-apply-diff)
 
 (provide 'carriage-op-patch)
 ;;; carriage-op-patch.el ends here
