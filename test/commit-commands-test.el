@@ -5,7 +5,7 @@
 (require 'carriage)
 (require 'org)
 
-(load "stage-policy-test.el" nil t) ;; reuse helpers if available
+;; Helpers are auto-loaded from stage-policy-test.el by ert-runner
 
 (defun carriage-commit-test--with-temp-repo (fn)
   (carriage-test--with-temp-repo fn))

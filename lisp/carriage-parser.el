@@ -27,42 +27,67 @@ Normalizes some non-standard forms produced by LLM:
 
 If handler is not yet registered, attempt a lazy require of the op-module
 from lisp/ops/* and retry the registry lookup before failing."
-  (let* (;; Normalize op to a symbol
-         (op-sym0 (if (symbolp op) op (intern (format "%s" op))))
-         ;; Map known aliases to canonical ops
-         (op-sym  (pcase op-sym0
-                    ('replace 'patch)
-                    ;; Accept 'diff as alias just in case
-                    ('diff 'patch)
-                    (_ op-sym0)))
-         ;; Adjust header plist if we normalized op or need to coerce :strip
-         (hdr1 (let ((hdr header-plist))
-                 (when (and (not (eq op-sym0 op-sym))
-                            (plist-member hdr :op))
-                   ;; Keep header consistent for downstream parsers
-                   (setq hdr (plist-put hdr :op (symbol-name op-sym))))
-                 (when (eq op-sym 'patch)
-                   ;; For unified diff with a/ and b/ prefixes, :strip must be 1 in v1.
-                   ;; Some LLMs emit :strip 0 — coerce it here to be lenient at parse time.
-                   (when (and (plist-member hdr :strip)
-                              (not (= (or (plist-get hdr :strip) 1) 1)))
-                     (setq hdr (plist-put hdr :strip 1))))
-                 hdr))
-         (rec (and (fboundp 'carriage-format-get) (carriage-format-get op-sym "1")))
-         (fn  (and rec (plist-get rec :parse))))
-    (unless (functionp fn)
-      ;; Lazy-load the op module by feature name and retry.
-      (pcase op-sym
-        ((or 'sre 'sre-batch) (load "ops/carriage-op-sre" t t))
-        ('patch               (load "ops/carriage-op-patch" t t))
-        ((or 'create 'delete 'rename) (load "ops/carriage-op-file" t t))
-        (_ nil))
-      (setq rec (and (fboundp 'carriage-format-get) (carriage-format-get op-sym "1"))
-            fn  (and rec (plist-get rec :parse))))
-    (if (functionp fn)
-        (funcall fn hdr1 body-text repo-root)
-      (signal (carriage-error-symbol 'MODE_E_DISPATCH)
-              (list (format "Unknown op or unregistered handler: %S" op-sym))))))
+  (cl-block carriage-parse
+    (let* (;; Normalize op to a symbol
+           (op-sym0 (if (symbolp op) op (intern (format "%s" op))))
+           ;; Map known aliases to canonical ops
+           (op-sym  (pcase op-sym0
+                      ('replace 'patch)
+                      ;; Accept 'diff as alias just in case
+                      ('diff 'patch)
+                      ;; Accept 'write as alias for file create
+                      ('write 'create)
+                      ;; Accept common *_file variants
+                      ('create_file 'create)
+                      ('delete_file 'delete)
+                      ('rename_file 'rename)
+                      (_ op-sym0)))
+           ;; Adjust header plist if we normalized op or need to coerce :strip
+           (hdr1 (let ((hdr header-plist))
+                   (when (and (not (eq op-sym0 op-sym))
+                              (plist-member hdr :op))
+                     ;; Keep header consistent for downstream parsers
+                     (setq hdr (plist-put hdr :op (symbol-name op-sym))))
+                   (when (eq op-sym 'patch)
+                     ;; For unified diff with a/ and b/ prefixes, :strip must be 1 in v1.
+                     ;; Some LLMs emit :strip 0 — coerce it here to be lenient at parse time.
+                     (when (and (plist-member hdr :strip)
+                                (not (= (or (plist-get hdr :strip) 1) 1)))
+                       (setq hdr (plist-put hdr :strip 1))))
+                   ;; Accept :path alias for file-like ops (create/delete/sre/sre-batch)
+                   (when (and (memq op-sym '(create delete sre sre-batch))
+                              (not (plist-member hdr :file))
+                              (plist-member hdr :path))
+                     (setq hdr (plist-put hdr :file (plist-get hdr :path))))
+                   hdr))
+           (rec (and (fboundp 'carriage-format-get) (carriage-format-get op-sym "1")))
+           (fn  (and rec (plist-get rec :parse))))
+      ;; Special case: legacy :op "write" — treat as simplified create without :delim markers.
+      (when (eq op-sym0 'write)
+        (let* ((file (or (plist-get hdr1 :file) (plist-get hdr1 :path))))
+          (unless (and (stringp file) (not (string-empty-p file)))
+            (signal (carriage-error-symbol 'OPS_E_PATH) (list file)))
+          (let* ((norm (carriage-normalize-path repo-root file)))
+            (cl-return-from carriage-parse
+              (list (cons :version "1")
+                    (cons :op 'create)
+                    (cons :file (file-relative-name norm repo-root))
+                    (cons :content body-text)
+                    (cons :mkdir t)
+                    (cons :ensure-final-newline t))))))
+      (unless (functionp fn)
+        ;; Lazy-load the op module by feature name and retry.
+        (pcase op-sym
+          ((or 'sre 'sre-batch) (load "ops/carriage-op-sre" t t))
+          ('patch               (load "ops/carriage-op-patch" t t))
+          ((or 'create 'delete 'rename) (load "ops/carriage-op-file" t t))
+          (_ nil))
+        (setq rec (and (fboundp 'carriage-format-get) (carriage-format-get op-sym "1"))
+              fn  (and rec (plist-get rec :parse))))
+      (if (functionp fn)
+          (funcall fn hdr1 body-text repo-root)
+        (signal (carriage-error-symbol 'MODE_E_DISPATCH)
+                (list (format "Unknown op or unregistered handler: %S" op-sym)))))))
 
 ;;;; Ops-specific parsing moved to ops modules (lisp/ops/*).
 ;;;; This file now contains only registry dispatch and Org scanning helpers.

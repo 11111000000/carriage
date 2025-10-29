@@ -68,7 +68,7 @@ For left/right sides this is window-width; for top/bottom — window-height."
 
 (defun carriage--append-line-capped (buffer string max-lines)
   "Append STRING and newline to BUFFER, cap to MAX-LINES.
-STRING may be any object; it will be coerced to a string via =format'."
+STRING may be any object; it will be coerced to a string via format."
   (let* ((s (if (stringp string) string (format "%s" string))))
     (with-current-buffer buffer
       (let ((inhibit-read-only t))

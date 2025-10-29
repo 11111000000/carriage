@@ -53,24 +53,31 @@ about the lifecycle (spawn, wait ticks, timeout/exit) to help diagnose stalls."
                                  (setq done t)))))
             (when (process-live-p proc)
               (carriage-log "git: pid=%s spawned" (process-id proc)))
-            ;; Wait loop with timeout, emit 1s ticks
-            (while (and (not done) (< (float-time) deadline))
-              (accept-process-output proc 0.05)
-              (let ((elapsed (- (float-time) start)))
-                (when (>= elapsed (1+ tick))
-                  (setq tick (1+ tick))
-                  (carriage-log "git: waiting pid=%s elapsed=%.2fs"
-                                (and (process-live-p proc) (process-id proc))
-                                elapsed))))
-            ;; Timeout handling
-            (when (and (not done) (process-live-p proc))
-              (let ((elapsed (- (float-time) start)))
-                (carriage-log "git: timeout after %.2fs; interrupt/kill pid=%s"
-                              elapsed (process-id proc)))
-              (ignore-errors (interrupt-process proc))
-              (ignore-errors (kill-process proc))
-              (setq exit-code 124)
-              (setq done t))
+            ;; Wait loop with timeout, emit 1s ticks (only if process started)
+            (if (process-live-p proc)
+                (progn
+                  (while (and (not done) (< (float-time) deadline))
+                    (accept-process-output proc 0.05)
+                    (let ((elapsed (- (float-time) start)))
+                      (when (>= elapsed (1+ tick))
+                        (setq tick (1+ tick))
+                        (carriage-log "git: waiting pid=%s elapsed=%.2fs"
+                                      (and (process-live-p proc) (process-id proc))
+                                      elapsed))))
+                  ;; Timeout handling
+                  (when (and (not done) (process-live-p proc))
+                    (let ((elapsed (- (float-time) start)))
+                      (carriage-log "git: timeout after %.2fs; interrupt/kill pid=%s"
+                                    elapsed (process-id proc)))
+                    (ignore-errors (interrupt-process proc))
+                    (ignore-errors (kill-process proc))
+                    (setq exit-code 124)
+                    (setq done t)))
+              ;; Process failed to start: exit early to avoid UI stalls
+              (progn
+                (setq exit-code (or exit-code -1))
+                (setq done t)
+                (carriage-log "git: process not started; skipping wait loop")))
             ;; Collect outputs
             (let* ((stdout (with-current-buffer stdout-buf (buffer-string)))
                    (stderr (with-current-buffer stderr-buf (buffer-string))))

@@ -38,8 +38,10 @@
   (let* ((summary (plist-get report :summary))
          (ok      (plist-get summary :ok))
          (fail    (plist-get summary :fail))
-         (skipped (plist-get summary :skipped)))
-    (format "Carriage report  ok:%s  fail:%s  skipped:%s\n\n"
+         (skipped (plist-get summary :skipped))
+         (engine  (plist-get report :engine)))
+    (format "Carriage report%s  ok:%s  fail:%s  skipped:%s\n\n"
+            (if engine (format " (engine=%s)" engine) "")
             (or ok 0) (or fail 0) (or skipped 0))))
 
 (defun carriage--report-row-face (status)

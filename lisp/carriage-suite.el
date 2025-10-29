@@ -20,14 +20,20 @@
   "Return list of available Suite identifiers."
   (mapcar #'car carriage--suite-table))
 
-(defun carriage--suite-guardrails ()
-  "Return common guardrails string for Patch intent."
-  (concat
-   "Ты инструмент Carriage-mode. Отвечай строго и только блоками Org:\n"
-   "- Разрешены ТОЛЬКО блоки #+begin_patch ... #+end_patch.\n"
-   "- Ни одного символа вне блоков (никакого reasoning, пояснений вне блоков).\n"
-   "- Пути только относительные. DELIM (6 hex, нижний регистр) и пути подставляет инструмент; модель не выбирает и не изменяет DELIM.\n"
-   "- Запрещены base64-вставки; при необходимости инструмент выполнит fallback сам.\n"))
+(defun carriage--suite-guardrails (ops)
+  "Return common guardrails string for Patch intent, tailored to allowed OPS."
+  (let* ((allowed (mapconcat (lambda (o) (format "%s" o)) ops ", ")))
+    (concat
+     "Ты инструмент Carriage-mode. Отвечай строго и только блоками Org:\n"
+     "- Разрешены ТОЛЬКО блоки #+begin_patch ... #+end_patch.\n"
+     "- Ни одного символа вне блоков (никакого reasoning или текста вне блоков).\n"
+     (format "- Разрешённые операции: %s.\n" allowed)
+     "- ОПЕРАЦИИ УКАЗЫВАТЬ строго как в списке. Запрещены синонимы: write, create_file, delete_file, rename_file.\n"
+     "- Заголовок блока: всегда :version \"1\". Ключи только из спецификации для выбранной операции.\n"
+     "- Пути только относительные к корню репозитория. Использовать :file (не :path).\n"
+     "- Для create/sre/sre-batch обязателен :delim — ровно 6 hex-символов, нижний регистр. Делимитеры в теле: строки <<DELIM и :DELIM отдельными строками.\n"
+     "- Для patch: единый unified diff только для одного файла (ровно одна пара ---/+++), пути a/ и b/ совпадают, :strip=1. Без binary/rename/copy прелюдий.\n"
+     "- Запрещены base64-вставки; при необходимости инструмент выполнит fallback сам.\n")))
 
 (defun carriage-build-prompt (intent suite-id ctx)
   "Build (:system :prompt) for INTENT ('Ask|'Patch) and SUITE-ID with CTX.
@@ -55,7 +61,7 @@ CTX may contain keys like :payload, :delim, :files, etc. Payload is user task te
                                   (funcall fn ctx)
                                 (error (format ";; prompt-fragment error for %s: %s\n"
                                                op (error-message-string e)))))))
-       (list :system (concat (carriage--suite-guardrails)
+       (list :system (concat (carriage--suite-guardrails ops)
                              (mapconcat #'identity (delq nil frags) "\n"))
              :prompt (or (plist-get ctx :payload) ""))))
     (_

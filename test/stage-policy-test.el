@@ -10,16 +10,18 @@
   (let* ((default-directory (file-name-as-directory (expand-file-name dir))))
     (with-temp-buffer
       (let* ((out (current-buffer))
-             (err (generate-new-buffer " *git-stderr*"))
+             (stderr-file (make-temp-file "carriage-test-stderr-"))
              (code (unwind-protect
-                       (apply #'process-file "git" nil (list out err) nil args)
+                       (apply #'call-process "git" nil (list out stderr-file) nil args)
                      (ignore-errors (set-buffer out)))))
         (prog1
             (list :exit code
                   :stdout (buffer-substring-no-properties (point-min) (point-max))
-                  :stderr (with-current-buffer err
-                            (prog1 (buffer-substring-no-properties (point-min) (point-max))
-                              (kill-buffer err))))
+                  :stderr (prog1
+                              (with-temp-buffer
+                                (insert-file-contents stderr-file)
+                                (buffer-substring-no-properties (point-min) (point-max)))
+                            (ignore-errors (delete-file stderr-file))))
           (erase-buffer))))))
 
 (defun carriage-test--with-temp-repo (fn)

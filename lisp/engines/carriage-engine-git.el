@@ -86,6 +86,14 @@
                               (plist-get res :stdout-bytes)
                               (plist-get res :stderr-bytes)
                               (or reason 'ok))
+                ;; Gentle user-facing message for timeout/abort (no throw; schedule on main thread)
+                (when (and reason (not (bound-and-true-p noninteractive)))
+                  (let ((msg (pcase reason
+                               ('timeout "Carriage: apply timeout")
+                               ('aborted "Carriage: apply aborted")
+                               (_ nil))))
+                    (when msg
+                      (run-at-time 0 nil (lambda () (message "%s" msg))))))
                 (carriage-engine-git--cleanup-token token)
                 (if okp
                     (funcall on-done res)

@@ -47,7 +47,7 @@
             (let* ((summary (plist-get report :summary)))
               (should (numberp (plist-get summary :ok)))
               (should (> (plist-get summary :ok) 0))))))
-    (ignore-errors (delete-directory dir t)))))
+    (ignore-errors (delete-directory dir t))))
 
 (provide 'carriage-apply-async-token-test)
 ;;; carriage-apply-async-token-test.el ends here

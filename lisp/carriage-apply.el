@@ -9,119 +9,8 @@
 (require 'carriage-git)
 (require 'carriage-format-registry)
 
-;; Engines: try registry first in a fail-safe way; if unavailable (packaging omits engines/*),
-;; install a minimal fallback that dispatches to sync git helpers asynchronously.
-(eval-and-compile
-  (ignore-errors (require 'carriage-apply-engine))
-  (unless (featurep 'carriage-apply-engine)
-    (defvar carriage-apply-engine 'git
-      "Active apply engine symbol. Fallback default is 'git when engines/* are not packaged.")
-    (defun carriage-apply-engine ()
-      "Return the active apply engine symbol (fallback shim)."
-      'git)
-    (defun carriage-apply-engine-dispatch (kind op plan-item repo-root on-done on-fail)
-      "Fallback shim: emulate async engine by calling git helpers and scheduling callbacks.
-This avoids hard dependency on engines/ during packaging."
-      (let* ((start (float-time)))
-        (pcase kind
-          ((or 'dry-run :dry-run)
-           (pcase op
-             ('patch
-              (run-at-time 0 nil
-                           (lambda ()
-                             (condition-case e
-                                 (let* ((strip (or (alist-get :strip plan-item) 1))
-                                        (diff  (or (alist-get :diff plan-item) ""))
-                                        (res   (carriage-git-apply-check repo-root diff :strip strip)))
-                                   (funcall on-done (append res (list :engine 'git))))
-                               (error
-                                (when (functionp on-fail)
-                                  (funcall on-fail (list :exit 128 :stderr (error-message-string e)))))))))
-             (_
-              (run-at-time 0 nil
-                           (lambda ()
-                             (when (functionp on-done)
-                               (funcall on-done (list :engine 'git :exit 0 :status 'noop))))))))
-          ((or 'apply :apply)
-           (pcase op
-             ('patch
-              (run-at-time 0 nil
-                           (lambda ()
-                             (condition-case e
-                                 (let* ((strip (or (alist-get :strip plan-item) 1))
-                                        (diff  (or (alist-get :diff plan-item) ""))
-                                        (use-index (eq (and (boundp 'carriage-apply-stage-policy)
-                                                            carriage-apply-stage-policy) 'index))
-                                        (res (if use-index
-                                                 (carriage-git-apply-index repo-root diff :strip strip)
-                                               (carriage-git-apply repo-root diff :strip strip))))
-                                   (when (functionp on-done)
-                                     (funcall on-done (append res (list :engine 'git)))))
-                               (error
-                                (when (functionp on-fail)
-                                  (funcall on-fail (list :exit 128 :stderr (error-message-string e)))))))))
-             ('create
-              (if (eq (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy) 'index)
-                  (let ((file (or (alist-get :file plan-item) "-")))
-                    (run-at-time 0 nil
-                                 (lambda ()
-                                   (condition-case e
-                                       (let ((res (carriage-git-add repo-root file)))
-                                         (when (functionp on-done)
-                                           (funcall on-done (append res (list :engine 'git)))))
-                                     (error
-                                      (when (functionp on-fail)
-                                        (funcall on-fail (list :exit 128 :stderr (error-message-string e)))))))))
-                (run-at-time 0 nil
-                             (lambda ()
-                               (when (functionp on-done)
-                                 (funcall on-done (list :engine 'git :exit 0 :status 'noop)))))))
-             ('delete
-              (if (eq (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy) 'index)
-                  (let ((file (or (alist-get :file plan-item) "-")))
-                    (run-at-time 0 nil
-                                 (lambda ()
-                                   (condition-case e
-                                       (let ((res (carriage-git-rm repo-root file)))
-                                         (when (functionp on-done)
-                                           (funcall on-done (append res (list :engine 'git)))))
-                                     (error
-                                      (when (functionp on-fail)
-                                        (funcall on-fail (list :exit 128 :stderr (error-message-string e)))))))))
-                (run-at-time 0 nil
-                             (lambda ()
-                               (when (functionp on-done)
-                                 (funcall on-done (list :engine 'git :exit 0 :status 'noop)))))))
-             ('rename
-              (if (eq (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy) 'index)
-                  (let ((from (alist-get :from plan-item))
-                        (to   (alist-get :to plan-item)))
-                    (run-at-time 0 nil
-                                 (lambda ()
-                                   (condition-case e
-                                       (let ((res (carriage-git-mv repo-root from to)))
-                                         (when (functionp on-done)
-                                           (funcall on-done (append res (list :engine 'git)))))
-                                     (error
-                                      (when (functionp on-fail)
-                                        (funcall on-fail (list :exit 128 :stderr (error-message-string e)))))))))
-                (run-at-time 0 nil
-                             (lambda ()
-                               (when (functionp on-done)
-                                 (funcall on-done (list :engine 'git :exit 0 :status 'noop)))))))
-             (_
-              (run-at-time 0 nil
-                           (lambda ()
-                             (when (functionp on-done)
-                               (funcall on-done (list :engine 'git :exit 0 :status 'noop))))))))
-          (_
-           (run-at-time 0 nil
-                        (lambda ()
-                          (when (functionp on-fail)
-                            (funcall on-fail (list :error 'bad-kind)))))))))))
-
-;; Optional: load async git engine when available (no hard fail if missing).
-(ignore-errors (require 'carriage-engine-git))
+;; Register abort handler provided by async apply pipeline (declared in carriage-mode).
+(declare-function carriage-register-abort-handler "carriage-mode" (fn))
 
 (defcustom carriage-apply-require-wip-branch t
   "If non-nil, ensure and checkout WIP branch before applying a plan."
@@ -237,6 +126,7 @@ Return report alist:
           (let ((content (or (alist-get :content it) "")))
             (setq virt (cons (cons file content) (assq-delete-all file virt)))))))
     (list :plan plan
+          :engine (carriage-apply-engine)
           :summary (list :ok ok :fail fail :skipped skip)
           :items (nreverse items)
           :messages (nreverse msgs))))
@@ -271,310 +161,261 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
                    (setq stop t))
             (_     (setq skip (1+ skip)))))))
     (list :plan plan
+          :engine (carriage-apply-engine)
           :summary (list :ok ok :fail fail :skipped skip)
           :items (nreverse items)
           :messages (nreverse msgs))))
 
-(defun carriage-apply-plan-async (plan repo-root &optional callback)
-  "Apply PLAN under REPO-ROOT as an event-driven async chain.
-Returns a TOKEN plist with at least:
-  :queue   remaining items
-  :current current engine token (for engine-driven ops)
-  :abort-fn zero-arg function to abort the current step (kill process if any)
+(defun carriage--make-apply-state (queue repo-root)
+  "Create initial async apply STATE plist."
+  (list :queue queue
+        :root repo-root
+        :ok 0 :fail 0 :skipped 0
+        :items '()
+        :messages '()
+        :current nil
+        :aborted nil
+        :fs-timer nil))
 
-CALLBACK, when non-nil, is invoked on the main thread with the final REPORT."
-  ;; Ensure WIP branch if policy enabled (non-blocking precondition; fast commands)
+(defun carriage--apply-summary (state)
+  "Build summary plist from STATE."
+  (list :ok (plist-get state :ok)
+        :fail (plist-get state :fail)
+        :skipped (plist-get state :skipped)))
+
+(defun carriage--apply-finish (plan state callback)
+  "Finish async apply: build REPORT from PLAN and STATE, invoke CALLBACK if any."
+  (let ((report (list :plan plan
+                      :engine (carriage-apply-engine)
+                      :summary (carriage--apply-summary state)
+                      :items (nreverse (plist-get state :items))
+                      :messages (nreverse (plist-get state :messages)))))
+    (when (functionp callback)
+      (run-at-time 0 nil (lambda () (funcall callback report))))
+    report))
+
+(defun carriage--apply-acc-row (state row)
+  "Accumulate ROW in STATE."
+  (plist-put state :items (cons row (plist-get state :items))))
+
+(defun carriage--apply-acc-msg (state msg)
+  "Accumulate diagnostic MSG in STATE."
+  (plist-put state :messages (cons msg (plist-get state :messages))))
+
+(defun carriage--apply-bump (state status)
+  "Bump counters in STATE per STATUS."
+  (pcase status
+    ('ok   (plist-put state :ok (1+ (plist-get state :ok))))
+    ('fail (plist-put state :fail (1+ (plist-get state :fail))))
+    (_     (plist-put state :skipped (1+ (plist-get state :skipped))))))
+
+(defun carriage--apply-update-abort (state token)
+  "Update TOKEN :abort-fn to cancel current async operation based on STATE.
+Registers the handler with the mode when available."
+  (let* ((cur (plist-get state :current)))
+    (setf (plist-get token :abort-fn)
+          (lambda ()
+            (plist-put state :aborted t)
+            ;; Cancel pending FS timer if any
+            (let ((tm (plist-get state :fs-timer)))
+              (when (timerp tm)
+                (ignore-errors (cancel-timer tm))
+                (plist-put state :fs-timer nil)))
+            ;; Engine-specific abort (e.g., git)
+            (cond
+             ((and (plist-get cur :engine)
+                   (eq (plist-get cur :engine) 'git)
+                   (fboundp 'carriage-engine-git-abort))
+              (ignore-errors (carriage-engine-git-abort cur))
+              t)
+             (t t)))))
+  (when (fboundp 'carriage-register-abort-handler)
+    (carriage-register-abort-handler (plist-get token :abort-fn))))
+
+(defun carriage--engine-row (op res t0 ok-details fail-details &optional path-key)
+  "Normalize engine RES into a report row for OP started at T0."
+  (let* ((exit (plist-get res :exit))
+         (pid  (plist-get res :pid))
+         (pth  (or (plist-get res (or path-key :path))
+                   (alist-get :file res) "-"))
+         (stderr (string-trim (or (plist-get res :stderr) "")))
+         (elapsed (truncate (* 1000 (max 0.0 (- (float-time) t0))))))
+    (if (and (numberp exit) (zerop exit))
+        (list :op op :status 'ok
+              (if (eq op 'patch) :path :file) pth
+              :details ok-details
+              :pid pid :elapsed-ms elapsed :engine 'git)
+      (list :op op :status 'fail
+            (if (eq op 'patch) :path :file) pth
+            :details (if (string-empty-p stderr) fail-details stderr)
+            :pid pid :elapsed-ms elapsed :engine 'git))))
+
+(defun carriage--apply-done-patch (state t0 res plan repo-root callback token)
+  "Handle completion of a patch step."
+  (let ((row (carriage--engine-row 'patch res t0 "Applied" "git apply failed" :path)))
+    (carriage--apply-acc-row state row)
+    (carriage--apply-bump state (plist-get row :status))
+    (if (eq (plist-get row :status) 'ok)
+        (carriage--apply-next state plan repo-root callback token)
+      (carriage--apply-finish plan state callback))))
+
+(defun carriage--apply-run-engine (state kind op item repo-root on-ok on-fail token)
+  "Dispatch KIND/OP ITEM via engine and update STATE/TOKEN."
+  (let* ((t0 (float-time))
+         (eng-token (carriage-apply-engine-dispatch
+                     kind op item repo-root
+                     (lambda (res) (funcall on-ok t0 res))
+                     (lambda (res) (funcall on-fail t0 res)))))
+    (plist-put state :current eng-token)
+    (carriage--apply-update-abort state token)))
+
+(defun carriage--apply-fs-async (state thunk token plan)
+  "Run THUNK asynchronously for filesystem ops; on error, mark STATE aborted and finish."
+  (let ((tm (run-at-time
+             0 nil
+             (lambda ()
+               (condition-case e
+                   (funcall thunk)
+                 (error
+                  (carriage--apply-acc-msg
+                   state (list :code 'MODE_E_DISPATCH :severity 'error
+                               :details (error-message-string e)))
+                  (plist-put state :aborted t)))))))
+    (plist-put state :fs-timer tm)
+    (carriage--apply-update-abort state token)))
+
+(defun carriage--apply-run-item (state item repo-root plan callback token)
+  "Run one ITEM according to its :op, updating STATE and continuing or finishing."
+  (let ((op (alist-get :op item)))
+    (pcase op
+      ('patch
+       (carriage--apply-run-engine
+        state :apply 'patch item repo-root
+        (lambda (t0 res) (carriage--apply-done-patch state t0 res plan repo-root callback token))
+        (lambda (t0 res) (carriage--apply-done-patch state t0 res plan repo-root callback token))
+        token))
+      ('delete
+       (if (eq carriage-apply-stage-policy 'index)
+           (carriage--apply-run-engine
+            state :apply 'delete item repo-root
+            (lambda (t0 res)
+              (let ((row (carriage--engine-row 'delete res t0 "Deleted (staged)" "git rm failed" :path)))
+                (carriage--apply-acc-row state row)
+                (carriage--apply-bump state (plist-get row :status))
+                (if (eq (plist-get row :status) 'ok)
+                    (carriage--apply-next state plan repo-root callback token)
+                  (carriage--apply-finish plan state callback))))
+            (lambda (t0 res)
+              (let ((row (carriage--engine-row 'delete res t0 "Deleted (staged)" "git rm failed" :path)))
+                (carriage--apply-acc-row state row)
+                (carriage--apply-bump state (plist-get row :status))
+                (carriage--apply-finish plan state callback)))
+            token)
+         (carriage--apply-fs-async
+          state
+          (lambda ()
+            (let ((row (carriage-apply-delete item repo-root)))
+              (carriage--apply-acc-row state row)
+              (carriage--apply-bump state (plist-get row :status))
+              (carriage--apply-next state plan repo-root callback token)))
+          token plan)))
+      ('rename
+       (if (eq carriage-apply-stage-policy 'index)
+           (carriage--apply-run-engine
+            state :apply 'rename item repo-root
+            (lambda (t0 res)
+              (let ((row (carriage--engine-row 'rename res t0 "Renamed (staged)" "git mv failed" :path)))
+                (carriage--apply-acc-row state row)
+                (carriage--apply-bump state (plist-get row :status))
+                (if (eq (plist-get row :status) 'ok)
+                    (carriage--apply-next state plan repo-root callback token)
+                  (carriage--apply-finish plan state callback))))
+            (lambda (t0 res)
+              (let ((row (carriage--engine-row 'rename res t0 "Renamed (staged)" "git mv failed" :path)))
+                (carriage--apply-acc-row state row)
+                (carriage--apply-bump state (plist-get row :status))
+                (carriage--apply-finish plan state callback)))
+            token)
+         (carriage--apply-fs-async
+          state
+          (lambda ()
+            (let ((row (carriage-apply-rename item repo-root)))
+              (carriage--apply-acc-row state row)
+              (carriage--apply-bump state (plist-get row :status))
+              (carriage--apply-next state plan repo-root callback token)))
+          token plan)))
+      ('create
+       (carriage--apply-fs-async
+        state
+        (lambda ()
+          (let ((row0 (carriage-apply-create item repo-root)))
+            (if (eq carriage-apply-stage-policy 'index)
+                (let* ((file (alist-get :file item)))
+                  (carriage--apply-run-engine
+                   state :apply 'create (list (cons :file file)) repo-root
+                   (lambda (t0 res)
+                     (let ((r (carriage--engine-row 'create res t0 "Created (staged)" "git add failed" :path)))
+                       (carriage--apply-acc-row state (plist-put (copy-sequence r) :file file))
+                       (carriage--apply-bump state (plist-get r :status))
+                       (if (eq (plist-get r :status) 'ok)
+                           (carriage--apply-next state plan repo-root callback token)
+                         (carriage--apply-finish plan state callback))))
+                   (lambda (t0 res)
+                     (let ((r (carriage--engine-row 'create res t0 "Created (staged)" "git add failed" :path)))
+                       (carriage--apply-acc-row state (plist-put (copy-sequence r) :file file))
+                       (carriage--apply-bump state (plist-get r :status))
+                       (carriage--apply-finish plan state callback)))
+                   token))
+              (carriage--apply-acc-row state row0)
+              (carriage--apply-bump state (plist-get row0 :status))
+              (carriage--apply-next state plan repo-root callback token))))
+        token plan))
+      ((or 'sre 'sre-batch)
+       (carriage--apply-fs-async
+        state
+        (lambda ()
+          (let ((row (carriage-apply-sre item repo-root)))
+            (carriage--apply-acc-row state row)
+            (carriage--apply-bump state (plist-get row :status))
+            (carriage--apply-next state plan repo-root callback token)))
+        token plan))
+      (_
+       (carriage--apply-fs-async
+        state
+        (lambda ()
+          (let ((row (carriage--report-fail (or op 'unknown) :details "Unknown op")))
+            (carriage--apply-acc-row state row)
+            (carriage--apply-bump state 'fail)))
+        token plan)
+       (carriage--apply-finish plan state callback)))))
+
+(defun carriage--apply-next (state plan repo-root callback token)
+  "Advance to the next item or finish."
+  (if (plist-get state :aborted)
+      (carriage--apply-finish plan state callback)
+    (let ((q (plist-get state :queue)))
+      (if (null q)
+          (carriage--apply-finish plan state callback)
+        (let ((item (car q)))
+          (plist-put state :queue (cdr q))
+          (carriage--apply-run-item state item repo-root plan callback token))))))
+
+(defun carriage-apply-plan-async (plan repo-root &optional callback)
+  "Apply PLAN under REPO-ROOT asynchronously (event-driven FSM).
+Returns a TOKEN plist with :abort-fn that cancels the current step (engine kill) or pending timers.
+CALLBACK, when non-nil, is invoked with the final REPORT on the main thread."
+  ;; Ensure WIP branch if policy enabled (fast ops, non-blocking)
   (when carriage-apply-require-wip-branch
     (carriage-git-ensure-repo repo-root)
     (carriage-git-checkout-wip repo-root))
-  (let* ((engine (carriage-apply-engine))
-         (queue (carriage--plan-sort plan))
-         (state (list :engine engine
-                      :repo repo-root
-                      :queue queue
-                      :items '()
-                      :messages '()
-                      :ok 0 :fail 0 :skipped 0
-                      :current nil
-                      :aborting nil
-                      :callback callback)))
-    (cl-labels
-        ((finalize ()
-           (let* ((items (nreverse (plist-get state :items)))
-                  (ok (plist-get state :ok))
-                  (fail (plist-get state :fail))
-                  (skipped (plist-get state :skipped))
-                  (msgs (nreverse (plist-get state :messages)))
-                  (report (list :plan plan
-                                :engine engine
-                                :summary (list :ok ok :fail fail :skipped skipped)
-                                :items items
-                                :messages msgs)))
-             ;; Clear abort handler for UI if available
-             (when (fboundp 'carriage-clear-abort-handler)
-               (carriage-clear-abort-handler))
-             (let ((cb (plist-get state :callback)))
-               (when (functionp cb)
-                 (run-at-time 0 nil
-                              (lambda ()
-                                (condition-case e
-                                    (funcall cb report)
-                                  (error
-                                   (carriage-log "apply-chain: callback error: %s" (error-message-string e))))))))
-             report))
-         (push-messages (im)
-           (when (and im (listp im))
-             (dolist (d im)
-               (push d (plist-get state :messages)))))
-         (accumulate (row plan-item)
-           (let* ((row1 (append row (list :_plan plan-item :_root repo-root)))
-                  (status (plist-get row1 :status))
-                  (im (plist-get row1 :_messages)))
-             (push-messages im)
-             (push row1 (plist-get state :items))
-             (pcase status
-               ('ok   (plist-put state :ok (1+ (plist-get state :ok))))
-               ('fail (plist-put state :fail (1+ (plist-get state :fail))))
-               (_     (plist-put state :skipped (1+ (plist-get state :skipped)))))))
-         (engine->row-patch (item res elapsed-ms)
-           (let* ((path (or (alist-get :path item) "-"))
-                  (exit (plist-get res :exit))
-                  (pid  (plist-get res :pid))
-                  (stderr (or (plist-get res :stderr) ""))
-                  (stdout (or (plist-get res :stdout) "")))
-             (if (and (numberp exit) (zerop exit))
-                 (list :op 'patch :status 'ok :path path :details "git apply ok"
-                       :engine engine
-                       :pid pid
-                       :elapsed-ms (and (numberp elapsed-ms) (floor (* 1000 elapsed-ms))))
-               (list :op 'patch :status 'fail :path path :details "git apply failed"
-                     :engine engine
-                     :pid pid
-                     :elapsed-ms (and (numberp elapsed-ms) (floor (* 1000 elapsed-ms)))
-                     :extra (list :exit exit :stderr stderr :stdout stdout)
-                     :_messages (list (list :code 'PATCH_E_APPLY
-                                            :severity 'error
-                                            :file path
-                                            :details (or (string-trim stderr) (string-trim stdout) "git apply failed")))))))
-         (engine->row-fileop (op item res elapsed-ms)
-           (let* ((exit (plist-get res :exit))
-                  (pid  (plist-get res :pid))
-                  (okp  (and (numberp exit) (zerop exit)))
-                  (file (pcase op
-                          ('rename (format "%s -> %s"
-                                           (or (alist-get :from item) "-")
-                                           (or (alist-get :to item) "-")))
-                          (_ (or (alist-get :file item)
-                                 (alist-get :path item) "-"))))
-                  (details (pcase op
-                             ('create (if okp "Created (staged)" "git add failed"))
-                             ('delete (if okp "Deleted (staged)" "git rm failed"))
-                             ('rename (if okp "Renamed (staged)" "git mv failed"))
-                             (_       (if okp "ok" "failed")))))
-             (append (list :op op :status (if okp 'ok 'fail)
-                           :file file
-                           :details details
-                           :engine engine
-                           :pid pid
-                           :elapsed-ms (and (numberp elapsed-ms) (floor (* 1000 elapsed-ms))))
-                     (unless okp
-                       (list :extra (list :exit exit
-                                          :stderr (or (plist-get res :stderr) "")
-                                          :stdout (or (plist-get res :stdout) "")))))))
-         (next ()
-           (let* ((q (plist-get state :queue)))
-             (cond
-              ((or (plist-get state :aborting) (null q))
-               (finalize))
-              (t
-               (let* ((item (car q))
-                      (_ (plist-put state :queue (cdr q))))
-                 (run-item item))))))
-         (run-item (item)
-           (let* ((op (alist-get :op item))
-                  (start (float-time)))
-             (pcase op
-               ('patch
-                ;; Engine-driven async (returns engine token)
-                (let* ((eng-token
-                        (carriage-apply-engine-dispatch
-                         :apply 'patch item repo-root
-                         (lambda (res)
-                           (run-at-time 0 nil
-                                        (lambda ()
-                                          (let* ((elapsed (- (float-time) start))
-                                                 (row (engine->row-patch item res elapsed)))
-                                            (accumulate row item)
-                                            (plist-put state :current nil)
-                                            (next)))))
-                         (lambda (err)
-                           (run-at-time 0 nil
-                                        (lambda ()
-                                          (let* ((elapsed (- (float-time) start))
-                                                 (row (engine->row-patch item (if (listp err) err (list :exit 128 :stderr (format "%s" err))) elapsed)))
-                                            (accumulate row item)
-                                            (plist-put state :current nil)
-                                            ;; Stop on first failure (group semantics)
-                                            (finalize))))))))
-                  (plist-put state :current eng-token)
-                  ;; Register abort handler for UI
-                  (when (fboundp 'carriage-register-abort-handler)
-                    (carriage-register-abort-handler
-                     (lambda ()
-                       (plist-put state :aborting t)
-                       (let ((tok (plist-get state :current)))
-                         (cond
-                          ((and (processp (plist-get tok :process)) (process-live-p (plist-get tok :process)))
-                           (ignore-errors (interrupt-process (plist-get tok :process)))
-                           (ignore-errors (kill-process (plist-get tok :process))))
-                          ((functionp (plist-get tok :abort-fn))
-                           (condition-case _ (funcall (plist-get tok :abort-fn)) (error nil)))
-                          (t
-                           (carriage-log "apply-chain: no abort handle in engine token"))))))))))
-             ((or 'delete 'rename)
-              (if (eq (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy) 'index)
-                  ;; Engine-driven for index policy
-                  (let* ((eng-token
-                          (carriage-apply-engine-dispatch
-                           :apply op item repo-root
-                           (lambda (res)
-                             (run-at-time 0 nil
-                                          (lambda ()
-                                            (let* ((elapsed (- (float-time) start))
-                                                   (row (engine->row-fileop op item res elapsed)))
-                                              (accumulate row item)
-                                              (plist-put state :current nil)
-                                              (next)))))
-                           (lambda (err)
-                             (run-at-time 0 nil
-                                          (lambda ()
-                                            (let* ((elapsed (- (float-time) start))
-                                                   (res (if (listp err) err (list :exit 128 :stderr (format "%s" err))))
-                                                   (row (engine->row-fileop op item res elapsed)))
-                                              (accumulate row item)
-                                              (plist-put state :current nil)
-                                              (finalize))))))))
-                    (plist-put state :current eng-token)
-                    (when (fboundp 'carriage-register-abort-handler)
-                      (carriage-register-abort-handler
-                       (lambda ()
-                         (plist-put state :aborting t)
-                         (let ((tok (plist-get state :current)))
-                           (cond
-                            ((and (processp (plist-get tok :process)) (process-live-p (plist-get tok :process)))
-                             (ignore-errors (interrupt-process (plist-get tok :process)))
-                             (ignore-errors (kill-process (plist-get tok :process))))
-                            ((functionp (plist-get tok :abort-fn))
-                             (condition-case _ (funcall (plist-get tok :abort-fn)) (error nil)))
-                            (t
-                             (carriage-log "apply-chain: no abort handle in engine token")))))))))
-              ;; Non-index: run ops-layer (FS) asynchronously
-              (run-at-time 0 nil
-                           (lambda ()
-                             (condition-case e
-                                 (let* ((res (carriage--apply-dispatch item repo-root))
-                                        (elapsed (- (float-time) start))
-                                        (row (append res (list :engine engine
-                                                               :elapsed-ms (floor (* 1000 (max 0 elapsed)))))))
-                                   (accumulate row item)
-                                   (next))
-                               (error
-                                (let ((row (list :op op :status 'fail :details (error-message-string e) :engine engine)))
-                                  (accumulate row item)
-                                  (finalize))))))))
-           ('create
-            ;; First perform FS write via ops; then, if index policy, stage via engine git add.
-            (run-at-time 0 nil
-                         (lambda ()
-                           (condition-case e
-                               (let* ((fs-res (carriage--apply-dispatch item repo-root))
-                                      (status (plist-get fs-res :status)))
-                                 (if (eq status 'fail)
-                                     (let* ((elapsed (- (float-time) start))
-                                            (row (append fs-res (list :engine engine
-                                                                      :elapsed-ms (floor (* 1000 (max 0 elapsed)))))))
-                                       (accumulate row item)
-                                       (finalize))
-                                   (if (eq (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy) 'index)
-                                       ;; Stage with engine (git add)
-                                       (let* ((eng-token
-                                               (carriage-apply-engine-dispatch
-                                                :apply 'create item repo-root
-                                                (lambda (res)
-                                                  (run-at-time 0 nil
-                                                               (lambda ()
-                                                                 (let* ((elapsed (- (float-time) start))
-                                                                        (row (engine->row-fileop 'create item res elapsed)))
-                                                                   (accumulate row item)
-                                                                   (plist-put state :current nil)
-                                                                   (next)))))
-                                                (lambda (err)
-                                                  (run-at-time 0 nil
-                                                               (lambda ()
-                                                                 (let* ((elapsed (- (float-time) start))
-                                                                        (res (if (listp err) err (list :exit 128 :stderr (format "%s" err))))
-                                                                        (row (engine->row-fileop 'create item res elapsed)))
-                                                                   (accumulate row item)
-                                                                   (plist-put state :current nil)
-                                                                   (finalize))))))))
-                                         (plist-put state :current eng-token)
-                                         (when (fboundp 'carriage-register-abort-handler)
-                                           (carriage-register-abort-handler
-                                            (lambda ()
-                                              (plist-put state :aborting t)
-                                              (let ((tok (plist-get state :current)))
-                                                (cond
-                                                 ((and (processp (plist-get tok :process)) (process-live-p (plist-get tok :process)))
-                                                  (ignore-errors (interrupt-process (plist-get tok :process)))
-                                                  (ignore-errors (kill-process (plist-get tok :process))))
-                                                 ((functionp (plist-get tok :abort-fn))
-                                                  (condition-case _ (funcall (plist-get tok :abort-fn)) (error nil)))
-                                                 (t
-                                                  (carriage-log "apply-chain: no abort handle in engine token"))))))))
-                                     ;; Policy 'none: just report FS result
-                                     (let* ((elapsed (- (float-time) start))
-                                            (row (append fs-res (list :engine engine
-                                                                      :elapsed-ms (floor (* 1000 (max 0 elapsed)))))))
-                                       (accumulate row item)
-                                       (next))))))
-                           (error
-                            (let ((row (list :op 'create :status 'fail :details (error-message-string e) :engine engine)))
-                              (accumulate row item)
-                              (finalize)))))))
-         (_
-           ;; Other non-engine ops (e.g., sre): run via ops layer but schedule via timer to keep UI non-blocking
-           (run-at-time 0 nil
-                        (lambda ()
-                          (condition-case e
-                              (let* ((res (carriage--apply-dispatch item repo-root))
-                                     (elapsed (- (float-time) start))
-                                     ;; Augment with engine and elapsed metrics for consistency
-                                     (row (append res (list :engine engine
-                                                            :elapsed-ms (floor (* 1000 (max 0 elapsed)))))))
-                                (accumulate row item)
-                                (next))
-                            (error
-                             (let* ((row (list :op (alist-get :op item)
-                                               :status 'fail
-                                               :details (error-message-string e)
-                                               :engine engine)))
-                               (accumulate row item)
-                               (finalize)))))))))))
-;; Kick off
-(run-at-time 0 nil (lambda () (next)))
-;; Return token to caller (abort-fn also registered in UI handler)
-(plist-put state :abort-fn
-           (lambda ()
-             (plist-put state :aborting t)
-             (let ((tok (plist-get state :current)))
-               (when tok
-                 (cond
-                  ((and (processp (plist-get tok :process)) (process-live-p (plist-get tok :process)))
-                   (ignore-errors (interrupt-process (plist-get tok :process)))
-                   (ignore-errors (kill-process (plist-get tok :process))))
-                  ((functionp (plist-get tok :abort-fn))
-                   (condition-case _ (funcall (plist-get tok :abort-fn)) (error nil))))))))
-state))
+  (let* ((queue (carriage--plan-sort plan))
+         (state (carriage--make-apply-state queue repo-root))
+         (token (list :abort-fn nil)))
+    ;; Kick off the chain
+    (run-at-time 0 nil (lambda () (carriage--apply-next state plan repo-root callback token)))
+    ;; Ensure Abort is registered initially
+    (carriage--apply-update-abort state token)
+    token))
 
 (provide 'carriage-apply)
 ;;; carriage-apply.el ends here

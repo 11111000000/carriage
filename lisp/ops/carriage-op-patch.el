@@ -20,8 +20,8 @@
 
 (defun carriage--patch--reject-binary (text)
   "Signal when TEXT contains binary patch markers forbidden in v1."
-  (when (or (string-match-p "^GIT binary patch" text)
-            (string-match-p "^Binary files differ" text))
+  (when (or (string-match-p "^GIT[ \t]+binary[ \t]+patch" text)
+            (string-match-p "^Binary files .+ differ" text))
     (signal (carriage-error-symbol 'PATCH_E_BINARY)
             (list "binary patches are not supported in v1"))))
 
@@ -52,21 +52,23 @@ OLD/NEW are raw header payloads after \"--- \" and \"+++ \"."
 (defun carriage--patch--normalize-path (root old new)
   "From OLD/NEW header payloads compute RELPATH for single-file patch.
 Supports (/dev/null,b/path) for create and (a/path,/dev/null) for delete.
-Returns RELPATH string."
+Returns RELPATH string. Signals PATCH_E_PATH_MISMATCH when a/b paths differ."
   (cond
    ;; Create
    ((and (stringp old) (stringp new)
          (string-prefix-p "/dev/null" old)
          (string-prefix-p "b/" new))
-    (let* ((rel (substring new 2))
-           (_abs (carriage-normalize-path root rel)))
+    (let* ((rel (substring new 2)))
+      ;; Validate path is safe and within repo; signal on violations.
+      (carriage-normalize-path root rel)
       rel))
    ;; Delete
    ((and (stringp old) (stringp new)
          (string-prefix-p "a/" old)
          (string-prefix-p "/dev/null" new))
-    (let* ((rel (substring old 2))
-           (_abs (carriage-normalize-path root rel)))
+    (let* ((rel (substring old 2)))
+      ;; Validate path is safe and within repo; signal on violations.
+      (carriage-normalize-path root rel)
       rel))
    ;; Modify existing
    ((and (stringp old) (stringp new)
@@ -75,10 +77,11 @@ Returns RELPATH string."
     (let* ((r1 (substring old 2))
            (r2 (substring new 2)))
       (unless (string= r1 r2)
-        (signal (carriage-error-symbol 'PATCH_E_MULTI_FILE)
+        (signal (carriage-error-symbol 'PATCH_E_PATH_MISMATCH)
                 (list (format "Paths differ: a/%s vs b/%s" r1 r2))))
-      (let ((_abs (carriage-normalize-path root r1)))
-        r1)))
+      ;; Validate path is safe and within repo; signal on violations.
+      (carriage-normalize-path root r1)
+      r1))
    (t
     (signal (carriage-error-symbol 'PATCH_E_MULTI_FILE)
             (list (format "Unsupported ---/+++ pair: %S / %S" old new))))))
@@ -111,18 +114,37 @@ Returns a plan item alist: (:version \"1\" :op 'patch :strip N :path REL :diff B
            (new (plist-get paths :new)))
       (unless (and old new)
         (signal (carriage-error-symbol 'PATCH_E_HEADER) (list "Missing ---/+++ headers")))
-      (let* ((rel (carriage--patch--normalize-path repo-root old new)))
+      ;; Validate :strip against conventional a/ b/ prefixes
+      (when (and (string-prefix-p "a/" (or old "")) (string-prefix-p "b/" (or new ""))
+                 (not (= strip 1)))
+        (signal (carriage-error-symbol 'PATCH_E_STRIP)
+                (list (format "strip mismatch for a/b prefixes: %s" strip))))
+      (let* ((rel
+              (condition-case e
+                  (carriage--patch--normalize-path repo-root old new)
+                (error
+                 (let ((sym (car e)))
+                   (cond
+                    ;; Map path-related errors to PATCH_E_PATH
+                    ((memq sym (list (carriage-error-symbol 'OPS_E_PATH)
+                                     (carriage-error-symbol 'IO_E_PATH)))
+                     (signal (carriage-error-symbol 'PATCH_E_PATH) (cdr e)))
+                    (t (signal sym (cdr e)))))))))
         (list (cons :version "1")
               (cons :op 'patch)
               (cons :strip strip)
               (cons :path rel)
               (cons :diff body))))))
 
+(defun carriage--plan-kv (item key)
+  "Return KEY from ITEM that may be a plist or an alist."
+  (if (plist-member item key) (plist-get item key) (alist-get key item)))
+
 (defun carriage-dry-run-diff (plan-item repo-root)
   "Run git apply --check for PLAN-ITEM and build a report row."
-  (let* ((strip (or (alist-get :strip plan-item) 1))
-         (path  (or (alist-get :path plan-item) "-"))
-         (diff  (or (alist-get :diff plan-item) ""))
+  (let* ((strip (or (carriage--plan-kv plan-item :strip) 1))
+         (path  (or (carriage--plan-kv plan-item :path) "-"))
+         (diff  (or (carriage--plan-kv plan-item :diff) ""))
          (res   (carriage-git-apply-check repo-root diff :strip strip))
          (exit  (plist-get res :exit))
          (stderr (string-trim (or (plist-get res :stderr) "")))
@@ -141,9 +163,9 @@ Returns a plan item alist: (:version \"1\" :op 'patch :strip N :path REL :diff B
 (defun carriage-apply-diff (plan-item repo-root)
   "Apply patch synchronously (v1 sync wrapper).
 Delegates to git apply or git apply --index depending on staging policy."
-  (let* ((strip (or (alist-get :strip plan-item) 1))
-         (path  (or (alist-get :path plan-item) "-"))
-         (diff  (or (alist-get :diff plan-item) ""))
+  (let* ((strip (or (carriage--plan-kv plan-item :strip) 1))
+         (path  (or (carriage--plan-kv plan-item :path) "-"))
+         (diff  (or (carriage--plan-kv plan-item :diff) ""))
          (use-index (eq (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy) 'index))
          (res (if use-index
                   (carriage-git-apply-index repo-root diff :strip strip)
@@ -157,11 +179,27 @@ Delegates to git apply or git apply --index depending on staging policy."
             :details (if (string-empty-p stderr) "git apply failed" stderr)
             :extra (list :exit exit :stderr stderr :stdout stdout)))))
 
+;;; Prompt fragment
+(defun carriage-op-patch-prompt-fragment (_ctx)
+  "Prompt fragment for :op patch (unified diff, single file)."
+  (concat
+   "PATCH (unified diff, один файл):\n"
+   "#+begin_patch (:version \"1\" :op \"patch\" :strip 1)\n"
+   "--- a/RELATIVE/PATH\n"
+   "+++ b/RELATIVE/PATH\n"
+   "@@ -N,M +N,M @@\n"
+   "-old\n"
+   "+new\n"
+   "#+end_patch\n"
+   "- Требования: один файл (ровно одна пара ---/+++); пути a/ и b/ совпадают; :strip=1 для a/b.\n"
+   "- Запрещено: binary patches, rename/copy прелюдии, многофайловые диффы.\n"))
+
 ;;; Registration
 (carriage-format-register 'patch "1"
                           :parse   #'carriage-parse-diff
                           :dry-run #'carriage-dry-run-diff
-                          :apply   #'carriage-apply-diff)
+                          :apply   #'carriage-apply-diff
+                          :prompt-fragment #'carriage-op-patch-prompt-fragment)
 
 (provide 'carriage-op-patch)
 ;;; carriage-op-patch.el ends here

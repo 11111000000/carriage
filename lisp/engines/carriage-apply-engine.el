@@ -91,7 +91,7 @@ Returns an unregister lambda."
           (reverse carriage-apply-engine--registry)))
 
 (defun carriage-apply-engine--parse-choice (choice)
-  "Extract engine symbol from CHOICE string produced by =carriage-available-apply-engines'."
+  "Extract engine symbol from CHOICE string produced by carriage-available-apply-engines."
   (when (and (stringp choice)
              (string-match "\\=\\([^  —]+\\)" choice))
     (intern (match-string 1 choice))))
@@ -119,35 +119,41 @@ Returns an unregister lambda."
 
 (defun carriage-apply-engine-dispatch (kind op plan-item repo-root on-done on-fail)
   "Dispatch KIND ('dry-run|'apply) for OP via active engine with callbacks.
-Callbacks are invoked on the main thread via =run-at-time 0'."
+Callbacks are invoked on the main thread via run-at-time 0. Returns the engine token
+(if the engine callback returns one), or nil otherwise."
   (let* ((eng (carriage-apply-engine))
          (rec (carriage-apply-engine--get eng))
-         (cb (pcase kind
-               ((or 'dry-run :dry-run) (plist-get rec :dry-run))
-               ((or 'apply   :apply)   (plist-get rec :apply))
-               (_ nil))))
+         (cb  (pcase kind
+                ((or 'dry-run :dry-run) (plist-get rec :dry-run))
+                ((or 'apply   :apply)   (plist-get rec :apply))
+                (_ nil))))
     (if (functionp cb)
         (condition-case e
-            (funcall cb op plan-item repo-root
-                     (lambda (result)
-                       (run-at-time 0 nil
-                                    (lambda ()
-                                      (when (functionp on-done)
-                                        (funcall on-done result)))))
-                     (lambda (err)
-                       (run-at-time 0 nil
-                                    (lambda ()
-                                      (when (functionp on-fail)
-                                        (funcall on-fail err))))))
+            (let ((ret
+                   (funcall cb op plan-item repo-root
+                            (lambda (result)
+                              (run-at-time 0 nil
+                                           (lambda ()
+                                             (when (functionp on-done)
+                                               (funcall on-done result)))))
+                            (lambda (err)
+                              (run-at-time 0 nil
+                                           (lambda ()
+                                             (when (functionp on-fail)
+                                               (funcall on-fail err))))))))
+              ret)
           (error
            (carriage-log "Engine dispatch error (%s): %s" eng (error-message-string e))
            (when (functionp on-fail)
-             (run-at-time 0 nil (lambda () (funcall on-fail e))))))
+             (run-at-time 0 nil (lambda () (funcall on-fail e))))
+           nil))
       (progn
         (carriage-log "No %s callback for engine %s (op=%s)" kind eng op)
         (when (functionp on-fail)
-          (run-at-time 0 nil (lambda () (funcall on-fail
-                                                 (list :error 'no-callback :engine eng :kind kind)))))))))
+          (run-at-time 0 nil
+                       (lambda ()
+                         (funcall on-fail (list :error 'no-callback :engine eng :kind kind)))))
+        nil))))
 
 (provide 'carriage-apply-engine)
 ;;; carriage-apply-engine.el ends here
