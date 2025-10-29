@@ -16,7 +16,7 @@ Negative values move icons up; positive move them down."
   :type 'number
   :group 'carriage-ui)
 
-(defcustom carriage-mode-icon-height 1.0
+(defcustom carriage-mode-icon-height 0.75
   "Uniform icon height scale for all-the-icons in mode-line/header-line."
   :type 'number
   :group 'carriage-ui)

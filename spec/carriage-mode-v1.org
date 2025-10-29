@@ -92,6 +92,7 @@
 - carriage-mode-max-batch-пairs (integer), carriage-mode-log-max-lines (integer), carriage-mode-traffic-max-lines (integer)
 - carriage-mode-aux-window-side (symbol), carriage-mode-aux-window-size (number), carriage-mode-aux-window-reuse (boolean)
 
+
 - Персистентность состояния:
   - Выбор Intent/Suite/Model запоминается буферно-локально на время текущей сессии Emacs.
   - В дальнейшем может сохраняться в файл carriage-mode-state-file и восстанавливаться при открытии проекта.

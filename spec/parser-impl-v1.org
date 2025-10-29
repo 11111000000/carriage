@@ -15,7 +15,8 @@
   - На выход: элемент плана (см. ./data-structures-v1.org) или ошибка.
 - dry-run(PLAN-ITEM, REPO) → REPORT-ITEM[, DIFF]
 - apply(PLAN-ITEM, REPO) → RESULT
-- Все функции должны сигнализировать условия (define-error) с кодами из ./errors-v1.org.
+- Все функции должны сигнализировать условия (define-error) с кодами ./errors-v1.org.
+- Алиасы :op запрещены (MODE_E_DISPATCH).
 
 * Генерация и ресинхронизация DELIM (SRE)
 - DELIM генерирует инструмент до запроса к LLM.

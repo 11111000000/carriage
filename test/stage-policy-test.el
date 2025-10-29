@@ -70,12 +70,14 @@
                              (cons :diff diff))))
        (let ((carriage-apply-stage-policy 'none))
          ;; dry-run should pass
-         (let* ((dr (carriage-dry-run-diff plan-item root)))
+         (let* ((rep (carriage-dry-run-plan (list plan-item) root))
+                (dr  (car (plist-get rep :items))))
            (should (eq (plist-get dr :status) 'ok)))
          (let ((before (carriage-test--rev-count root)))
            (should (= before 1))
            ;; apply
-           (let ((ap (carriage-apply-diff plan-item root)))
+           (let* ((apr (carriage-apply-plan (list plan-item) root))
+                  (ap  (car (plist-get apr :items))))
              (should (eq (plist-get ap :status) 'ok)))
            ;; working tree has changes; index empty; history unchanged
            (should (not (carriage-test--diff-wt-empty-p root)))
@@ -98,7 +100,7 @@
        (let* ((diff1 (carriage-test--make-diff "hello" "hello a"))
               (it1 (list (cons :version "1") (cons :op 'patch) (cons :apply 'git-apply) (cons :strip 1)
                          (cons :path "foo.txt") (cons :diff diff1))))
-         (carriage-apply-diff it1 root)
+         (carriage-apply-plan (list it1) root)
          (with-temp-buffer (setq default-directory root)
                            (carriage-commit-changes "seed"))))
      (should (= (carriage-test--rev-count root) 2))
@@ -111,7 +113,8 @@
                              (cons :strip 1)
                              (cons :path "foo.txt")
                              (cons :diff diff2))))
-       (let ((ap (carriage-apply-diff plan-item root)))
+       (let* ((apr (carriage-apply-plan (list plan-item) root))
+              (ap  (car (plist-get apr :items))))
          (should (eq (plist-get ap :status) 'ok)))
        ;; Index has changes, working tree should appear clean; history unchanged
        (should (not (carriage-test--diff-cached-empty-p root)))

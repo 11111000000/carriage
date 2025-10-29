@@ -34,21 +34,28 @@
     ;; make a simple unified diff (old -> new)
     (let* ((diff (concat
                   (mapconcat #'identity
-                             '("--- a/a.txt"
+                             '("diff --git a/a.txt b/a.txt"
+                               "--- a/a.txt"
                                "+++ b/a.txt"
                                "@@ -1,1 +1,1 @@"
                                "-old"
                                "+new")
                              "\n")
                   "\n"))
-           (item `(:version "1" :op 'patch :apply 'git-apply :strip 1
+           (item `(:version "1" :op patch :apply git-apply :strip 1
                             :path "a.txt" :diff ,diff)))
-      ;; dry-run should be ok
-      (let ((rep (carriage-dry-run-diff item dir)))
-        (should (eq (plist-get rep :status) 'ok)))
-      ;; apply should update file content
-      (let ((ap (carriage-apply-diff item dir)))
-        (should (eq (plist-get ap :status) 'ok))
+      ;; dry-run should be ok (plan-level)
+      (let* ((rep (carriage-dry-run-plan (list item) dir))
+             (row (car (plist-get rep :items))))
+        (when (eq (plist-get row :status) 'fail)
+          ;; Helpful diagnostics when git --check fails in CI
+          (message "carriage-diff-test: dry-run failed, details=%s"
+                   (plist-get row :details)))
+        (should (eq (plist-get row :status) 'ok)))
+      ;; apply should update file content (plan-level)
+      (let* ((ap (carriage-apply-plan (list item) dir))
+             (row (car (plist-get ap :items))))
+        (should (eq (plist-get row :status) 'ok))
         (should (string= (carriage-diff-test--read dir "a.txt") "new\n"))))))
 
 

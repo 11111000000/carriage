@@ -10,5 +10,5 @@
   (should (featurep 'carriage))
   (should (fboundp 'carriage-project-root))
   (should (fboundp 'carriage-parse))
-  (should (fboundp 'carriage-dry-run-diff))
-  (should (fboundp 'carriage-apply-diff)))
+  (should (fboundp 'carriage-dry-run-plan))
+  (should (fboundp 'carriage-apply-plan)))

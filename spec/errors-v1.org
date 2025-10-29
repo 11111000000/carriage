@@ -18,7 +18,7 @@
 - SRE_E_*:
   - SRE_E_VERSION, SRE_E_OP, SRE_E_PATH, SRE_E_SEGMENTS_COUNT, SRE_E_SEGMENTS_ODD, SRE_E_UNCLOSED_SEGMENT, SRE_E_OCCUR_EXPECT, SRE_E_REGEX_SYNTAX, SRE_E_NO_MATCHES, SRE_E_EXPECT_MISMATCH, SRE_E_DELIM, SRE_E_COLLISION_DELIM, SRE_E_LIMITS.
 - PATCH_E_*:
-  - PATCH_E_VERSION, PATCH_E_OP, PATCH_E_APPLY, PATCH_E_MULTI_FILE, PATCH_E_PATH, PATCH_E_PATH_MISMATCH, PATCH_E_DIFF_SYNTAX, PATCH_E_STRIP, PATCH_E_GIT_CHECK, PATCH_E_BINARY, PATCH_E_RENAME_COPY.
+  - PATCH_E_VERSION, PATCH_E_OP, PATCH_E_APPLY, PATCH_E_MULTI_FILE, PATCH_E_PATH, PATCH_E_PATH_MISMATCH, PATCH_E_DIFF_SYNTAX, PATCH_E_STRIP, PATCH_E_GIT_CHECK, PATCH_E_BINARY, PATCH_E_RENAME_COPY, PATCH_E_LIMITS.
 - OPS_E_*:
   - OPS_E_EXISTS, OPS_E_NOT_FOUND, OPS_E_PATH, OPS_E_PERM, OPS_E_DELIM.
 - LLM_E_*:
@@ -71,6 +71,7 @@
     (PATCH_E_GIT_CHECK      carriage-patch-git-check      "git apply --check отказал (PATCH_E_GIT_CHECK)")
     (PATCH_E_BINARY         carriage-patch-binary         "Бинарные секции запрещены (PATCH_E_BINARY)")
     (PATCH_E_RENAME_COPY    carriage-patch-rename-copy    "rename/copy запрещены в v1 (PATCH_E_RENAME_COPY)")
+    (PATCH_E_LIMITS         carriage-patch-limits         "Превышены лимиты размера патча (PATCH_E_LIMITS)")
 
     (OPS_E_EXISTS           carriage-ops-exists           "Объект уже существует (OPS_E_EXISTS)")
     (OPS_E_NOT_FOUND        carriage-ops-not-found        "Объект не найден (OPS_E_NOT_FOUND)")

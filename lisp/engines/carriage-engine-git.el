@@ -21,6 +21,10 @@
   (and (boundp 'carriage-apply-stage-policy)
        (eq carriage-apply-stage-policy 'index)))
 
+(defun carriage-engine-git--get (item key)
+  "Get KEY from ITEM supporting both plist and alist plan representations."
+  (if (plist-member item key) (plist-get item key) (alist-get key item)))
+
 (defun carriage-engine-git--join-cmd (argv)
   "Return a readable single-line shell-ish string from ARGV."
   (mapconcat (lambda (s)
@@ -199,24 +203,24 @@
 ;; Public callbacks (registry contract)
 (defun carriage-engine-git--dry-run-patch (item root on-done on-fail)
   "Dry-run patch via git apply --check."
-  (let* ((diff (alist-get :diff item))
-         (strip (or (alist-get :strip item) 1))
+  (let* ((diff (carriage-engine-git--get item :diff))
+         (strip (or (carriage-engine-git--get item :strip) 1))
          (patch-file (carriage-engine-git--write-patch diff))
          (argv (carriage-engine-git--args-apply-check strip patch-file))
          (token (list :engine 'git :op 'patch
-                      :path (or (alist-get :path item) "-")
+                      :path (or (carriage-engine-git--get item :path) "-")
                       :patch-file patch-file)))
     (carriage-engine-git--log-begin :dry-run item)
     (carriage-engine-git--start root argv token on-done on-fail)))
 
 (defun carriage-engine-git--apply-patch (item root on-done on-fail)
   "Apply patch via git apply (maybe --index)."
-  (let* ((diff (alist-get :diff item))
-         (strip (or (alist-get :strip item) 1))
+  (let* ((diff (carriage-engine-git--get item :diff))
+         (strip (or (carriage-engine-git--get item :strip) 1))
          (patch-file (carriage-engine-git--write-patch diff))
          (argv (carriage-engine-git--args-apply strip patch-file))
          (token (list :engine 'git :op 'patch
-                      :path (or (alist-get :path item) "-")
+                      :path (or (carriage-engine-git--get item :path) "-")
                       :patch-file patch-file)))
     (carriage-engine-git--log-begin :apply item)
     (carriage-engine-git--start root argv token on-done on-fail)))
@@ -238,7 +242,9 @@
 
 (defun carriage-engine-git--apply-add (item root on-done on-fail)
   "Stage file via git add."
-  (let* ((file (or (alist-get :file item) (alist-get :path item) "-"))
+  (let* ((file (or (carriage-engine-git--get item :file)
+                   (carriage-engine-git--get item :path)
+                   "-"))
          (argv (list "add" "--" file))
          (token (list :engine 'git :op 'create :path file)))
     (carriage-log "engine[git] begin: kind=%s op=%s path=%s" :apply 'create file)
@@ -246,7 +252,9 @@
 
 (defun carriage-engine-git--apply-rm (item root on-done on-fail)
   "Remove file via git rm -f."
-  (let* ((file (or (alist-get :file item) (alist-get :path item) "-"))
+  (let* ((file (or (carriage-engine-git--get item :file)
+                   (carriage-engine-git--get item :path)
+                   "-"))
          (argv (list "rm" "-f" "--" file))
          (token (list :engine 'git :op 'delete :path file)))
     (carriage-log "engine[git] begin: kind=%s op=%s path=%s" :apply 'delete file)
@@ -254,8 +262,8 @@
 
 (defun carriage-engine-git--apply-mv (item root on-done on-fail)
   "Rename/move via git mv, ensuring destination directory exists."
-  (let* ((from (or (alist-get :from item) "-"))
-         (to   (or (alist-get :to item) "-")))
+  (let* ((from (or (carriage-engine-git--get item :from) "-"))
+         (to   (or (carriage-engine-git--get item :to) "-")))
     (ignore-errors (carriage-engine-git--ensure-parent-dir root to))
     (let* ((argv (list "mv" "--" from to))
            (token (list :engine 'git :op 'rename :path (format "%s -> %s" from to))))

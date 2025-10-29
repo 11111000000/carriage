@@ -100,6 +100,8 @@ as a “(+N more)” tail."
 If nil (default v1 behavior), such cases are considered a failure in dry-run."
   :type 'boolean :group 'carriage)
 
+
+
 (defcustom carriage-mode-show-header-line t
   "When non-nil, install a buffer-local header-line segment for Carriage."
   :type 'boolean :group 'carriage)

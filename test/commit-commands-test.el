@@ -16,7 +16,8 @@
          (diff (carriage-test--make-diff from to))
          (item (list (cons :version "1") (cons :op 'patch) (cons :apply 'git-apply) (cons :strip 1)
                      (cons :path "foo.txt") (cons :diff diff))))
-    (carriage-apply-diff item root)))
+    (let* ((rep (carriage-apply-plan (list item) root)))
+      (car (plist-get rep :items)))))
 
 (ert-deftest carriage-commit-last-iteration-no-files-errors ()
   "When there is no 'last iteration' marked, the command should error."

@@ -6,7 +6,7 @@
 (require 'carriage-errors)
 (require 'carriage-logging)
 (require 'carriage-utils)
-(require 'carriage-git)
+
 (require 'carriage-format-registry)
 
 (defun carriage--patch--reject-rename-copy (text)
@@ -103,7 +103,8 @@ Returns a plan item alist: (:version \"1\" :op 'patch :strip N :path REL :diff B
       (signal (carriage-error-symbol 'PATCH_E_OP) (list op)))
     ;; Hard limits and forbidden preludes
     (when (> (string-bytes body) (* 4 1024 1024))
-      (signal (carriage-error-symbol 'PATCH_E_LIMITS) (list "Patch body exceeds 4MiB")))
+      (signal (carriage-error-symbol 'PATCH_E_LIMITS)
+              (list "Patch body exceeds 4MiB")))
     (carriage--patch--reject-rename-copy body)
     (carriage--patch--reject-binary body)
     ;; Ensure single-file diff (one ---/+++ pair)
@@ -140,44 +141,9 @@ Returns a plan item alist: (:version \"1\" :op 'patch :strip N :path REL :diff B
   "Return KEY from ITEM that may be a plist or an alist."
   (if (plist-member item key) (plist-get item key) (alist-get key item)))
 
-(defun carriage-dry-run-diff (plan-item repo-root)
-  "Run git apply --check for PLAN-ITEM and build a report row."
-  (let* ((strip (or (carriage--plan-kv plan-item :strip) 1))
-         (path  (or (carriage--plan-kv plan-item :path) "-"))
-         (diff  (or (carriage--plan-kv plan-item :diff) ""))
-         (res   (carriage-git-apply-check repo-root diff :strip strip))
-         (exit  (plist-get res :exit))
-         (stderr (string-trim (or (plist-get res :stderr) "")))
-         (stdout (string-trim (or (plist-get res :stdout) ""))))
-    (if (and (numberp exit) (zerop exit))
-        (list :op 'patch :status 'ok :path path :details "git apply --check ok")
-      (list :op 'patch :status 'fail :path path
-            :details (if (string-empty-p stderr) "git apply --check failed" stderr)
-            :_messages (list (list :code 'PATCH_E_GIT_CHECK
-                                   :severity 'error
-                                   :file path
-                                   :details (or (and (not (string-empty-p stderr)) stderr)
-                                                (and (not (string-empty-p stdout)) stdout)
-                                                "git apply --check failed")))))))
 
-(defun carriage-apply-diff (plan-item repo-root)
-  "Apply patch synchronously (v1 sync wrapper).
-Delegates to git apply or git apply --index depending on staging policy."
-  (let* ((strip (or (carriage--plan-kv plan-item :strip) 1))
-         (path  (or (carriage--plan-kv plan-item :path) "-"))
-         (diff  (or (carriage--plan-kv plan-item :diff) ""))
-         (use-index (eq (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy) 'index))
-         (res (if use-index
-                  (carriage-git-apply-index repo-root diff :strip strip)
-                (carriage-git-apply repo-root diff :strip strip)))
-         (exit  (plist-get res :exit))
-         (stderr (string-trim (or (plist-get res :stderr) "")))
-         (stdout (string-trim (or (plist-get res :stdout) ""))))
-    (if (and (numberp exit) (zerop exit))
-        (list :op 'patch :status 'ok :path path :details (if use-index "Applied (indexed)" "Applied"))
-      (list :op 'patch :status 'fail :path path
-            :details (if (string-empty-p stderr) "git apply failed" stderr)
-            :extra (list :exit exit :stderr stderr :stdout stdout)))))
+
+
 
 ;;; Prompt fragment
 (defun carriage-op-patch-prompt-fragment (_ctx)
@@ -197,8 +163,6 @@ Delegates to git apply or git apply --index depending on staging policy."
 ;;; Registration
 (carriage-format-register 'patch "1"
                           :parse   #'carriage-parse-diff
-                          :dry-run #'carriage-dry-run-diff
-                          :apply   #'carriage-apply-diff
                           :prompt-fragment #'carriage-op-patch-prompt-fragment)
 
 (provide 'carriage-op-patch)

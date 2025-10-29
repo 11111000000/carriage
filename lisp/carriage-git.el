@@ -36,44 +36,11 @@ Applies to both index and working-tree apply operations."
       (signal (carriage-error-symbol 'GIT_E_APPLY) (list "Git repo not detected"))))
   t)
 
-(defun carriage-git-apply-check (root diff-str &key strip)
-  "Run git apply --check for DIFF-STR in ROOT. Return plist result."
-  (carriage-git-ensure-repo root)
-  (let* ((patch-file (make-temp-file "carriage-patch-" nil ".diff"))
-         (default-directory (file-name-as-directory (expand-file-name root))))
-    (unwind-protect
-        (progn
-          (with-temp-file patch-file (insert diff-str))
-          (carriage-git--run root "apply" "--check" "--verbose" "-p" (number-to-string (or strip 1)) patch-file))
-      (ignore-errors (delete-file patch-file)))))
 
-(defun carriage-git-apply-index (root diff-str &key strip)
-  "Apply DIFF-STR with git apply --index in ROOT."
-  (carriage-git-ensure-repo root)
-  (let* ((patch-file (make-temp-file "carriage-patch-" nil ".diff"))
-         (default-directory (file-name-as-directory (expand-file-name root))))
-    (unwind-protect
-        (progn
-          (with-temp-file patch-file (insert diff-str))
-          (let* ((args (append '("apply" "--index")
-                               (and (boundp 'carriage-git-apply-extra-args) carriage-git-apply-extra-args)
-                               (list "-p" (number-to-string (or strip 1)) patch-file))))
-            (apply #'carriage-git--run root args)))
-      (ignore-errors (delete-file patch-file)))))
 
-(defun carriage-git-apply (root diff-str &key strip)
-  "Apply DIFF-STR with git apply (no --index) in ROOT."
-  (carriage-git-ensure-repo root)
-  (let* ((patch-file (make-temp-file "carriage-patch-" nil ".diff"))
-         (default-directory (file-name-as-directory (expand-file-name root))))
-    (unwind-protect
-        (progn
-          (with-temp-file patch-file (insert diff-str))
-          (let* ((args (append '("apply")
-                               (and (boundp 'carriage-git-apply-extra-args) carriage-git-apply-extra-args)
-                               (list "-p" (number-to-string (or strip 1)) patch-file))))
-            (apply #'carriage-git--run root args)))
-      (ignore-errors (delete-file patch-file)))))
+
+
+
 
 (defun carriage-git-add (root relpath)
   "git add RELPATH in ROOT."

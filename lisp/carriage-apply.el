@@ -8,6 +8,7 @@
 (require 'carriage-utils)
 (require 'carriage-git)
 (require 'carriage-format-registry)
+(require 'carriage-apply-engine)
 
 ;; Register abort handler provided by async apply pipeline (declared in carriage-mode).
 (declare-function carriage-register-abort-handler "carriage-mode" (fn))
@@ -58,27 +59,85 @@ If threads are unavailable or in batch mode, falls back to synchronous execution
 (defun carriage--plan-sort (plan)
   "Return PLAN items sorted by operation type according to v1 order."
   (seq-sort (lambda (a b)
-              (< (carriage--op-rank (alist-get :op a))
-                 (carriage--op-rank (alist-get :op b))))
+              (< (carriage--op-rank (carriage--plan-get a :op))
+                 (carriage--op-rank (carriage--plan-get b :op))))
             plan))
 
 (defun carriage--dry-run-dispatch (item repo-root)
-  "Dispatch dry-run for a single ITEM with REPO-ROOT via format registry."
-  (let* ((op  (alist-get :op item))
-         (rec (carriage-format-get op "1"))
-         (fn  (and rec (plist-get rec :dry-run))))
-    (if (functionp fn)
-        (funcall fn item repo-root)
-      (carriage--report-fail (or op 'unknown) :details "Unknown op"))))
+  "Dispatch dry-run for a single ITEM with REPO-ROOT.
+For :op 'patch → use apply engine (:dry-run) with a short sync wait loop to gather pid/elapsed;
+for other ops → delegate to format registry."
+  (let* ((op (carriage--plan-get item :op)))
+    (if (eq op 'patch)
+        (let* ((done nil)
+               (result nil)
+               (t0 (float-time))
+               (token (carriage-apply-engine-dispatch
+                       :dry-run 'patch item repo-root
+                       (lambda (res) (setq result res done t))
+                       (lambda (res) (setq result res done t))))
+               (proc (and (listp token) (plist-get token :process)))
+               (deadline (+ (float-time)
+                            (or (and (boundp 'carriage-apply-timeout-seconds)
+                                     carriage-apply-timeout-seconds)
+                                15))))
+          (while (and (not done) (< (float-time) deadline))
+            (if (and proc (process-live-p proc))
+                (accept-process-output proc 0.05)
+              (accept-process-output nil 0.05)))
+          (let* ((row (carriage--engine-row 'patch result t0
+                                            "git apply --check ok"
+                                            "git apply --check failed"
+                                            :path))
+                 (exit (plist-get result :exit))
+                 (stderr (string-trim (or (plist-get result :stderr) "")))
+                 (stdout (string-trim (or (plist-get result :stdout) "")))
+                 (itm-msgs (when (or (not (numberp exit)) (not (zerop exit)))
+                             (list (list :code 'PATCH_E_GIT_CHECK
+                                         :severity 'error
+                                         :file (or (alist-get :path item) "-")
+                                         :details (or (and (not (string-empty-p stderr)) stderr)
+                                                      (and (not (string-empty-p stdout)) stdout)
+                                                      "git apply --check failed"))))))
+            (if itm-msgs (append row (list :_messages itm-msgs)) row)))
+      (let* ((rec (carriage-format-get op "1"))
+             (fn  (and rec (plist-get rec :dry-run))))
+        (if (functionp fn)
+            (funcall fn item repo-root)
+          (carriage--report-fail (or op 'unknown) :details "Unknown op"))))))
 
 (defun carriage--apply-dispatch (item repo-root)
-  "Dispatch apply for a single ITEM with REPO-ROOT via format registry."
-  (let* ((op  (alist-get :op item))
-         (rec (carriage-format-get op "1"))
-         (fn  (and rec (plist-get rec :apply))))
-    (if (functionp fn)
-        (funcall fn item repo-root)
-      (carriage--report-fail (or op 'unknown) :details "Unknown op"))))
+  "Dispatch apply for a single ITEM with REPO-ROOT.
+For :op 'patch → use apply engine (:apply) with a short sync wait loop to gather pid/elapsed;
+for other ops → delegate to format registry."
+  (let* ((op (carriage--plan-get item :op)))
+    (if (eq op 'patch)
+        (let* ((done nil)
+               (result nil)
+               (t0 (float-time))
+               (token (carriage-apply-engine-dispatch
+                       :apply 'patch item repo-root
+                       (lambda (res) (setq result res done t))
+                       (lambda (res) (setq result res done t))))
+               (proc (and (listp token) (plist-get token :process)))
+               (deadline (+ (float-time)
+                            (or (and (boundp 'carriage-apply-timeout-seconds)
+                                     carriage-apply-timeout-seconds)
+                                15))))
+          (while (and (not done) (< (float-time) deadline))
+            (if (and proc (process-live-p proc))
+                (accept-process-output proc 0.05)
+              (accept-process-output nil 0.05)))
+          (carriage--engine-row 'patch result t0
+                                "Applied"
+                                "git apply failed"
+                                :path))
+      (let* ((rec (carriage-format-get op "1"))
+             (fn  (and rec (plist-get rec :apply))))
+        (if (functionp fn)
+            (funcall fn item repo-root)
+          (carriage--report-fail (or op 'unknown) :details "Unknown op"))))))
+
 
 (defun carriage-dry-run-plan (plan repo-root)
   "Dry-run PLAN (list of plan items) under REPO-ROOT.
@@ -93,8 +152,8 @@ Return report alist:
          (virt '())  ; virtual created files: (\"path\" . content)
          (msgs '()))
     (dolist (it sorted)
-      (let* ((op (alist-get :op it))
-             (file (alist-get :file it))
+      (let* ((op (carriage--plan-get it :op))
+             (file (carriage--plan-get it :file))
              (res
               (cond
                ;; If SRE/SRE-BATCH targets a file that will be created in this plan, simulate on that content.
@@ -123,7 +182,7 @@ Return report alist:
             (_     (setq skip (1+ skip)))))
         ;; Update virtual FS for subsequent SRE checks
         (when (and (eq op 'create) file)
-          (let ((content (or (alist-get :content it) "")))
+          (let ((content (or (carriage--plan-get it :content) "")))
             (setq virt (cons (cons file content) (assq-delete-all file virt)))))))
     (list :plan plan
           :engine (carriage-apply-engine)
@@ -286,7 +345,7 @@ Registers the handler with the mode when available."
 
 (defun carriage--apply-run-item (state item repo-root plan callback token)
   "Run one ITEM according to its :op, updating STATE and continuing or finishing."
-  (let ((op (alist-get :op item)))
+  (let ((op (carriage--plan-get item :op)))
     (pcase op
       ('patch
        (carriage--apply-run-engine
@@ -350,7 +409,7 @@ Registers the handler with the mode when available."
         (lambda ()
           (let ((row0 (carriage-apply-create item repo-root)))
             (if (eq carriage-apply-stage-policy 'index)
-                (let* ((file (alist-get :file item)))
+                (let* ((file (carriage--plan-get item :file)))
                   (carriage--apply-run-engine
                    state :apply 'create (list (cons :file file)) repo-root
                    (lambda (t0 res)

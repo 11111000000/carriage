@@ -11,6 +11,7 @@
 - Норматив: использовать и принимать только =begin_patch/end_patch=.
 - Алиасы не поддерживаются в v1.
 
+
 * Операции и версии
 - "sre" v1 — одиночная пара FROM→TO в блоке =patch=.
 - "sre-batch" v1 — несколько пар для одного файла в блоке =patch=.
@@ -32,8 +33,7 @@
   - apply: carriage-apply-sre
 - patch:
   - parse: carriage-parse-diff
-  - dry-run: carriage-dry-run-diff
-  - apply: carriage-apply-diff
+  - dry-run/apply: через Apply Engine ('git) — см. ./apply-engines-v1.org
 - create:
   - parse: carriage-parse-create
   - dry-run: carriage-dry-run-create
