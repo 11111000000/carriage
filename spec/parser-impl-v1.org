@@ -16,7 +16,7 @@
 - dry-run(PLAN-ITEM, REPO) → REPORT-ITEM[, DIFF]
 - apply(PLAN-ITEM, REPO) → RESULT
 - Все функции должны сигнализировать условия (define-error) с кодами ./errors-v1.org.
-- Алиасы :op запрещены (MODE_E_DISPATCH).
+- Алиасы :op запрещены (MODE_E_DISPATCH). Разрешение возможно только в режиме совместимости (defcustom carriage-mode-allow-op-aliases=t), что выводит реализацию за рамки строгого v1; по умолчанию nil.
 
 * Генерация и ресинхронизация DELIM (SRE)
 - DELIM генерирует инструмент до запроса к LLM.

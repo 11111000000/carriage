@@ -8,7 +8,16 @@
 (require 'carriage-utils)
 (require 'carriage-git)
 (require 'carriage-format-registry)
+;; Ensure 'engines' subdirectory is on load-path when loading carriage-mode directly
+;; with :load-path pointing to the lisp/ directory, so that (require 'carriage-apply-engine)
+;; and engine modules resolve without extra user configuration.
+(let* ((this-dir (file-name-directory (or load-file-name buffer-file-name)))
+       (engines-dir (and this-dir (expand-file-name "engines" this-dir))))
+  (when (and engines-dir (file-directory-p engines-dir))
+    (add-to-list 'load-path engines-dir)))
 (require 'carriage-apply-engine)
+;; Load default Git apply engine so it registers itself in the engine registry.
+(require 'carriage-engine-git)
 
 ;; Register abort handler provided by async apply pipeline (declared in carriage-mode).
 (declare-function carriage-register-abort-handler "carriage-mode" (fn))

@@ -14,10 +14,13 @@
   - SRE: превышение лимита пар в sre-batch → SRE_E_LIMITS.
   - SRE: пересинхронизация DELIM → предупреждение SRE_W_DELIM_RESYNC (при успехе), ошибка SRE_E_COLLISION_DELIM (при провале).
   - SRE: :range вне границ → clamp и предупреждение SRE_W_RANGE_CLAMP; одинаковое поведение dry-run/apply.
-  - PATCH: многофайловый diff → отказ, /dev/null create/delete, :strip логика.
+  - PATCH: многофайловый diff → отказ, /dev/null create/delete.
+  - PATCH: :strip логика — по умолчанию 1; если :strip задан и не (целое ≥ 0) → PATCH_E_STRIP.
+  - PATCH: отсутствуют заголовки ---/+++ → PATCH_E_DIFF_SYNTAX.
   - PATCH: rename/copy прелюдии → PATCH_E_RENAME_COPY; бинарные секции → PATCH_E_BINARY.
   - PATCH: превышение размера тела (> 4 MiB) → PATCH_E_LIMITS.
   - MODE: алиасы :op (replace/diff/write/create_file/delete_file/rename_file) — по умолчанию отказ с MODE_E_DISPATCH.
+  - MODE: при carriage-mode-allow-op-aliases=t — алиасы принимаются; добавляется предупреждение в :messages.
 
   - File Ops: create/delete/rename — предусловия, :mkdir, :ensure-final-newline, конфликты путей и существование/отсутствие файлов; create: валидация :delim (=6 hex, Emacs regexp \\`[0-9a-f]\\{6\\}\\'), негативный кейс при неверном токене.
 - Валидаторы regexp (Emacs flavor): неподдерживаемые конструкции → ошибка.

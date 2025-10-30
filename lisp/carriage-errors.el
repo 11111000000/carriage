@@ -29,6 +29,7 @@
     (PATCH_E_GIT_CHECK      carriage-patch-git-check      "git apply --check отказал (PATCH_E_GIT_CHECK)")
     (PATCH_E_BINARY         carriage-patch-binary         "Бинарные секции запрещены (PATCH_E_BINARY)")
     (PATCH_E_RENAME_COPY    carriage-patch-rename-copy    "rename/copy запрещены в v1 (PATCH_E_RENAME_COPY)")
+    (PATCH_E_LIMITS         carriage-patch-limits         "Превышены лимиты размера патча (PATCH_E_LIMITS)")
 
     (OPS_E_EXISTS           carriage-ops-exists           "Объект уже существует (OPS_E_EXISTS)")
     (OPS_E_NOT_FOUND        carriage-ops-not-found        "Объект не найден (OPS_E_NOT_FOUND)")

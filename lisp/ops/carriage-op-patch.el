@@ -90,13 +90,22 @@ Returns RELPATH string. Signals PATCH_E_PATH_MISMATCH when a/b paths differ."
   "Parse unified diff (v1).
 Ignores header :apply key entirely; determines :path from ---/+++ lines.
 Returns a plan item alist: (:version \"1\" :op 'patch :strip N :path REL :diff BODY)."
-  (let* ((version (plist-get header :version))
-         (op (plist-get header :op))
-         ;; Ignore any :apply key in header (v1 behavior).
-         (_ignored-apply (and (plist-member header :apply) (plist-get header :apply)))
-         ;; :strip defaults to 1; coerce to 1 when unspecified or invalid.
-         (strip (let* ((v (plist-get header :strip)))
-                  (if (and (integerp v) (>= v 0)) v 1))))
+  (let* ((version (carriage--plan-kv header :version))
+         (op (carriage--plan-kv header :op))
+         ;; Ignore any :apply key in header (v1 behavior). Detect in plist or alist.
+         (has-apply (or (plist-member header :apply) (assq :apply header)))
+         (_ignored-apply (and has-apply (carriage--plan-kv header :apply)))
+         ;; :strip defaults to 1; if provided, must be integer ≥ 0; otherwise error.
+         ;; Be robust to plist/alist and to cases where value is non-nil even if plist-member/assq fail.
+         (strip-raw (carriage--plan-kv header :strip))
+         (strip-present (or (plist-member header :strip)
+                            (assq :strip header)
+                            (not (null strip-raw))))
+         (strip (if strip-present
+                    (if (and (integerp strip-raw) (>= strip-raw 0)) strip-raw
+                      (signal (carriage-error-symbol 'PATCH_E_STRIP)
+                              (list (format "Invalid :strip (expected integer>=0): %S" strip-raw))))
+                  1)))
     (unless (string= version "1")
       (signal (carriage-error-symbol 'PATCH_E_VERSION) (list version)))
     (unless (member (format "%s" op) '("patch" :patch patch))
@@ -114,7 +123,7 @@ Returns a plan item alist: (:version \"1\" :op 'patch :strip N :path REL :diff B
            (old (plist-get paths :old))
            (new (plist-get paths :new)))
       (unless (and old new)
-        (signal (carriage-error-symbol 'PATCH_E_HEADER) (list "Missing ---/+++ headers")))
+        (signal (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX) (list "Missing ---/+++ headers")))
       ;; Validate :strip against conventional a/ b/ prefixes
       (when (and (string-prefix-p "a/" (or old "")) (string-prefix-p "b/" (or new ""))
                  (not (= strip 1)))

@@ -39,7 +39,8 @@
                                "+++ b/a.txt"
                                "@@ -1,1 +1,1 @@"
                                "-old"
-                               "+new")
+                               "+new"
+                               )
                              "\n")
                   "\n"))
            (item `(:version "1" :op patch :apply git-apply :strip 1
@@ -51,12 +52,84 @@
           ;; Helpful diagnostics when git --check fails in CI
           (message "carriage-diff-test: dry-run failed, details=%s"
                    (plist-get row :details)))
-        (should (eq (plist-get row :status) 'ok)))
+        (should (eq (plist-get row :status) 'ok))
+        (should (numberp (plist-get row :pid)))
+        (should (numberp (plist-get row :elapsed-ms)))
+        (should (eq (plist-get row :engine) 'git)))
       ;; apply should update file content (plan-level)
       (let* ((ap (carriage-apply-plan (list item) dir))
              (row (car (plist-get ap :items))))
         (should (eq (plist-get row :status) 'ok))
+        (should (numberp (plist-get row :pid)))
+        (should (numberp (plist-get row :elapsed-ms)))
+        (should (eq (plist-get row :engine) 'git))
         (should (string= (carriage-diff-test--read dir "a.txt") "new\n"))))))
 
+(ert-deftest carriage-diff-missing-headers-signals-diff-syntax ()
+  "Parsing a body without ---/+++ headers must signal PATCH_E_DIFF_SYNTAX."
+  (let* ((hdr '(:version "1" :op "patch"))
+         (body "this is not a unified diff")
+         (sym  (carriage-error-symbol 'PATCH_E_DIFF_SYNTAX)))
+    (should-error
+     (carriage-parse-diff hdr body default-directory)
+     :type sym)))
+
+
+(ert-deftest carriage-patch-apply-header-ignored ()
+  "Header :apply is informational and must be ignored; engine must remain default ('git)."
+  (let* ((dir (make-temp-file "carriage-diff-" t)))
+    ;; init repo
+    (should (zerop (carriage-diff-test--git dir "init")))
+    (should (zerop (carriage-diff-test--git dir "config" "user.email" "tester@example.com")))
+    (should (zerop (carriage-diff-test--git dir "config" "user.name" "Tester")))
+    ;; initial file and commit
+    (carriage-diff-test--write dir "a.txt" "A\n")
+    (should (zerop (carriage-diff-test--git dir "add" "--" "a.txt")))
+    (should (zerop (carriage-diff-test--git dir "commit" "-m" "init")))
+    ;; build unified diff
+    (let* ((diff (concat
+                  (mapconcat #'identity
+                             '("diff --git a/a.txt b/a.txt"
+                               "--- a/a.txt"
+                               "+++ b/a.txt"
+                               "@@ -1,1 +1,1 @@"
+                               "-A"
+                               "+B")
+                             "\n")
+                  "\n"))
+           ;; deliberately set a non-default :apply to verify it's ignored
+           (item `(:version "1" :op patch :apply echo :strip 1
+                            :path "a.txt" :diff ,diff)))
+      ;; dry-run must use default engine ('git), regardless of header :apply
+      (let* ((rep (carriage-dry-run-plan (list item) dir))
+             (row (car (plist-get rep :items))))
+        (should (eq (plist-get row :status) 'ok))
+        (should (eq (plist-get row :engine) 'git))
+        (should (numberp (plist-get row :pid)))
+        (should (numberp (plist-get row :elapsed-ms)))))))
+
+(ert-deftest carriage-diff-invalid-strip-signals-error ()
+  "If header :strip is present and invalid, signal PATCH_E_STRIP."
+  (let* ((body (concat
+                (mapconcat #'identity
+                           '("diff --git a/a.txt b/a.txt"
+                             "--- a/a.txt"
+                             "+++ b/a.txt"
+                             "@@ -1,1 +1,1 @@"
+                             "-x"
+                             "+y")
+                           "\n")
+                "\n"))
+         (sym  (carriage-error-symbol 'PATCH_E_STRIP)))
+    ;; Non-integer value
+    (let ((hdr '(:version "1" :op "patch" :strip "oops")))
+      (should-error
+       (carriage-parse-diff hdr body default-directory)
+       :type sym))
+    ;; Negative integer
+    (let ((hdr '(:version "1" :op "patch" :strip -1)))
+      (should-error
+       (carriage-parse-diff hdr body default-directory)
+       :type sym))))
 
 ;;; carriage-diff-test.el ends here

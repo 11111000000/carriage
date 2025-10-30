@@ -124,6 +124,11 @@ If nil (default v1 behavior), such cases are considered a failure in dry-run."
 Note: v1 forbids binary patches; this option remains nil in v1 and is reserved for future versions."
   :type 'boolean :group 'carriage)
 
+(defcustom carriage-mode-allow-op-aliases nil
+  "When non-nil, accept alias :op values (e.g., write/create_file/delete_file/rename_file/diff/replace).
+Default is nil per v1: aliases are rejected with MODE_E_DISPATCH."
+  :type 'boolean :group 'carriage)
+
 (defcustom carriage-commit-default-message "carriage: apply changes"
   "Default commit message used by Commit commands.
 May be a string or a function of zero args returning string."

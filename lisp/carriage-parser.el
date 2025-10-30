@@ -29,13 +29,24 @@ Strict v1 behavior:
 Если обработчик не зарегистрирован, выполняется ленивый load нужного ops-модуля и повторная попытка."
   (cl-block carriage-parse
     (let* ((op-sym0 (if (symbolp op) op (intern (format "%s" op))))
-           ;; Алиасы безоговорочно запрещены в v1
-           (_ (pcase op-sym0
-                ((or 'replace 'diff 'write 'create_file 'delete_file 'rename_file)
-                 (signal (carriage-error-symbol 'MODE_E_DISPATCH)
-                         (list (format "Alias op not supported in v1: %S" op-sym0))))
-                (_ nil)))
-           (op-sym op-sym0)
+           (op-sym
+            (if (and (boundp 'carriage-mode-allow-op-aliases)
+                     carriage-mode-allow-op-aliases)
+                (pcase op-sym0
+                  ('diff         'patch)
+                  ('write        'create)
+                  ('create_file  'create)
+                  ('delete_file  'delete)
+                  ('rename_file  'rename)
+                  ('replace      'sre)
+                  (_             op-sym0))
+              (progn
+                (pcase op-sym0
+                  ((or 'replace 'diff 'write 'create_file 'delete_file 'rename_file)
+                   (signal (carriage-error-symbol 'MODE_E_DISPATCH)
+                           (list (format "Alias op not supported in v1: %S" op-sym0))))
+                  (_ nil))
+                op-sym0)))
            (hdr1 header-plist)
            (rec (and (fboundp 'carriage-format-get) (carriage-format-get op-sym "1")))
            (fn  (and rec (plist-get rec :parse))))

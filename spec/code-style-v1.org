@@ -47,6 +47,7 @@
 - Do not block the main thread; for synchronous waits use accept-process-output in short intervals with readiness flags.
 - Ensure idempotency: starting an already started client is a no-op or yields a clear, non-fatal error.
 - Prefer async-first APIs; provide optional synchronous wrappers that delegate to async paths.
+- Sync wrappers must propagate engine metrics (:pid, :elapsed-ms) into reports for parity with async.
 
 ** State And Configuration
 - Minimize global state. Provide defgroup/defcustom for user configuration with :group and robust :type; mark safe options where appropriate.
