@@ -468,20 +468,51 @@ Registers the handler with the mode when available."
           (plist-put state :queue (cdr q))
           (carriage--apply-run-item state item repo-root plan callback token))))))
 
+(defun carriage--apply-preflight-wip-async (state plan repo-root callback token)
+  "Async preflight: ensure repo and checkout/create WIP, then continue pipeline.
+On failure, finish with error message without blocking UI."
+  (carriage-git-ensure-repo-async
+   repo-root
+   (lambda (_r1)
+     ;; proceed to WIP checkout/create
+     (carriage-git-checkout-wip-async
+      repo-root nil
+      (lambda (_r2)
+        ;; preflight ok → start pipeline
+        (carriage--apply-next state plan repo-root callback token))
+      (lambda (err2)
+        (let* ((stderr (string-trim (or (plist-get err2 :stderr) "")))
+               (stdout (string-trim (or (plist-get err2 :stdout) "")))
+               (msg (list :code 'GIT_E_APPLY :severity 'error
+                          :details (or (and (not (string-empty-p stderr)) stderr)
+                                       (and (not (string-empty-p stdout)) stdout)
+                                       "WIP checkout failed"))))
+          (carriage--apply-acc-msg state msg)
+          (carriage--apply-finish plan state callback)))))
+   (lambda (err1)
+     (let* ((stderr (string-trim (or (plist-get err1 :stderr) "")))
+            (stdout (string-trim (or (plist-get err1 :stdout) "")))
+            (msg (list :code 'GIT_E_APPLY :severity 'error
+                       :details (or (and (not (string-empty-p stderr)) stderr)
+                                    (and (not (string-empty-p stdout)) stdout)
+                                    "Git repo not detected"))))
+       (carriage--apply-acc-msg state msg)
+       (carriage--apply-finish plan state callback)))))
+
 (defun carriage-apply-plan-async (plan repo-root &optional callback)
   "Apply PLAN under REPO-ROOT asynchronously (event-driven FSM).
 Returns a TOKEN plist with :abort-fn that cancels the current step (engine kill) or pending timers.
 CALLBACK, when non-nil, is invoked with the final REPORT on the main thread."
-  ;; Ensure WIP branch if policy enabled (fast ops, non-blocking)
-  (when carriage-apply-require-wip-branch
-    (carriage-git-ensure-repo repo-root)
-    (carriage-git-checkout-wip repo-root))
   (let* ((queue (carriage--plan-sort plan))
          (state (carriage--make-apply-state queue repo-root))
          (token (list :abort-fn nil)))
-    ;; Kick off the chain
-    (run-at-time 0 nil (lambda () (carriage--apply-next state plan repo-root callback token)))
-    ;; Ensure Abort is registered initially
+    (run-at-time
+     0 nil
+     (lambda ()
+       (if carriage-apply-require-wip-branch
+           (carriage--apply-preflight-wip-async state plan repo-root callback token)
+         (carriage--apply-next state plan repo-root callback token))))
+    ;; Register abort handler early; will be updated per step
     (carriage--apply-update-abort state token)
     token))
 
