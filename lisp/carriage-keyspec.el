@@ -190,7 +190,8 @@ Fallback: completing-read (group prefix in labels)."
                               for col = (funcall build-col sec)
                               when (> (length col) 1)
                               collect col))
-               (spec (apply #'vector cols))
+               ;; Note: transient-define-prefix expects body forms (lists/vectors)
+               ;; Splice a LIST of column vectors (cols), not a single vector.
                (menu-title (if (and (require 'carriage-i18n nil t)
                                     (fboundp 'carriage-i18n))
                                (carriage-i18n :carriage-menu)
@@ -201,7 +202,7 @@ Fallback: completing-read (group prefix in labels)."
           (eval
            `(transient-define-prefix carriage-keys--menu ()
               ,menu-title
-              ,@spec))
+              ,@cols))
           (call-interactively #'carriage-keys--menu))
       ;; Fallback: completing-read with section prefix in label
       (let* ((_ (require 'carriage-i18n nil t))

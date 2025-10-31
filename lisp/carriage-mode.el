@@ -20,6 +20,11 @@
 (declare-function carriage-transport-dispatch "carriage-transport" (&rest args))
 (declare-function carriage-select-apply-engine "carriage-apply-engine" (&optional engine))
 
+(defun carriage--ensure-transport ()
+  "Load carriage-transport when its functions are not yet defined (no autoloads)."
+  (unless (fboundp 'carriage-transport-begin)
+    (ignore-errors (require 'carriage-transport))))
+
 (defcustom carriage-mode-default-intent 'Patch
   "Default Intent for Carriage: `Ask' or `Patch'."
   :type '(choice (const Ask) (const Patch))
@@ -369,7 +374,8 @@ TYPE is either 'text (default) or 'reasoning.
 
 ;; v1.1 — Полный идентификатор модели для tooltip в модлайне.
 (defun carriage-llm-full-id (&optional backend provider model)
-  "Return full LLM id string backend[:provider]:model for current buffer or given args."
+  "Return normalized full LLM id backend[:provider]:model for current buffer or given args.
+Deduplicates segments if MODEL already contains provider/backend."
   (let* ((be (or backend (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
          (pr (or provider (and (boundp 'carriage-mode-provider) carriage-mode-provider)))
          (mo (or model   (and (boundp 'carriage-mode-model)   carriage-mode-model)))
@@ -377,15 +383,46 @@ TYPE is either 'text (default) or 'reasoning.
                   ((symbolp be) (symbol-name be))
                   ((stringp be) be)
                   ((null be) "")
-                  (t (format "%s" be)))))
-    (cond
-     ((and (stringp mo) (not (string-empty-p mo)))
-      (concat
-       (if (and be-str (not (string-empty-p be-str)))
-           (concat be-str (if (and pr (stringp pr) (not (string-empty-p pr))) (concat ":" pr) "") ":")
-         "")
-       mo))
-     (t (or be-str "")))))
+                  (t (format "%s" be))))
+         (pr-str (cond
+                  ((symbolp pr) (symbol-name pr))
+                  ((stringp pr) pr)
+                  ((null pr) "")
+                  (t (format "%s" pr))))
+         (mo-str (cond
+                  ((symbolp mo) (symbol-name mo))
+                  ((stringp mo) mo)
+                  ((null mo) "")
+                  (t (format "%s" mo)))))
+    (let* ((parts (and (stringp mo-str) (not (string-empty-p mo-str))
+                       (split-string mo-str ":" t)))
+           (n (length parts)))
+      (cond
+       ;; No model → return backend (or empty)
+       ((or (null parts) (zerop n))
+        (or be-str ""))
+       ;; MODEL already like "backend:...": return as-is
+       ((and (not (string-empty-p be-str))
+             (string-prefix-p (concat be-str ":") mo-str))
+        mo-str)
+       ;; MODEL has two parts "provider:model" → prefix backend
+       ((= n 2)
+        (if (and (not (string-empty-p be-str)))
+            (concat be-str ":" mo-str)
+          mo-str))
+       ;; MODEL has ≥3 parts → assume fully-qualified and return as-is
+       ((>= n 3)
+        mo-str)
+       ;; MODEL is a bare name → compose "backend[:provider]:model" with dedup when pr==backend
+       (t
+        (if (string-empty-p be-str)
+            mo-str
+          (concat be-str
+                  (if (and (not (string-empty-p pr-str))
+                           (not (string= pr-str be-str)))
+                      (concat ":" pr-str)
+                    "")
+                  ":" mo-str)))))))
 
 (defun carriage--modeline-attach-model-tooltip (ret)
   "Attach help-echo with full model id to the model segment inside RET (modeline construct).
@@ -477,6 +514,7 @@ May include :context-text and :context-target per v1.1."
       (ignore-errors (carriage-show-log)))
     (when (and carriage-mode-auto-open-traffic (not (bound-and-true-p noninteractive)))
       (ignore-errors (carriage-show-traffic)))
+    (carriage--ensure-transport)
     (carriage-stream-reset origin-marker)
     (let* ((unreg (carriage-transport-begin)))
       (carriage-traffic-log 'out "request begin: source=buffer backend=%s model=%s"
@@ -522,6 +560,7 @@ May include :context-text and :context-target per v1.1."
       (ignore-errors (carriage-show-log)))
     (when (and carriage-mode-auto-open-traffic (not (bound-and-true-p noninteractive)))
       (ignore-errors (carriage-show-traffic)))
+    (carriage--ensure-transport)
     (let* ((unreg (carriage-transport-begin)))
       (carriage-traffic-log 'out "request begin: source=subtree backend=%s model=%s"
                             backend model)
