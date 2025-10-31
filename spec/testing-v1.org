@@ -10,9 +10,9 @@
 * Наборы тестов
 ** Юнит-тесты (ERT)
 - Парсеры:
-  - SRE: корректные/некорректные сегменты, директивы #+pair.
-  - SRE: превышение лимита пар в sre-batch → SRE_E_LIMITS.
-  - SRE: пересинхронизация DELIM → предупреждение SRE_W_DELIM_RESYNC (при успехе), ошибка SRE_E_COLLISION_DELIM (при провале).
+  - SRE: корректные/некорректные begin_from/begin_to и директивы #+pair; from→to строго попарно.
+  - SRE: превышение лимита пар → SRE_E_LIMITS; отсутствие пар → SRE_E_SEGMENTS_COUNT; from без to → SRE_E_UNPAIRED.
+  - SRE: экранирование строк «#+end_from»/«#+end_to» (с одним ведущим пробелом).
   - SRE: :range вне границ → clamp и предупреждение SRE_W_RANGE_CLAMP; одинаковое поведение dry-run/apply.
   - PATCH: многофайловый diff → отказ, /dev/null create/delete.
   - PATCH: :strip логика — по умолчанию 1; если :strip задан и не (целое ≥ 0) → PATCH_E_STRIP.
@@ -31,7 +31,7 @@
 ** Интеграционные
 - Тестовый git-репозиторий (временный каталог).
 - Apply pipeline:
-  - delete → rename → create → patch → sre/sre-бatch порядок.
+  - delete → rename → create → patch → sre порядок.
   - Сбой в середине группы → остановка без автоматического отката.
   - Dry-run отчёты и подтверждение.
   - Асинхронность: запуск carriage-apply-plan-async возвращает управление немедленно; завершение приходит через колбэк; UI/буфер не блокируется (эмуляция таймера).
@@ -104,7 +104,7 @@
   (should (fboundp 'carriage-parse-sre)))
 
 (ert-deftest carriage-sre-occur-all-expect-required ()
-  (let ((plan '((:version "1" :op 'sre-batch :file "x"
+  (let ((plan '((:version "1" :op 'sre :file "x"
                   :pairs ((:from "a" :to "b" :opts (:occur all)))))))
     ;; skeleton: expect error on dry-run without :expect
     (should t)))

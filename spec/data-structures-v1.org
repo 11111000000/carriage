@@ -20,24 +20,22 @@
 - Представляет собой список блоков (элементов плана). Порядок — как в ответе (до упорядочения пайплайном).
 - Элемент плана (Block Item), общий каркас:
   - (:version "1"
-     :op OP                       ; 'sre | 'sre-batch | 'patch | 'create | 'delete | 'rename
+     :op OP                       ; 'sre | 'patch | 'create | 'delete | 'rename
      :file "relative/path"        ; для ops, где применимо
      :meta (:source-range (start end)
             :origin 'last-iteration
             :resynced-delim (:old "abcdef" :new "012345") ...)) ; опциональные метаданные
 - Для разных :op добавляются профильные поля, см. ниже.
 
-* Элемент плана: SRE (одна пара)
+* Элемент плана: SRE (1..N пар)
 - Каркас:
   - (:version "1" :op 'sre :file "path"
-     :pairs ((:from STRING :to STRING :opts OPTS)))
+     :pairs ((:from STRING :to STRING :opts OPTS) ...))
 - Где:
   - OPTS — plist опций пары (:occur, :match, :range); при отсутствии применяются встроенные дефолты (:occur first, :match literal, без :range).
-
-* Элемент плана: SRE-BATCH (несколько пар)
-- Каркас:
-  - (:version "1" :op 'sre-batch :file "path"
-     :pairs ((:from STRING :to STRING :opts OPTS) ... ))
+- Примечание:
+  - Один блок с :op 'sre может содержать одну или несколько пар FROM→TO. Каждая пара соответствует паре спец-блоков в документе (#+begin_from … #+end_from → #+begin_to … #+end_to).
+  - Опция #+pair в документе применяется только к следующей паре и затем сбрасывается.
 
 * Элемент плана: PATCH (unified diff одного файла)
 - Каркас:
@@ -100,7 +98,7 @@
          :pairs ((:from "(defun foo" :to "(defun foo-v2" :opts (:occur first))))))
 
 (setq example-batch-plan
-      '((:version "1" :op 'sre-batch :file "src/app.py"
+      '((:version "1" :op 'sre :file "src/app.py"
          :pairs ((:from "LOGGER.info(" :to "LOGGER.debug(" :opts (:occur first))
                  (:from "\\btimeout\\s/=\\s*30\\b" :to "timeout=60" :opts (:match regex :occur all :expect 3))))))
 

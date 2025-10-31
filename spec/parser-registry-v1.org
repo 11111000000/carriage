@@ -13,8 +13,7 @@
 
 
 * Операции и версии
-- "sre" v1 — одиночная пара FROM→TO в блоке =patch=.
-- "sre-batch" v1 — несколько пар для одного файла в блоке =patch=.
+- "sre" v1 — 1..N пар FROM→TO в одном блоке =patch= (begin_from/begin_to).
 - "patch" v1 — unified diff одного файла в блоке =patch=.
 - "create" v1 — создать файл с содержимым (см. ./file-ops-v1.org).
 - "delete" v1 — удалить файл (см. ./file-ops-v1.org).

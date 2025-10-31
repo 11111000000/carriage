@@ -18,15 +18,20 @@
 - Все функции должны сигнализировать условия (define-error) с кодами ./errors-v1.org.
 - Алиасы :op запрещены (MODE_E_DISPATCH). Разрешение возможно только в режиме совместимости (defcustom carriage-mode-allow-op-aliases=t), что выводит реализацию за рамки строгого v1; по умолчанию nil.
 
-* Генерация и ресинхронизация DELIM (SRE)
-- DELIM генерирует инструмент до запроса к LLM.
-- При обнаружении коллизии внутри блока (строка равна ":DELIM"):
-  - Выполнить пересинхронизацию: заменить все "<<DELIM"/":DELIM" на новый токен; повторно валидировать.
-- Повторять до 8 попыток с новыми 6-hex токенами; при каждой успешной пересинхронизации добавлять предупреждение SRE_W_DELIM_RESYNC в отчёт.
-- Если после 8 попыток коллизия не устранена — отказ с ошибкой SRE_E_COLLISION_DELIM.
+* SRE v1 — begin_from/begin_to (без DELIM)
+- Парсинг SRE выполняется по спецблокам "#+begin_from … #+end_from" и "#+begin_to … #+end_to".
+- Директива "#+pair (<plist>)" задаёт опции для следующей пары и затем «сбрасывается».
+- Экранирование: если строка содержимого ровно равна "#+end_from" или "#+end_to", она должна быть записана с одним ведущим пробелом; парсер снимает один пробел при извлечении.
+- Ошибки:
+  - SRE_E_UNPAIRED — from без последующего to.
+  - SRE_E_UNCLOSED_BLOCK — отсутствует закрывающий end-блок.
+  - SRE_E_SEGMENTS_COUNT — нет ни одной пары.
+  - SRE_E_OCCUR_EXPECT — :occur all без :expect.
+  - SRE_E_LIMITS — лимиты пар/размеров (см. FREEZE).
+- Внутреннее представление: (:pairs ((:from STR :to STR :opts PLIST) ...)).
 
 * Скелеты (Elisp)
-#+begin_src emacs-lisp
+#+end_#+begin_src emacs-lisp
 (cl-defgeneric carriage-parse (op header-plist body-text repo-root))
 (cl-defgeneric carriage-dry-run (plan-item repo-root))
 (cl-defgeneric carriage-apply (plan-item repo-root))
@@ -39,11 +44,15 @@
     (format "%02x%02x%02x" b1 b2 b3)))
 
 (defun carriage-parse-sre (header body repo-root)
-  "Парсинг SRE/SRE-BATCH по спецификации v1."
-  ;; 1) проверить :version, :op, :file, :delim
-  ;; 2) разобрать #+pair; собрать сегменты <<DELIM ... :DELIM
-  ;; 3) сгруппировать пары (FROM,TO), собрать :pairs
-  ;; 4) вернуть элемент плана
+  "Парсинг SRE v1 (begin_from/begin_to) по спецификации v1."
+  ;; 1) Проверить :version, :op='sre, :file; валидировать и нормализовать путь (внутри корня).
+  ;; 2) Сканировать BODY построчно:
+  ;;    - встречая \"#+pair (PLIST)\" — сохранить pending-opts для следующей пары;
+  ;;    - \"#+begin_from\" → читать до \"#+end_from\" (с экранированием одной ведущей пробельной строки для ровного \"#+end_from\");
+  ;;    - \"#+begin_to\"   → читать до \"#+end_to\"   (с тем же правилом); сформировать пару с opts = defaults ∪ pending-opts; сбросить pending-opts.
+  ;; 3) Ошибки: from без to → SRE_E_UNPAIRED; незакрытый блок → SRE_E_UNCLOSED_BLOCK; нет пар → SRE_E_SEGMENTS_COUNT;
+  ;;    :occur all и нет :expect → SRE_E_OCCUR_EXPECT; превышение лимитов → SRE_E_LIMITS.
+  ;; 4) Вернуть элемент плана: '(:version \"1\" :op 'sre :file PATH :pairs LIST-OF-PAIRS)
   )
 
 (defun carriage-dry-run-sre (plan-item repo-root)

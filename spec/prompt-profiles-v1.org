@@ -26,15 +26,15 @@
 
 * Intent: Patch (патчи) и Suites
 ** Базовые сьюиты v1
-- 'sre-v1 — разрешены :op (sre, sre-batch, create, delete, rename).
+- 'sre-v1 — разрешены :op (sre, create, delete, rename).
 - 'patch-v1 — разрешены :op (patch, rename).
 - 'file-ops-v1 — разрешены :op (create, delete, rename).
-- 'auto-v1 — разрешены все из v1 (sre, sre-batch, patch, create, delete, rename).
+- 'auto-v1 — разрешены все из v1 (sre, patch, create, delete, rename).
 
 ** Композиция промпта
 - Каждый op-модуль (например, lisp/ops/carriage-op-sre.el) публикует фрагмент промпта и регистрирует parse/dry-run/apply.
 - Suite объявляет (:ops-allowed …) и собирает системный промпт как конкатенацию фрагментов разрешённых ops, добавляя строгости (никакого текста вне блоков, только begin_patch).
-- Инструмент подставляет DELIM (6 hex) и пути; модель не выбирает DELIM.
+- Инструмент подставляет пути; DELIM используется только там, где требуется форматом (например, create) и всегда задаётся инструментом.
 
 ** Общие регуляции
 - Ответ содержит ТОЛЬКО блоки =begin_patch/end_patch=.
@@ -42,29 +42,21 @@
 - Пути: см. ./security-v1.org (только относительные; запрет абсолютов и «..»).
 
 * Фрагменты для форматов (встраиваются Suite-ом)
-** SRE (одна пара)
+** SRE (1..N пар в одном блоке)
 - Шаблон:
-  - #+begin_patch (:version "1" :op "sre" :file "RELATIVE/PATH" :delim "DELIM")
-  - <<DELIM
-  - FROM-текст
-  - :DELIM
-  - <<DELIM
-  - TO-текст
-  - :DELIM
-  - #+end_patch
-- Замечания:
-  - Ничего вне блока. Не изменяй DELIM. Путь относительный.
-
-** SRE-BATCH (несколько пар для одного файла)
-- Шаблон:
-  - #+begin_patch (:version "1" :op "sre-batch" :file "RELATIVE/PATH" :delim "DELIM")
+  - #+begin_patch (:version "1" :op "sre" :file "RELATIVE/PATH")
   - [опционально: #+pair (<plist>) — опции для СЛЕДУЮЩЕЙ пары]
-  - <<DELIM … :DELIM  ; FROM
-  - <<DELIM … :DELIM  ; TO
-  - … повторять по необходимости …
+  - #+begin_from
+  - FROM-текст
+  - #+end_from
+  - #+begin_to
+  - TO-текст
+  - #+end_to
+  - … повторять пары по необходимости …
   - #+end_patch
 - Замечания:
-  - Для :occur all обязательно укажи :expect. Не изменяй DELIM.
+  - Ничего вне блока. Сначала begin_from/end_from, затем begin_to/end_to для КАЖДОЙ пары.
+  - Если внутри содержимого встречается строка «#+end_from» или «#+end_to», поставь перед ней один пробел.
 
 ** PATCH (unified diff, один файл)
 - Шаблон:
@@ -103,8 +95,7 @@
 - Неизвестные :op/:version → отказ и перегенерация с пояснением.
 
 * Примеры итоговых сообщений (вставка инструментом)
-** Patch/SRE-BATCH (пример)
-- Делимитер: "d7e2b5"
+** Patch/SRE (пример)
 - Файл: "src/app.py"
 - Требуемые замены: …
 - Сгенерируй блок согласно шаблону ниже и не добавляй ничего вне него.
