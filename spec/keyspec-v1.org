@@ -1,0 +1,54 @@
+#+title: Keyspec v1.1 — Централизованная модель биндингов
+#+author: Carriage Team
+#+language: ru
+#+options: toc:2 num:t
+
+* Назначение
+- Единый источник правды (keyspec) для:
+  - Назначения клавиш (keymaps по контекстам режима),
+  - Подсказок which-key,
+  - Транзиентов (transient),
+  - Опционально hydra.
+- Поддержка профилей (classic|vimish|custom).
+
+* Структура записи
+- Плест-запись на действие:
+  (:id ID
+   :cmd SYMBOL
+   :keys ("k" "alias")
+   :contexts (carriage report global ...)
+   :section navigate|act|session|tools|logs
+   :desc-key :i18n-key)
+
+* Контексты (минимум)
+- carriage — основной буфер режима.
+- report — буфер отчёта.
+- global — глобальные действия/подсказки (без навязывания глобальных keymaps).
+
+* API (рекомендуемая реализация)
+- carriage-keys-apply-to (map context) — применяет keyspec к keymap.
+- carriage-keys-apply-known-keymaps () — применяет ко всем известным картам режима.
+- carriage-keys-help (context) — аллист секций → ((key . desc) ...).
+- carriage-keys-keys-for / carriage-keys-first-key — извлечение эффективных клавиш для id.
+- carriage-keys-lint-collisions — линтер коллизий.
+- Профили: carriage-keys-profile и carriage-keys-profile-overlays (:add/:remove).
+
+* Генерация UI
+- Transient: builder по :section и :contexts (см. context-navigator-transient-build.el как ориентир).
+- which-key: генерация подсказок из keyspec.
+- Hydra (опционально): быстрые группы действий.
+
+* Норматив префикса
+- Все команды режима — под C-c e; рекомендуется:
+  - Модель: C-c e m,
+  - Тумблеры контекста: C-c e t c / C-c e t f,
+  - Остальные действия — согласно группам :section.
+
+* Миграция
+- Существующие биндинги переносить автоматически из кода в keyspec.
+- Допускать временную совместимость старых биндингов до завершения миграции.
+
+* Тестирование
+- Применение keyspec к картам без коллизий.
+- which-key/транзиент строятся из keyspec.
+- Профили корректно добавляют/удаляют алиасы.

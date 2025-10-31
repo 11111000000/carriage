@@ -115,3 +115,17 @@
 * Стабильность API
 - Символы и сигнатуры в этом файле считаются стабильными для v1.
 - Изменения возможны только добавлением новых опций/команд без ломки существующих.
+
+* Дополнения v1.1 — модель, контекст, биндинги
+- Новые/уточнённые команды:
+  - carriage-select-model — минибуфер предзаполняется текущим полным идентификатором модели; кандидаты: "backend:provider:model", "backend:model". Рекомендуемый биндинг: C-c e m.
+  - carriage-toggle-include-gptel-context — переключатель включения gptel-context (буферы/файлы) в запрос. Рекомендуемый биндинг: C-c e t c.
+  - carriage-toggle-include-doc-context — переключатель включения файлов из блока #+begin_context. Рекомендуемый биндинг: C-c e t f.
+- Новые/уточнённые переменные:
+  - carriage-mode-include-gptel-context (boolean, default t) — включать gptel-context в запрос.
+  - carriage-mode-include-doc-context (boolean, default t) — включать файлы из контекст-блока документа.
+  - carriage-mode-context-injection (symbol, default 'system) — место инъекции контекста: 'system|'user.
+  - carriage-mode-context-max-files (integer, default 100) — предел числа файлов из контекста.
+  - carriage-mode-context-max-total-bytes (integer, default 1048576) — суммарный лимит байт включаемого содержимого.
+- Норматив для префикса клавиш:
+  - Все биндинги режима — под C-c e; исторические могут сохраняться как опциональная совместимость.
