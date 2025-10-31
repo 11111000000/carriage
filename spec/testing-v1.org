@@ -21,6 +21,7 @@
   - PATCH: превышение размера тела (> 4 MiB) → PATCH_E_LIMITS.
   - MODE: алиасы :op (replace/diff/write/create_file/delete_file/rename_file) — по умолчанию отказ с MODE_E_DISPATCH.
   - MODE: при carriage-mode-allow-op-aliases=t — алиасы принимаются; добавляется предупреждение в :messages.
+  - MODE: sanitizer — SRE-блоки не переписываются; для create обязателен и нормализуется :delim (6 lower hex).
 
   - File Ops: create/delete/rename — предусловия, :mkdir, :ensure-final-newline, конфликты путей и существование/отсутствие файлов; create: валидация :delim (=6 hex, Emacs regexp \\`[0-9a-f]\\{6\\}\\'), негативный кейс при неверном токене.
 - Валидаторы regexp (Emacs flavor): неподдерживаемые конструкции → ошибка.

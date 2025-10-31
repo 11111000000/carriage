@@ -25,7 +25,6 @@
   - LLM_E_BACKEND, LLM_E_REQUEST, LLM_E_STREAM, LLM_E_TOOL_USE, LLM_E_SCHEMA.
 - WARNINGS (SRE_W_*):
   - SRE_W_RANGE_CLAMP — диапазон :range был скорректирован до границ файла.
-  - SRE_W_DELIM_RESYNC — выполнена успешная пересинхронизация DELIM (old→new).
 
 * Формат диагностического сообщения
 - Поля:

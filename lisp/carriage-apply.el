@@ -166,11 +166,12 @@ Return report alist:
              (res
               (cond
                ;; If SRE/SRE-BATCH targets a file that will be created in this plan, simulate on that content.
-               ((and (memq op '(sre sre-batch))
+               ((and (eq op 'sre)
                      file
                      (not (let* ((abs (ignore-errors (carriage-normalize-path repo-root file))))
                             (and abs (file-exists-p abs))))
                      (assoc-string file virt t))
+
                 (if (fboundp 'carriage-sre-dry-run-on-text)
                     (carriage-sre-dry-run-on-text it (cdr (assoc-string file virt t)))
                   (carriage--report-fail op :file file :details "SRE simulation not available")))
@@ -438,7 +439,7 @@ Registers the handler with the mode when available."
               (carriage--apply-bump state (plist-get row0 :status))
               (carriage--apply-next state plan repo-root callback token))))
         token plan))
-      ((or 'sre 'sre-batch)
+      ('sre
        (carriage--apply-fs-async
         state
         (lambda ()

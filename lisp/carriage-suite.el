@@ -5,10 +5,10 @@
 (require 'carriage-format-registry)
 
 (defconst carriage--suite-table
-  '((sre-v1     . (:ops-allowed (sre sre-batch create delete rename)))
+  '((sre-v1     . (:ops-allowed (sre create delete rename)))
     (patch-v1   . (:ops-allowed (patch rename)))
     (file-ops-v1 . (:ops-allowed (create delete rename)))
-    (auto-v1    . (:ops-allowed (sre sre-batch patch create delete rename))))
+    (auto-v1    . (:ops-allowed (sre patch create delete rename))))
   "Mapping of suite-id to properties. :ops-allowed is a list of ops symbols.")
 
 (defun carriage-suite-ops (suite-id)
@@ -31,7 +31,7 @@
      "- ОПЕРАЦИИ УКАЗЫВАТЬ строго как в списке. Запрещены синонимы: write, create_file, delete_file, rename_file.\n"
      "- Заголовок блока: всегда :version \"1\". Ключи только из спецификации для выбранной операции.\n"
      "- Пути только относительные к корню репозитория. Использовать :file (не :path).\n"
-     "- Для create/sre/sre-batch обязателен :delim — ровно 6 hex-символов, нижний регистр. Делимитеры в теле: строки <<DELIM и :DELIM отдельными строками.\n"
+     "- Для create обязателен :delim — ровно 6 hex-символов, нижний регистр. Делимитеры в теле: строки <<DELIM и :DELIM отдельными строками.\n"
      "- Для patch: единый unified diff только для одного файла (ровно одна пара ---/+++), пути a/ и b/ совпадают, :strip=1. Без binary/rename/copy прелюдий.\n"
      "- Запрещены base64-вставки; при необходимости инструмент выполнит fallback сам.\n")))
 
@@ -58,7 +58,7 @@ CTX may contain keys like :payload, :context-text, :context-target, :delim, :fil
             (_ (dolist (op ops)
                  (unless (carriage-format-get op "1")
                    (pcase op
-                     ((or 'sre 'sre-batch) (load "ops/carriage-op-sre" t t))
+                     ('sre                (load "ops/carriage-op-sre" t t))
                      ('patch               (load "ops/carriage-op-patch" t t))
                      ((or 'create 'delete 'rename) (load "ops/carriage-op-file" t t))
                      (_ nil)))))

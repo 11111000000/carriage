@@ -6,7 +6,8 @@
 
 * FREEZE (v1)
   - DELIM: ровно 6 hex в нижнем регистре ([0-9a-f]{6}); Emacs regexp якорями: "\`[0-9a-f]\{6\}\'" (в строках Elisp: "\\`[0-9a-f]\\{6\\}\\'"); инструмент генерирует случайный токен.
-  - Макс. пар в SRE-batch: 200 (превышение → SRE_E_LIMITS)
+  - SRE: без :delim; пары begin_from/begin_to.
+  - Макс. пар в SRE: 200 (превышение → SRE_E_LIMITS)
   - Макс. сегмент FROM/TO: 512 KiB
   - Макс. размер тела ответа: 4 MiB
   - Тайм-аут git: 15 сек.
@@ -24,7 +25,7 @@
 - Движки применения (Apply Engines): ./apply-engines-v1.org.
 - Правила unified diff: ./patch-unified-diff-v1.org.
 - Операции create/delete/rename: ./file-ops-v1.org.
-- Формат SRE/SRE-BATCH: ./sre-v1.org.
+- Формат SRE: ./sre-v1.org.
 - UI/состояния/таблицы: ./ui-v1.org.
 - Git/WIP: ./git-integration-v1.org.
 - Коды ошибок: ./errors-v1.org.
@@ -40,7 +41,7 @@
 
 * Состав
 - Форматы патчей:
-  - ./sre-v1.org — Search/Replace формат (sre, sre-batch) в блоке =patch=.
+  - ./sre-v1.org — Search/Replace формат (sre; пары begin_from/begin_to) в блоке =patch=.
   - ./patch-unified-diff-v1.org — Unified Diff в блоке =patch=.
   - ./file-ops-v1.org — Операции над файлами (create, delete, rename) в блоках =patch=.
 - Спецификация мода (основы и модули):
@@ -72,5 +73,5 @@
   - #+begin_patch (<plist>) ... #+end_patch
 - Алиасы не поддерживаются в v1.
 - Один блок = одна операция над одним целевым объектом (обычно файл).
-- Для SRE-batch — один блок на один файл, несколько пар FROM→TO. DELIM: ровно 6 hex
+- Для SRE — один блок на один файл; внутри 1..N пар FROM→TO через пары begin_from/begin_to (без DELIM).
 - Для Unified Diff — ровно один файл на блок.

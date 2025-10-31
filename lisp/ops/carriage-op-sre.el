@@ -1,4 +1,4 @@
-;;; carriage-op-sre.el --- SRE ops (sre, sre-batch) handlers and prompt fragment  -*- lexical-binding: t; -*-
+;;; carriage-op-sre.el --- SRE op (begin_from/begin_to) handlers and prompt fragment -*- lexical-binding: t; -*-
 ;;
 
 (require 'cl-lib)
@@ -9,32 +9,25 @@
 (require 'carriage-utils)
 (require 'carriage-git)
 (require 'carriage-format-registry)
-(require 'carriage-sre-core)
 
 (defvar carriage-mode-sre-preview-max 3
   "Default maximum number of SRE preview chunks when Customize is not loaded.")
 
-;;;; Prompt fragment
+;;;; Prompt fragment (begin_from/begin_to)
 
-(defun carriage-op-sre-prompt-fragment (ctx)
-  "Return prompt fragment for SRE ops. CTX may contain :delim, :file hints."
-  (let* ((delim (or (plist-get ctx :delim) (carriage-generate-delim))))
-    (concat
-     "Формат SRE (поисково-заменяющий блок для одного файла):\n"
-     "#+begin_patch (:version \"1\" :op \"sre\" :file \"RELATIVE/PATH\" :delim \"" delim "\")\n"
-     "<<" delim "\nFROM-строки\n:" delim "\n"
-     "<<" delim "\nTO-строки\n:" delim "\n"
-     "#+end_patch\n\n"
-     "SRE-BATCH (несколько пар для одного файла):\n"
-     "#+begin_patch (:version \"1\" :op \"sre-batch\" :file \"RELATIVE/PATH\" :delim \"" delim "\")\n"
-     "#+pair (:occur all :expect K) ; опционально для СЛЕДУЮЩЕЙ пары\n"
-     "<<" delim "\nFROM\n:" delim "\n"
-     "<<" delim "\nTO\n:" delim "\n"
-     "#+end_patch\n"
-     "- Для :occur all обязателен :expect.\n"
-     "- Ничего вне блоков. DELIM не менять.\n")))
+(defun carriage-op-sre-prompt-fragment (_ctx)
+  "Return prompt fragment for SRE v1 (begin_from/begin_to)."
+  (concat
+   "SRE (1..N пар для одного файла):\n"
+   "#+begin_patch (:version \"1\" :op \"sre\" :file \"RELATIVE/PATH\")\n"
+   "#+pair (:occur all :expect K :match regex) ; опционально для СЛЕДУЮЩЕЙ пары\n"
+   "#+begin_from\nFROM-текст\n#+end_from\n"
+   "#+begin_to\nTO-текст\n#+end_to\n"
+   "#+end_patch\n"
+   "- Для :occur all обязателен :expect.\n"
+   "- Если строка внутри блока ровно «#+end_from» или «#+end_to», добавьте один пробел перед ней.\n"))
 
-;;;; Internal helpers (SRE)
+;;;; Internal helpers (SRE core)
 
 (defun carriage--sre-make-regexp (from match-kind)
   "Return regexp for FROM according to MATCH-KIND ('literal or 'regex)."
@@ -42,8 +35,7 @@
 
 (defun carriage--sre-count-nonoverlapping (text regexp)
   "Count non-overlapping matches of REGEXP in TEXT.
-Guards against zero-length matches to avoid infinite loops: when
-(match-end 0) equals POS, advance POS by one character."
+Guard against zero-length matches."
   (let ((pos 0) (cnt 0))
     (while (and (< pos (length text))
                 (string-match regexp text pos))
@@ -214,22 +206,7 @@ Guards against zero-length matches to avoid infinite loops: when
                                 pos-list)))
          previews)))))
 
-;;;; Parse (sre, sre-batch)
-
-(defun carriage--sre-validate-header (hdr op)
-  "Validate SRE HDR plist for OP (=sre' or =sre-batch')."
-  (let ((version (plist-get hdr :version))
-        (file (plist-get hdr :file))
-        (delim (plist-get hdr :delim)))
-    (unless (string= version "1")
-      (signal (carriage-error-symbol 'SRE_E_VERSION) (list version)))
-    (unless (member op '(sre sre-batch))
-      (signal (carriage-error-symbol 'SRE_E_OP) (list op)))
-    (unless (and (stringp file) (not (string-empty-p file)))
-      (signal (carriage-error-symbol 'SRE_E_PATH) (list file)))
-    (unless (and (stringp delim) (string-match-p "\\`[0-9a-f]\\{6\\}\\'" delim))
-      (signal (carriage-error-symbol 'SRE_E_DELIM) (list "Invalid :delim")))
-    t))
+;;;; Parse SRE (begin_from/begin_to)
 
 (defun carriage--sre-default-opts ()
   "Return default SRE pair options plist."
@@ -243,311 +220,129 @@ Guards against zero-length matches to avoid infinite loops: when
 
 (defun carriage--sre-parse-pair-directive (line)
   "If LINE is a #+pair directive, return its plist; else nil."
-  (when (string-match "\\`\\s-*#\\+pair\\s-+\\((.*)\\)\\s-*\\'" line)
+  (when (string-match "\\=\\s-*#\\+pair\\s-+\\((.*)\\)\\s-*\\'" line)
     (car (read-from-string (match-string 1 line)))))
 
-(defun carriage--sre-kv (obj key)
-  "Get KEY from OBJ which may be an alist or a plist."
-  (if (plist-member obj key) (plist-get obj key) (alist-get key obj)))
+(defun carriage--sre-validate-header (hdr)
+  "Validate SRE HDR plist for op='sre' and version '1'."
+  (let ((version (plist-get hdr :version))
+        (op (plist-get hdr :op))
+        (file (plist-get hdr :file)))
+    (unless (string= version "1")
+      (signal (carriage-error-symbol 'SRE_E_VERSION) (list version)))
+    (unless (member op '(sre 'sre "sre"))
+      (signal (carriage-error-symbol 'SRE_E_OP) (list op)))
+    (unless (and (stringp file) (not (string-empty-p file)))
+      (signal (carriage-error-symbol 'SRE_E_PATH) (list file)))
+    t))
 
-
-(defun carriage--sre--scan-linewise-delim (body open close)
-  "Scan BODY line-wise using explicit OPEN/CLOSE tokens. Return list of payloads."
-  (let ((segments '())
-        (state 'idle)
-        (acc nil))
-    (dolist (ln (split-string body "\n" nil nil))
-      (let ((tln (string-trim ln)))
+(defun carriage--sre-extract-block (lines idx begin end)
+  "Extract payload from LINES starting at IDX after BEGIN marker up to END marker.
+Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end markers."
+  (let ((acc '())
+        (i idx)
+        (n (length lines)))
+    (while (< i n)
+      (let ((ln (nth i lines)))
         (cond
-         ((and (eq state 'idle) (string= tln open)) (setq state 'in acc nil))
-         ((and (eq state 'in) (string= tln close))
-          (push (mapconcat #'identity (nreverse acc) "\n") segments)
-          (setq acc nil state 'idle))
-         ((eq state 'in) (push ln acc)))))
-    (when (eq state 'in)
-      (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT) (list "Unclosed segment")))
-    (nreverse segments)))
+         ((string= (string-trim ln) begin)
+          ;; Nested begin is not allowed; treat literally
+          (push ln acc)
+          (setq i (1+ i)))
+         ((string= ln end)
+          (cl-return-from carriage--sre-extract-block
+            (cons (mapconcat #'identity (nreverse acc) "\n") (1+ i))))
+         (t
+          ;; Unescape: a line that is exactly one leading space + end marker becomes end marker
+          (if (and (>= (length ln) (1+ (length end)))
+                   (eq (aref ln 0) ?\s)
+                   (string= (substring ln 1) end))
+              (push end acc)
+            (push ln acc))
+          (setq i (1+ i))))))
+    (signal (carriage-error-symbol 'SRE_E_UNCLOSED_BLOCK) (list (format "Unclosed %s" end)))))
 
-(defun carriage--sre--scan-regexp-delim (body open close)
-  "Scan BODY using anchored regex with explicit OPEN/CLOSE tokens."
-  (let ((res '()))
-    (with-temp-buffer
-      (insert body)
-      (goto-char (point-min))
-      (let* ((open-rx  (concat "^[ \t]*" (regexp-quote open)  "[ \t]*$"))
-             (close-rx (concat "^[ \t]*" (regexp-quote close) "[ \t]*$")))
-        (while (re-search-forward open-rx nil t)
-          (forward-line 1)
-          (let ((beg (point)))
-            (unless (re-search-forward close-rx nil t)
-              (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT) (list "Unclosed segment")))
-            (let ((end (line-beginning-position)))
-              (push (buffer-substring-no-properties beg end) res)
-              (forward-line 1))))))
-    (nreverse res)))
-
-(defun carriage--sre--scan-generic-token (body)
-  "Generic scan ignoring header :delim: any <<[0-9a-f]{6} ... :[0-9a-f]{6}."
-  (let ((res '()))
-    (with-temp-buffer
-      (insert body)
-      (goto-char (point-min))
-      (let ((open-any-rx "^[ \t]*<<\\([0-9a-f]\\{6\\}\\)[ \t]*$"))
-        (while (re-search-forward open-any-rx nil t)
-          (let ((tok (match-string 1)))
-            (forward-line 1)
-            (let ((beg (point)))
-              (unless (re-search-forward (concat "^[ \t]*:" tok "[ \t]*$") nil t)
-                (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT) (list "Unclosed segment")))
-              (let ((end (line-beginning-position)))
-                (push (buffer-substring-no-properties beg end) res)
-                (forward-line 1)))))))
-    (nreverse res)))
-
-(defun carriage--sre--scan-greedy-any (body)
-  "Greedy token-agnostic scan: from a line starting with << until a line starting with :."
-  (let ((greedy '())
-        (gstate 'idle)
-        (acc nil))
-    (dolist (ln (split-string body "\n" nil nil))
-      (let ((tln (string-trim ln)))
-        (cond
-         ((and (eq gstate 'idle) (string-prefix-p "<<" tln)) (setq gstate 'in acc nil))
-         ((and (eq gstate 'in) (not (string-empty-p tln)) (eq (aref tln 0) ?:))
-          (push (mapconcat #'identity (nreverse acc) "\n") greedy)
-          (setq acc nil gstate 'idle))
-         ((eq gstate 'in) (push ln acc)))))
-    (nreverse greedy)))
-
-(defun carriage--sre--scan-generic-linewise (body)
-  "Line-wise generic scan: any <<[0-9a-f]{6} ... :[0-9a-f]{6} blocks."
-  (let ((res '())
-        (state5 'idle)
-        (acc nil))
-    (dolist (ln (split-string body "\n" nil nil))
-      (let ((tln (string-trim ln)))
-        (cond
-         ((and (eq state5 'idle) (string-match "\\`<<[0-9a-f]\\{6\\}[ \t]*\\'" tln)) (setq state5 'in acc nil))
-         ((and (eq state5 'in) (string-match "\\`:[0-9a-f]\\{6\\}[ \t]*\\'" tln))
-          (push (mapconcat #'identity (nreverse acc) "\n") res)
-          (setq acc nil state5 'idle))
-         ((eq state5 'in) (push ln acc)))))
-    (nreverse res)))
-
-(defun carriage--sre--extract-first-two-by-indices (body)
-  "Robust tolerant extractor: find the first two <<.../:... payloads by line indices."
+(defun carriage--sre-parse-body (body)
+  "Parse BODY string into list of (:from STR :to STR :opts PLIST) pairs."
   (let* ((lines (split-string body "\n" nil nil))
-         (n (length lines))
-         (i 0)
-         (res '()))
-    (cl-labels
-        ((line (k) (nth k lines))
-         (is-open (s) (and s (let ((ts (string-trim s))) (and (>= (length ts) 2) (string-prefix-p "<<" ts)))))
-         (is-close (s) (and s (let ((ts (string-trim s))) (and (>= (length ts) 1) (eq (aref ts 0) ?:))))))
-      (while (and (< i n) (< (length res) 2))
-        (while (and (< i n) (not (is-open (line i)))) (setq i (1+ i)))
-        (when (< i n)
+         (i 0) (n (length lines))
+         (pending nil)
+         (pairs '()))
+    (while (< i n)
+      (let* ((ln (nth i lines)))
+        (cond
+         ;; #+pair directive
+         ((setq pending (or (carriage--sre-parse-pair-directive ln) pending))
+          (setq i (1+ i)))
+         ;; begin_from
+         ((string-match "\\=\\s-*#\\+begin_from\\b" ln)
           (setq i (1+ i))
-          (let ((beg i))
-            (while (and (< i n) (not (is-close (line i)))) (setq i (1+ i)))
-            (let ((end i))
-              (when (<= beg end)
-                (push (mapconcat #'identity (cl-subseq lines beg end) "\n") res))
-              (when (< i n) (setq i (1+ i))))))))
-    (nreverse res)))
-
-(defun carriage--sre-delim-collision-p (body delim)
-  "Heuristically detect potential DELIM collision inside BODY."
-  (let* ((open (concat "<<" delim))
-         (close (concat ":" delim))
-         (open-count (cl-loop for ln in (split-string body "\n" nil nil)
-                              count (string= (string-trim ln) open)))
-         (close-count (cl-loop for ln in (split-string body "\n" nil nil)
-                               count (string= (string-trim ln) close)))
-         (scan1 (ignore-errors (carriage--sre--scan-linewise-delim body open close)))
-         (scan3 (ignore-errors (carriage--sre--scan-generic-token body)))
-         (greedy (ignore-errors (carriage--sre--scan-greedy-any body))))
-    (or (/= open-count close-count)
-        (and scan1 scan3 (> (length scan3) (length scan1)))
-        (and scan1 greedy (> (length greedy) (length scan1))))))
-
-
-
-(defun carriage--sre-generate-delim ()
-  "Generate a random 6-hex lowercase token."
-  (if (fboundp 'carriage-generate-delim)
-      (carriage-generate-delim)
-    (let ((b1 (random 256))
-          (b2 (random 256))
-          (b3 (random 256)))
-      (format "%02x%02x%02x" b1 b2 b3))))
-
-(defun carriage--sre-resync-delim (body delim &optional max-tries)
-  "If BODY collides with DELIM, try to resync by rewriting marker lines to a new token."
-  (let ((tries (or max-tries 8)))
-    (if (not (carriage--sre-delim-collision-p body delim))
-        nil
-      (let ((cur-body body)
-            (cur-delim delim))
-        (catch 'carriage--sre-resynced
-          (dotimes (_ tries)
-            (let ((next (carriage--sre-generate-delim)))
-              (when (not (string= next cur-delim))
-                (let ((nb (carriage--sre--rewrite-delim-markers cur-body cur-delim next)))
-                  (if (carriage--sre-delim-collision-p nb next)
-                      (progn (setq cur-body nb) (setq cur-delim next))
-                    (throw 'carriage--sre-resynced (cons nb next)))))))
-          (signal (carriage-error-symbol 'SRE_E_COLLISION_DELIM)
-                  (list "Failed to resynchronize DELIM after multiple attempts")))))))
-
-(defun carriage--sre-scan-segments (body delim)
-  "Scan BODY for segments delimited by DELIM and return a list of payload strings."
-  (let* ((open (concat "<<" delim))
-         (close (concat ":" delim))
-         (segments (carriage--sre--scan-linewise-delim body open close)))
-    (let ((pass2 (carriage--sre--scan-regexp-delim body open close)))
-      (when (> (length pass2) (length segments)) (setq segments pass2)))
-    (let ((pass3 (carriage--sre--scan-generic-token body)))
-      (when (> (length pass3) (length segments)) (setq segments pass3)))
-    (let ((greedy (carriage--sre--scan-greedy-any body)))
-      (when (> (length greedy) (length segments)) (setq segments greedy)))
-    (let ((pass5 (carriage--sre--scan-generic-linewise body)))
-      (when (> (length pass5) (length segments)) (setq segments pass5)))
-    segments))
-
-(defun carriage--sre-group-pairs (segments op)
-  "Group SEGMENTS into FROM/TO pairs for OP."
-  (when (null segments)
-    (signal (carriage-error-symbol 'SRE_E_SEGMENTS_COUNT) (list 0)))
-  (cond
-   ((eq op 'sre)
-    (unless (= (length segments) 2)
-      (signal (carriage-error-symbol 'SRE_E_SEGMENTS_COUNT) (list (length segments))))
-    (list (cons :from (nth 0 segments))
-          (cons :to   (nth 1 segments))))
-   ((eq op 'sre-batch)
-    (when (cl-oddp (length segments))
-      (signal (carriage-error-symbol 'SRE_E_SEGMENTS_ODD) (list (length segments))))
-    (let ((pairs '()))
-      (cl-loop for i from 0 below (length segments) by 2
-               do (push (list (cons :from (nth i segments))
-                              (cons :to   (nth (1+ i) segments)))
-                        pairs))
-      (nreverse pairs)))))
-
-(defun carriage--sre-attach-opts-to-pairs (pairs body)
-  "Attach options to PAIRS by consuming #+pair directives in BODY in order."
-  (let ((lines (split-string body "\n" t nil))
-        (pending nil)
-        (idx 0)
-        (result '()))
-    (cl-labels ((next-opts () (prog1 (carriage--sre-merge-opts pending) (setq pending nil))))
-      (dolist (p pairs)
-        (while (and (< idx (length lines))
-                    (not (string-match "\\`<<[0-9a-f]\\{6\\}\\'" (nth idx lines))))
-          (let ((opts (carriage--sre-parse-pair-directive (nth idx lines))))
-            (when opts (setq pending opts)))
-          (setq idx (1+ idx)))
-        (while (and (< idx (length lines))
-                    (not (string-match "\\`:[0-9a-f]\\{6\\}\\'" (nth idx lines))))
-          (setq idx (1+ idx)))
-        (setq idx (1+ idx))
-        (while (and (< idx (length lines))
-                    (not (string-match "\\`<<[0-9a-f]\\{6\\}\\'" (nth idx lines))))
-          (setq idx (1+ idx)))
-        (push (list (cons :from (alist-get :from p))
-                    (cons :to   (alist-get :to p))
-                    (cons :opts (next-opts)))
-              result)
-        (while (and (< idx (length lines))
-                    (not (string-match "\\`:[0-9a-f]\\{6\\}\\'" (nth idx lines))))
-          (setq idx (1+ idx)))
-        (setq idx (1+ idx))))
-    (nreverse result)))
+          (let* ((from-cons (carriage--sre-extract-block lines i "#+begin_from" "#+end_from"))
+                 (from (car from-cons))
+                 (i2 (cdr from-cons)))
+            (unless (and (< i2 n)
+                         (string-match "\\=\\s-*#\\+begin_to\\b" (nth i2 lines)))
+              (signal (carriage-error-symbol 'SRE_E_UNPAIRED) (list "begin_from without following begin_to")))
+            (let* ((i3 (1+ i2))
+                   (to-cons (carriage--sre-extract-block lines i3 "#+begin_to" "#+end_to"))
+                   (to (car to-cons))
+                   (next (cdr to-cons))
+                   (opts (carriage--sre-merge-opts (or pending '()))))
+              (setq pending nil)
+              ;; size limits
+              (when (> (string-bytes from) (* 512 1024))
+                (signal (carriage-error-symbol 'SRE_E_LIMITS) (list "FROM segment exceeds 512KiB")))
+              (when (> (string-bytes to) (* 512 1024))
+                (signal (carriage-error-symbol 'SRE_E_LIMITS) (list "TO segment exceeds 512KiB")))
+              (push (list (cons :from from) (cons :to to) (cons :opts opts)) pairs)
+              (setq i next))))
+         (t
+          (setq i (1+ i))))))
+    (setq pairs (nreverse pairs))
+    (when (null pairs)
+      (signal (carriage-error-symbol 'SRE_E_SEGMENTS_COUNT) (list 0)))
+    pairs))
 
 (defun carriage-parse-sre (header body repo-root)
-  "Parse SRE/SRE-BATCH block. Return plan item alist."
-  (let* ((op (intern (or (plist-get header :op) "sre")))
-         (_ (carriage--sre-validate-header header op))
-         (file (plist-get header :file))
-         (delim (plist-get header :delim))
-         (res (carriage--sre-resync-delim body delim))
-         (body1 (if res (car res) body))
-         (delim1 (if res (cdr res) delim))
-         (_log (when res
-                 (ignore-errors
-                   (carriage-log "SRE: resynced DELIM for file=%s old=%s new=%s"
-                                 file delim delim1))))
-         (collision (carriage--sre-delim-collision-p body1 delim1))
-         (open-count (cl-loop for ln in (split-string body1 "\n" nil nil)
-                              count (string-prefix-p "<<" (string-trim ln))))
-         (_ (when (> (string-bytes body1) (* 4 1024 1024))
-              (signal (carriage-error-symbol 'SRE_E_LIMITS)
-                      (list "Response body exceeds 4MiB limit"))))
-         (segments
-          (progn
-            (when collision
-              (ignore-errors
-                (carriage-log "SRE: possible DELIM collision for file=%s delim=%s; using tolerant extraction"
-                              file delim1)))
-            (cond
-             ((and (eq op 'sre) (>= open-count 2))
-              (carriage--sre--extract-first-two-by-indices body1))
-             (t
-              (let ((scan (carriage--sre-scan-segments body1 delim1)))
-                (if (and (eq op 'sre) (/= (length scan) 2))
-                    (carriage--sre--extract-first-two-by-indices body1)
-                  scan))))))
-         (_ (dolist (seg segments)
-              (when (> (string-bytes seg) (* 512 1024))
-                (signal (carriage-error-symbol 'SRE_E_LIMITS)
-                        (list "Segment exceeds 512KiB limit")))))
-         (pairs-raw (carriage--sre-group-pairs segments op))
-         (pairs (carriage--sre-attach-opts-to-pairs
-                 (if (eq op 'sre) (list pairs-raw) pairs-raw)
-                 body1))
-         ;; Enforce FREEZE: limit pairs for sre-batch
+  "Parse SRE v1 (begin_from/begin_to) block. Return plan item alist."
+  (carriage--sre-validate-header header)
+  (let* ((file (plist-get header :file))
+         (_ (when (> (string-bytes body) (* 4 1024 1024))
+              (signal (carriage-error-symbol 'SRE_E_LIMITS) (list "Response body exceeds 4MiB limit"))))
+         (pairs (carriage--sre-parse-body body))
+         ;; enforce pair limit (FREEZE)
          (_ (let ((maxn (or (and (boundp 'carriage-mode-max-batch-pairs) carriage-mode-max-batch-pairs) 200)))
-              (when (and (eq op 'sre-batch) (> (length pairs) maxn))
+              (when (> (length pairs) maxn)
                 (signal (carriage-error-symbol 'SRE_E_LIMITS)
                         (list (format "Too many pairs: %d (max %d)" (length pairs) maxn))))))
+         ;; Validate options
+         (_ (dolist (p pairs)
+              (let* ((opts (alist-get :opts p))
+                     (occur (plist-get opts :occur))
+                     (expect (plist-get opts :expect))
+                     (match-kind (plist-get opts :match)))
+                (when (eq occur 'all)
+                  (unless (and (integerp expect) (>= expect 0))
+                    (signal (carriage-error-symbol 'SRE_E_OCCUR_EXPECT) (list "Missing :expect for :occur all"))))
+                (when (eq match-kind 'regex)
+                  (let ((pat (alist-get :from p)))
+                    (when (and (stringp pat)
+                               (or (string-match-p "(?<=" pat)
+                                   (string-match-p "(?<!"
+                                                   pat)
+                                   (string-match-p "(?>"
+                                                   pat)
+                                   (string-match-p "(?|"
+                                                   pat)))
+                      (signal (carriage-error-symbol 'SRE_E_REGEX_SYNTAX)
+                              (list "Unsupported regex construct (PCRE-style)"))))))))
          (norm-path (carriage-normalize-path repo-root file)))
-    (dolist (p pairs)
-      (let* ((opts (alist-get :opts p))
-             (occur (plist-get opts :occur))
-             (expect (plist-get opts :expect))
-             (match-kind (plist-get opts :match)))
-        (when (eq occur 'all)
-          (unless (and (integerp expect) (>= expect 0))
-            (signal (carriage-error-symbol 'SRE_E_OCCUR_EXPECT) (list "Missing :expect for :occur all"))))
-        (when (eq match-kind 'regex)
-          (let ((pat (alist-get :from p)))
-            (when (and (stringp pat)
-                       (or (string-match-p "(?<=" pat)
-                           (string-match-p "(?<!"
-                                           pat)
-                           (string-match-p "(?>"
-                                           pat)
-                           (string-match-p "(?|"
-                                           pat)))
-              (signal (carriage-error-symbol 'SRE_E_REGEX_SYNTAX)
-                      (list "Unsupported regex construct (PCRE-style)")))))))
     (list (cons :version "1")
-          (cons :op op)
+          (cons :op 'sre)
           (cons :file (file-relative-name norm-path repo-root))
-          (cons :meta (and res (list :resynced-delim (list :old delim :new delim1))))
           (cons :pairs pairs))))
 
 ;;;; Dry-run and apply (SRE)
-
-(defun carriage-dry-run-sre (plan-item repo-root)
-  "Dry-run SRE: count matches per pair; check :expect for :occur all; produce preview."
-  (let* ((file (alist-get :file plan-item))
-         (abs (ignore-errors (carriage-normalize-path (or repo-root default-directory) file))))
-    (if (not (and abs (file-exists-p abs)))
-        (append (list :op 'sre :status 'fail) (list :file file :details "File not found"))
-      (let* ((text (carriage-read-file-string abs)))
-        (carriage-sre-dry-run-on-text plan-item text)))))
 
 (defun carriage-sre-dry-run-on-text (plan-item text)
   "Dry-run SRE on TEXT content. Return report alist."
@@ -559,9 +354,9 @@ Guards against zero-length matches to avoid infinite loops: when
          (previews '())
          (any-noop nil))
     (dolist (p pairs)
-      (let* ((from (carriage--sre-kv p :from))
-             (to   (carriage--sre-kv p :to))
-             (opts (carriage--sre-kv p :opts))
+      (let* ((from (alist-get :from p))
+             (to   (alist-get :to p))
+             (opts (alist-get :opts p))
              (range (plist-get opts :range))
              (occur (or (plist-get opts :occur) 'first))
              (expect (plist-get opts :expect))
@@ -602,16 +397,6 @@ Guards against zero-length matches to avoid infinite loops: when
               (when warns
                 (dolist (w (nreverse warns))
                   (push (list :code 'SRE_W_RANGE_CLAMP :severity 'warn :file file :details w) acc)))
-              (let* ((meta (and plan-item (alist-get :meta plan-item)))
-                     (rs   (and meta (plist-get meta :resynced-delim))))
-                (when rs
-                  (push (list :code 'SRE_W_DELIM_RESYNC :severity 'warn :file file
-                              :details (format "DELIM resynced %s→%s"
-                                               (plist-get rs :old) (plist-get rs :new)))
-                        acc)))
-              (when any-noop
-                (push (list :code 'SRE_W_NOOP :severity 'warn :file file
-                            :details "No matches (occur first)") acc))
               (nreverse acc))))
       (if errors
           (let ((base (list :op 'sre :status 'fail
@@ -641,78 +426,64 @@ Guards against zero-length matches to avoid infinite loops: when
                            :diff (or preview ""))))
           (if itm-messages (append base (list :_messages itm-messages)) base))))))
 
+(defun carriage-dry-run-sre (plan-item repo-root)
+  "Dry-run SRE on file under REPO-ROOT."
+  (let* ((file (alist-get :file plan-item))
+         (abs (ignore-errors (carriage-normalize-path (or repo-root default-directory) file))))
+    (if (not (and abs (file-exists-p abs)))
+        (append (list :op 'sre :status 'fail) (list :file file :details "File not found"))
+      (let* ((text (with-temp-buffer (insert-file-contents abs) (buffer-string))))
+        (carriage-sre-dry-run-on-text plan-item text)))))
+
 (defun carriage-sre-simulate-apply (plan-item repo-root)
-  "Simulate apply for PLAN-ITEM under REPO-ROOT and return (:after STRING :count N).
-Does not touch filesystem or Git; replaces content in-memory."
+  "Simulate apply for PLAN-ITEM under REPO-ROOT and return (:after STRING :count N)."
   (let* ((file (alist-get :file plan-item))
          (abs (and file (ignore-errors (carriage-normalize-path (or repo-root default-directory) file)))))
     (if (not (and abs (file-exists-p abs)))
         (list :after "" :count 0)
-      (let* ((text (carriage-read-file-string abs))
-             (pairs (or (alist-get :pairs plan-item) '()))
-             (changed 0)
-             (new-text text))
-        (dolist (p pairs)
-          (let* ((from (carriage--sre-kv p :from))
-                 (to   (carriage--sre-kv p :to))
-                 (opts (carriage--sre-kv p :opts))
-                 (range (plist-get opts :range))
-                 (match-kind (or (plist-get opts :match) 'literal))
-                 (occur (or (plist-get opts :occur) 'first))
-                 (rx (carriage--sre-make-regexp from match-kind))
-                 (eff-range (and range (carriage--sre-effective-range new-text range)))
-                 (slice (carriage--sre-slice-by-lines new-text (or eff-range range)))
-                 (pre (car slice))
-                 (region (cadr slice))
-                 (post (caddr slice))
-                 (rep (pcase occur
-                        ('first (carriage--sre-replace-first region rx to (not (eq match-kind 'regex))))
-                        ('all   (carriage--sre-replace-all region rx to (not (eq match-kind 'regex))))
-                        (_      (carriage--sre-replace-all region rx to (not (eq match-kind 'regex))))))
-                 (region-new (car rep))
-                 (cnt (cdr rep)))
-            (setq changed (+ changed cnt))
-            (setq new-text (concat pre region-new post))))
-        (list :after new-text :count changed)))))
+      (let* ((text (with-temp-buffer (insert-file-contents abs) (buffer-string))))
+        (let* ((pairs (or (alist-get :pairs plan-item) '()))
+               (changed 0)
+               (new-text text))
+          (dolist (p pairs)
+            (let* ((from (alist-get :from p))
+                   (to   (alist-get :to p))
+                   (opts (alist-get :opts p))
+                   (range (plist-get opts :range))
+                   (match-kind (or (plist-get opts :match) 'literal))
+                   (occur (or (plist-get opts :occur) 'first))
+                   (rx (carriage--sre-make-regexp from match-kind))
+                   (eff-range (and range (carriage--sre-effective-range new-text range)))
+                   (slice (carriage--sre-slice-by-lines new-text (or eff-range range)))
+                   (pre (car slice))
+                   (region (cadr slice))
+                   (post (caddr slice))
+                   (rep (pcase occur
+                          ('first (carriage--sre-replace-first region rx to (not (eq match-kind 'regex))))
+                          ('all   (carriage--sre-replace-all region rx to (not (eq match-kind 'regex))))
+                          (_      (carriage--sre-replace-all region rx to (not (eq match-kind 'regex))))))
+                   (region-new (car rep))
+                   (cnt (cdr rep)))
+              (setq changed (+ changed cnt))
+              (setq new-text (concat pre region-new post))))
+          (list :after new-text :count changed))))))
 
 (defun carriage-apply-sre (plan-item repo-root)
-  "Apply SRE pairs by rewriting file. Commit is not performed here.
-Optional staging per `carriage-apply-stage-policy'."
+  "Apply SRE pairs by rewriting file. Optional staging per policy."
   (let* ((file (alist-get :file plan-item))
          (abs (carriage-normalize-path (or repo-root default-directory) file))
          (stage (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy)))
     (unless (file-exists-p abs)
       (cl-return-from carriage-apply-sre
         (list :op 'sre :status 'fail :file file :details "File not found")))
-    (let* ((text (carriage-read-file-string abs))
-           (pairs (or (alist-get :pairs plan-item) '()))
-           (changed 0)
-           (new-text text))
-      (dolist (p pairs)
-        (let* ((from (carriage--sre-kv p :from))
-               (to   (carriage--sre-kv p :to))
-               (opts (carriage--sre-kv p :opts))
-               (range (plist-get opts :range))
-               (match-kind (or (plist-get opts :match) 'literal))
-               (occur (or (plist-get opts :occur) 'first))
-               (rx (carriage--sre-make-regexp from match-kind))
-               (eff-range (and range (carriage--sre-effective-range new-text range)))
-               (slice (carriage--sre-slice-by-lines new-text (or eff-range range)))
-               (pre (car slice))
-               (region (cadr slice))
-               (post (caddr slice))
-               (rep (pcase occur
-                      ('first (carriage--sre-replace-first region rx to (not (eq match-kind 'regex))))
-                      ('all   (carriage--sre-replace-all region rx to (not (eq match-kind 'regex))))
-                      (_      (carriage--sre-replace-all region rx to (not (eq match-kind 'regex))))))
-               (region-new (car rep))
-               (cnt (cdr rep)))
-          (setq changed (+ changed cnt))
-          (setq new-text (concat pre region-new post))))
+    (let* ((text (with-temp-buffer (insert-file-contents abs) (buffer-string)))
+           (sim (carriage-sre-simulate-apply plan-item repo-root))
+           (after (plist-get sim :after))
+           (changed (or (plist-get sim :count) 0)))
       (if (<= changed 0)
           (list :op 'sre :status 'fail :file file :details "No changes")
         (progn
-          (carriage-write-file-string abs new-text t)
+          (carriage-write-file-string abs after t)
           (when (eq stage 'index)
             (carriage-git-add repo-root file))
           (list :op 'sre :status 'ok :file file :details (format "Applied %d replacements" changed)))))))
@@ -720,12 +491,6 @@ Optional staging per `carriage-apply-stage-policy'."
 ;;;; Registration
 
 (carriage-format-register 'sre "1"
-                          :parse #'carriage-parse-sre
-                          :dry-run #'carriage-dry-run-sre
-                          :apply #'carriage-apply-sre
-                          :prompt-fragment #'carriage-op-sre-prompt-fragment)
-
-(carriage-format-register 'sre-batch "1"
                           :parse #'carriage-parse-sre
                           :dry-run #'carriage-dry-run-sre
                           :apply #'carriage-apply-sre

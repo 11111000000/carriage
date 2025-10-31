@@ -225,7 +225,7 @@ If no preview is available, signal a user-visible message."
            (op   (or (plist-get it :op) (and plan (alist-get :op plan))))
            (root (or (plist-get it :_root) (carriage-project-root) default-directory)))
       (pcase op
-        ((or 'sre 'sre-batch)
+        ('sre
          (let* ((file (or (plist-get it :file) (and plan (alist-get :file plan))))
                 (abs  (and file (ignore-errors (carriage-normalize-path root file)))))
            (unless (and abs (file-exists-p abs))
@@ -268,7 +268,7 @@ If no preview is available, signal a user-visible message."
 
 (defun carriage-report-ediff-at-point ()
   "Open Ediff for the report item at point.
-For SRE/SRE-BATCH: build in-memory \"after\" and run ediff-buffers.
+For SRE: build in-memory \"after\" and run ediff-buffers.
 For patch: run ediff-patch-file with the unified diff and target file.
 In noninteractive (batch) mode, prepare data and never signal an error."
   (interactive)

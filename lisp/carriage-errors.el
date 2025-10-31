@@ -7,15 +7,15 @@
     (SRE_E_VERSION          carriage-sre-version          "Неверная версия (SRE_E_VERSION)")
     (SRE_E_OP               carriage-sre-op               "Неверное значение :op (SRE_E_OP)")
     (SRE_E_PATH             carriage-sre-path             "Недопустимый путь (SRE_E_PATH)")
-    (SRE_E_SEGMENTS_COUNT   carriage-sre-segments-count   "Неверное число сегментов (SRE_E_SEGMENTS_COUNT)")
+    (SRE_E_SEGMENTS_COUNT   carriage-sre-segments-count   "Нет ни одной пары (SRE_E_SEGMENTS_COUNT)")
     (SRE_E_SEGMENTS_ODD     carriage-sre-segments-odd     "Нечётное количество сегментов (SRE_E_SEGMENTS_ODD)")
-    (SRE_E_UNCLOSED_SEGMENT carriage-sre-unclosed-segment "Незакрытый сегмент (SRE_E_UNCLOSED_SEGMENT)")
+    (SRE_E_UNCLOSED_BLOCK   carriage-sre-unclosed-block   "Незакрытый блок FROM/TO (SRE_E_UNCLOSED_BLOCK)")
     (SRE_E_OCCUR_EXPECT     carriage-sre-occur-expect     "Для :occur all требуется :expect (SRE_E_OCCUR_EXPECT)")
     (SRE_E_REGEX_SYNTAX     carriage-sre-regex-syntax     "Неподдерживаемый синтаксис regexp (SRE_E_REGEX_SYNTAX)")
     (SRE_E_NO_MATCHES       carriage-sre-no-matches       "Совпадений не найдено (SRE_E_NO_MATCHES)")
     (SRE_E_EXPECT_MISMATCH  carriage-sre-expect-mismatch  "Число замен не соответствует :expect (SRE_E_EXPECT_MISMATCH)")
-    (SRE_E_DELIM            carriage-sre-delim            "Неверный :delim (SRE_E_DELIM)")
-    (SRE_E_COLLISION_DELIM  carriage-sre-collision-delim  "Коллизия DELIM (SRE_E_COLLISION_DELIM)")
+
+
     (SRE_E_LIMITS           carriage-sre-limits           "Превышены лимиты размера (SRE_E_LIMITS)")
 
     (PATCH_E_VERSION        carriage-patch-version        "Неверная версия (PATCH_E_VERSION)")

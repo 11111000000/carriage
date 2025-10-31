@@ -26,7 +26,7 @@
 - prompt-fragment(op, version) → STRING | FUNCTION (CTX → STRING)
 
 * Эталонные символы (референсные имена функций)
-- sre / sre-batch (общая реализация):
+- sre:
   - parse: carriage-parse-sre
   - dry-run: carriage-dry-run-sre
   - apply: carriage-apply-sre

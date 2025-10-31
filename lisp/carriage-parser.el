@@ -14,9 +14,9 @@
 (defvar carriage--last-iteration-id nil
   "Identifier of the last iteration in the current buffer (if any).")
 
-;; Fallback when Customize not loaded: limit for SRE-batch pairs (see spec/index.org FREEZE)
+;; Fallback when Customize not loaded: limit for SRE pairs (see spec/index.org FREEZE)
 (defvar carriage-mode-max-batch-pairs 200
-  "Fallback maximum number of pairs allowed in sre-batch when Customize not loaded.")
+  "Fallback maximum number of pairs allowed in an SRE block when Customize is not loaded.")
 
 (defun carriage-parse (op header-plist body-text repo-root)
   "Dispatch parse via registry by OP for HEADER-PLIST and BODY-TEXT under REPO-ROOT.
@@ -53,7 +53,7 @@ Strict v1 behavior:
       (unless (functionp fn)
         ;; Лениво грузим ops-модуль и повторяем поиск
         (pcase op-sym
-          ((or 'sre 'sre-batch) (load "ops/carriage-op-sre" t t))
+          ('sre (load "ops/carriage-op-sre" t t))
           ('patch               (load "ops/carriage-op-patch" t t))
           ((or 'create 'delete 'rename) (load "ops/carriage-op-file" t t))
           (_ nil))
@@ -131,7 +131,7 @@ Return a list of plan items in buffer order."
                (block-end (save-excursion
                             (goto-char body-beg)
                             (unless (re-search-forward "^[ \t]*#\\+end_patch\\b" end t)
-                              (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT)
+                              (signal (carriage-error-symbol 'SRE_E_UNCLOSED_BLOCK)
                                       (list "Unclosed #+begin_patch block")))
                             (line-beginning-position)))
                (body (buffer-substring-no-properties body-beg block-end))
@@ -142,7 +142,7 @@ Return a list of plan items in buffer order."
                           op
                           (plist-get header-plist :file)
                           (cl-loop for ln in (split-string body "\n" nil nil)
-                                   count (string-prefix-p "<<" (string-trim ln)))
+                                   count (string-match-p "\\=#\\+begin_\\(from\\|to\\)\\b" (string-trim ln)))
                           (let* ((s (substring body 0 (min 200 (length body)))))
                             (replace-regexp-in-string "\n" "\\n" s))))
           (let* ((item (carriage-parse op header-plist body repo-root)))
@@ -180,7 +180,7 @@ If REPO-ROOT is nil, detect via `carriage-project-root' or use `default-director
                    (block-end (save-excursion
                                 (goto-char body-beg)
                                 (unless (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
-                                  (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT)
+                                  (signal (carriage-error-symbol 'SRE_E_UNCLOSED_BLOCK)
                                           (list "Unclosed #+begin_patch block")))
                                 (line-beginning-position)))
                    (after (save-excursion

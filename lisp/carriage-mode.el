@@ -119,7 +119,7 @@ as a “(+N more)” tail."
   :type 'integer :group 'carriage)
 
 (defcustom carriage-mode-max-batch-pairs 200
-  "Maximum number of pairs allowed in an :op =sre-batch' block."
+  "Maximum number of pairs allowed in an :op 'sre' block."
   :type 'integer :group 'carriage)
 
 (defcustom carriage-mode-sre-noop-on-zero-matches nil
@@ -922,7 +922,7 @@ Return a single string with blocks concatenated by blank lines."
 
 Sanitization rules:
 - Keep only begin_patch blocks; drop any text outside blocks.
-- For :op sre/sre-batch/create: ensure :delim is a 6-hex token in header.
+- For :op create: ensure :delim is a 6-hex token in header.
   If missing/invalid, generate a token and rewrite markers in body (<<TOK and :TOK)."
   (with-temp-buffer
     (insert (or raw ""))
@@ -941,7 +941,7 @@ Sanitization rules:
                (body (buffer-substring-no-properties body-beg body-end)))
           (when (string-prefix-p ":" (or opstr ""))
             (setq opstr (substring opstr 1)))
-          (let* ((needs-delim (member opstr '("sre" "sre-batch" "create")))
+          (let* ((needs-delim (member opstr '("create")))
                  (delim (plist-get hdr :delim))
                  (delim-ok (and (stringp delim)
                                 (string-match-p "\\`[0-9a-f]\\{6\\}\\'" delim)))
@@ -1004,7 +1004,7 @@ Return the dry-run report plist."
 (defun carriage-accept-llm-response (&optional input insert-marker)
   "Accept an LLM response INPUT, keep only begin_patch blocks, insert and dry-run.
 
-- Sanitizes begin_patch blocks (enforces :delim for sre/sre-batch/create).
+- Sanitizes begin_patch blocks (enforces :delim only for create).
 - Inserts into buffer at INSERT-MARKER or point.
 - Marks the region as the last iteration and runs dry-run with report."
   (interactive
