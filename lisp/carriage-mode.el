@@ -76,6 +76,28 @@
   :type '(choice (const block) (const ignore))
   :group 'carriage)
 
+;; v1.1 — Context toggles and limits
+(defcustom carriage-mode-include-gptel-context t
+  "When non-nil, include gptel-context (buffers/files) into the request context."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-include-doc-context t
+  "When non-nil, include file contents listed in the nearest #+begin_context block."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-context-injection 'system
+  "Where to inject collected context: 'system (default) or 'user."
+  :type '(choice (const system) (const user))
+  :group 'carriage)
+
+(defcustom carriage-mode-context-max-files 100
+  "Max number of files to include from context sources."
+  :type 'integer :group 'carriage)
+
+(defcustom carriage-mode-context-max-total-bytes 1048576
+  "Max total bytes of file contents included from context sources."
+  :type 'integer :group 'carriage)
+
 (defcustom carriage-mode-wip-branch "carriage/WIP"
   "Default Git WIP branch name used for applying changes."
   :type 'string :group 'carriage)
@@ -146,6 +168,9 @@ May be a string or a function of zero args returning string."
 (defvar-local carriage-mode-backend carriage-mode-default-backend
   "Current Carriage backend identifier (symbol or string) for this buffer.")
 
+(defvar-local carriage-mode-provider nil
+  "Current LLM provider slug for the backend (e.g., \"ai-tunnel\" for gptel), or nil.")
+
 (defvar-local carriage--mode-prev-header-line-format nil
   "Saved previous value of =header-line-format' to restore on mode disable.")
 
@@ -181,6 +206,7 @@ Set by transports/pipelines when starting an async activity; cleared on completi
         (setq carriage-mode-suite  carriage-mode-default-suite)
         (setq carriage-mode-model carriage-mode-default-model)
         (setq carriage-mode-backend carriage-mode-default-backend)
+        (setq carriage-mode-provider nil)
         ;; Ensure default backend:model is present in registry for completion.
         (when (require 'carriage-llm-registry nil t)
           (let* ((bsym (if (symbolp carriage-mode-backend)
@@ -200,6 +226,9 @@ Set by transports/pipelines when starting an async activity; cleared on completi
             (setq carriage--mode-modeline-construct '(:eval (carriage-ui--modeline)))
             (setq-local mode-line-format
                         (append mode-line-format (list carriage--mode-modeline-construct)))))
+        (when (require 'carriage-keyspec nil t)
+          (carriage-keys-apply-known-keymaps)
+          (ignore-errors (carriage-keys-which-key-register)))
         (when (and carriage-mode-auto-open-log (fboundp 'carriage-show-log))
           (ignore-errors (carriage-show-log)))
         (when (and carriage-mode-auto-open-traffic (fboundp 'carriage-show-traffic))
@@ -338,9 +367,59 @@ TYPE is either 'text (default) or 'reasoning.
 
 ;;; Prompt construction helpers
 
+;; v1.1 — Полный идентификатор модели для tooltip в модлайне.
+(defun carriage-llm-full-id (&optional backend provider model)
+  "Return full LLM id string backend[:provider]:model for current buffer or given args."
+  (let* ((be (or backend (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
+         (pr (or provider (and (boundp 'carriage-mode-provider) carriage-mode-provider)))
+         (mo (or model   (and (boundp 'carriage-mode-model)   carriage-mode-model)))
+         (be-str (cond
+                  ((symbolp be) (symbol-name be))
+                  ((stringp be) be)
+                  ((null be) "")
+                  (t (format "%s" be)))))
+    (cond
+     ((and (stringp mo) (not (string-empty-p mo)))
+      (concat
+       (if (and be-str (not (string-empty-p be-str)))
+           (concat be-str (if (and pr (stringp pr) (not (string-empty-p pr))) (concat ":" pr) "") ":")
+         "")
+       mo))
+     (t (or be-str "")))))
+
+(defun carriage--modeline-attach-model-tooltip (ret)
+  "Attach help-echo with full model id to the model segment inside RET (modeline construct).
+RET can be a string or a list; this function is defensive and no-ops if not in carriage-mode."
+  (condition-case _e
+      (if (and (bound-and-true-p carriage-mode)
+               (boundp 'carriage-mode-model) carriage-mode-model)
+          (let* ((base carriage-mode-model)
+                 (full (carriage-llm-full-id))
+                 (_ (require 'carriage-i18n nil t))
+                 (templ (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                            (carriage-i18n :model-tooltip "%s")
+                          "Модель: %s"))
+                 (help (format templ full))
+                 (prop (lambda (s)
+                         (if (and (stringp s) (string-match (regexp-quote base) s))
+                             (replace-match (propertize base 'help-echo help) t t s)
+                           s))))
+            (cond
+             ((stringp ret) (funcall prop ret))
+             ((consp ret)   (mapcar (lambda (el) (if (stringp el) (funcall prop el) el)) ret))
+             (t ret)))
+        ret)
+    (error ret)))
+
+;; Register advice once (global), but it is effectively active only in carriage-mode buffers.
+(when (fboundp 'carriage-ui--modeline)
+  (unless (advice-member-p #'carriage--modeline-attach-model-tooltip 'carriage-ui--modeline)
+    (advice-add 'carriage-ui--modeline :filter-return #'carriage--modeline-attach-model-tooltip)))
+
 (defun carriage--build-context (source buffer)
   "Return context plist for prompt builder with at least :payload.
-SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
+SOURCE is 'buffer or 'subtree. BUFFER is the source buffer.
+May include :context-text and :context-target per v1.1."
   (with-current-buffer buffer
     (let* ((mode (buffer-local-value 'major-mode buffer))
            (payload
@@ -354,8 +433,25 @@ SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
                            (end (save-excursion (org-end-of-subtree t t) (point))))
                        (buffer-substring-no-properties beg end)))
                  (buffer-substring-no-properties (point-min) (point-max))))
-              (_ (buffer-substring-no-properties (point-min) (point-max))))))
-      (list :payload payload))))
+              (_ (buffer-substring-no-properties (point-min) (point-max)))))
+           (target (if (boundp 'carriage-mode-context-injection)
+                       carriage-mode-context-injection
+                     'system))
+           (ctx-text
+            (condition-case _e
+                (when (require 'carriage-context nil t)
+                  (let ((col (carriage-context-collect buffer (or (carriage-project-root) default-directory))))
+                    (when (and col
+                               (or (and (boundp 'carriage-mode-include-gptel-context)
+                                        carriage-mode-include-gptel-context)
+                                   (and (boundp 'carriage-mode-include-doc-context)
+                                        carriage-mode-include-doc-context)))
+                      (carriage-context-format col :where target))))
+              (error nil))))
+      (let ((res (list :payload payload)))
+        (when (and (stringp ctx-text) (not (string-empty-p ctx-text)))
+          (setq res (append res (list :context-text ctx-text :context-target target))))
+        res))))
 
 ;;; Commands (stubs/minimal implementations)
 
@@ -381,7 +477,6 @@ SOURCE is 'buffer or 'subtree. BUFFER is the source buffer."
       (ignore-errors (carriage-show-log)))
     (when (and carriage-mode-auto-open-traffic (not (bound-and-true-p noninteractive)))
       (ignore-errors (carriage-show-traffic)))
-    (carriage-stream-reset origin-marker)
     (carriage-stream-reset origin-marker)
     (let* ((unreg (carriage-transport-begin)))
       (carriage-traffic-log 'out "request begin: source=buffer backend=%s model=%s"
@@ -656,7 +751,7 @@ When registry has entries, offer completion over:
 - current backend's models, and
 - combined \"backend:model\" candidates.
 
-If the choice is \"backend:model\", both backend and model are updated.
+If the choice is \"backend:model\" (or \"backend:provider:model\"), backend and model are updated.
 Falls back to plain string prompt when registry is empty."
   (interactive)
   ;; Ensure at least the current backend:model is registered for completion.
@@ -674,37 +769,46 @@ Falls back to plain string prompt when registry is empty."
          (pairs  (carriage-llm-candidates))
          ;; Offer both combined and plain model names; keep gptel pairs first.
          (collection (delete-dups (append (or pairs '()) (or models '()))))
+         (def-full (and collection
+                        (carriage-llm-default-candidate bcur carriage-mode-model pairs carriage-mode-provider)))
          (prompt (if collection
                      (format "Model (or backend:model) [%s]: " bcur)
                    "Model: "))
          (choice (or model
                      (if collection
-                         (completing-read prompt collection nil t)
-                       (read-string prompt)))))
-    (if (and (string-match-p ":" choice)
-             (string-match "\\`\\([^:]+\\):\\(.+\\)\\'" choice))
-
-        (let ((b (match-string 1 choice))
-              (m (match-string 2 choice)))
-          (setq carriage-mode-backend (intern b))
-          (setq carriage-mode-model m)
-          ;; Keep registry in sync so completion always offers backend:model.
-          (when (require 'carriage-llm-registry nil t)
-            (let* ((bsym (if (symbolp carriage-mode-backend)
-                             carriage-mode-backend
-                           (intern (format "%s" carriage-mode-backend))))
-                   (existing (or (carriage-llm-available-models bsym) '())))
-              (carriage-llm-register-backend bsym :models (delete-dups (cons carriage-mode-model existing)))))
-          (message "Carriage backend:model set to: %s:%s" b m))
-      (setq carriage-mode-model choice)
-      ;; Also register model under current backend for future completion.
+                         ;; Prefill minibuffer with the current full identifier (def-full)
+                         (completing-read prompt collection nil t def-full nil def-full)
+                       (read-string prompt def-full)))))
+    ;; Apply selection:
+    ;; When choice contains ':', treat first segment as backend and last segment as model;
+    ;; otherwise treat it as plain model (keep backend unchanged).
+    (let* ((parts (when (stringp choice) (split-string choice ":" t)))
+           (backend  (and parts (car parts)))
+           (provider (and (>= (length parts) 3) (nth 1 parts)))
+           (model-str (if (and parts (>= (length parts) 2))
+                          (car (last parts))
+                        choice)))
+      (when (and backend (not (string-empty-p backend)))
+        (setq carriage-mode-backend (intern backend)))
+      (setq carriage-mode-provider (and (stringp provider) (not (string-empty-p provider)) provider))
+      (setq carriage-mode-model model-str)
+      ;; Ensure registry has backend->model mapping for future completion.
       (when (require 'carriage-llm-registry nil t)
         (let* ((bsym (if (symbolp carriage-mode-backend)
                          carriage-mode-backend
                        (intern (format "%s" carriage-mode-backend))))
                (existing (or (carriage-llm-available-models bsym) '())))
           (carriage-llm-register-backend bsym :models (delete-dups (cons carriage-mode-model existing)))))
-      (message "Carriage model set to: %s" choice))))
+      (message "Carriage model: %s (backend %s%s)"
+               carriage-mode-model
+               (if (symbolp carriage-mode-backend)
+                   (symbol-name carriage-mode-backend)
+                 carriage-mode-backend)
+               (if carriage-mode-provider
+                   (format " provider %s" carriage-mode-provider)
+                 ""))
+      (force-mode-line-update t)
+      (cons carriage-mode-backend carriage-mode-model))))
 
 ;;;###autoload
 (defun carriage-select-backend (&optional backend)
@@ -953,6 +1057,22 @@ FN must be a zero-argument function that cancels the ongoing activity."
   (interactive)
   (setq carriage-mode-use-icons (not carriage-mode-use-icons))
   (message "Use icons: %s" (if carriage-mode-use-icons "on" "off"))
+  (force-mode-line-update t))
+
+;;;###autoload
+(defun carriage-toggle-include-gptel-context ()
+  "Toggle including gptel-context (buffers/files) into the request context."
+  (interactive)
+  (setq carriage-mode-include-gptel-context (not carriage-mode-include-gptel-context))
+  (message "Include gptel-context: %s" (if carriage-mode-include-gptel-context "on" "off"))
+  (force-mode-line-update t))
+
+;;;###autoload
+(defun carriage-toggle-include-doc-context ()
+  "Toggle including file contents from the nearest #+begin_context block in the document."
+  (interactive)
+  (setq carriage-mode-include-doc-context (not carriage-mode-include-doc-context))
+  (message "Include #+begin_context files: %s" (if carriage-mode-include-doc-context "on" "off"))
   (force-mode-line-update t))
 
 (provide 'carriage-mode)

@@ -38,8 +38,8 @@
             (should (string-match-p "\\[Icons\\]" ml)))
         (carriage-mode -1)))))
 
-(ert-deftest carriage-ui-modeline-shows-backend-and-model ()
-  "Modeline should include [BACKEND:MODEL] string per defaults."
+(ert-deftest carriage-ui-modeline-shows-model-basename ()
+  "Modeline should include [MODEL] basename (no backend/provider)."
   (with-temp-buffer
     (let ((noninteractive nil)
           (carriage-mode-use-icons nil))
@@ -47,11 +47,10 @@
       (carriage-mode 1)
       (unwind-protect
           (let* ((ml (carriage--modeline-string))
-                 (backend (if (symbolp carriage-mode-backend)
-                              (symbol-name carriage-mode-backend)
-                            carriage-mode-backend))
                  (model carriage-mode-model)
-                 (rx (format "\\[%s:%s\\]" (regexp-quote backend) (regexp-quote model))))
+                 ;; Basename is last segment after ":" (if any)
+                 (base (car (last (split-string model ":" t))))
+                 (rx (format "\\[%s\\]" (regexp-quote (or base model)))))
             (should (string-match-p rx ml)))
         (carriage-mode -1)))))
 

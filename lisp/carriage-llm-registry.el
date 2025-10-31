@@ -87,5 +87,61 @@ Preference order:
              append (mapcar (lambda (m) (format "%s:%s" bname m))
                             (or models '()))))))
 
+(defun carriage-llm-basename (model-or-id)
+  "Return the last segment of MODEL-OR-ID after ':' separator.
+Examples:
+  \"gptel:ai-tunnel:gpt-5\" -> \"gpt-5\"
+  \"backend:model\"         -> \"model\"
+  \"model\"                 -> \"model\""
+  (let* ((s (format "%s" model-or-id))
+         (parts (split-string s ":" t))
+         (last (car (last parts))))
+    (or last s)))
+
+(defun carriage-llm-default-candidate (backend model pairs &optional provider)
+  "Return best default candidate string for BACKEND MODEL using PAIRS.
+When PROVIDER is non-nil, prefer \"backend:provider:model\" if present.
+
+Preference:
+  1) gptel:PROVIDER:MODEL (if present),
+  2) gptel:MODEL (if present),
+  3) BACKEND:PROVIDER:MODEL (if present),
+  4) BACKEND:MODEL (if present),
+  5) any candidate in PAIRS whose basename equals MODEL,
+  6) gptel:PROVIDER:MODEL,
+  7) gptel:MODEL,
+  8) BACKEND:PROVIDER:MODEL,
+  9) BACKEND:MODEL,
+  10) MODEL."
+  (let* ((b (cond
+             ((symbolp backend) (symbol-name backend))
+             ((stringp backend) backend)
+             (t (format "%s" backend))))
+         (prefer (delq nil
+                       (list (and model provider (format "gptel:%s:%s" provider model))
+                             (and model (format "gptel:%s" model))
+                             (and b model provider (format "%s:%s:%s" b provider model))
+                             (and b model (format "%s:%s" b model))))))
+    (or (cl-find-if (lambda (c) (and pairs (member c pairs))) prefer)
+        (when (and (listp pairs) (stringp model))
+          (cl-find-if (lambda (c) (string= (carriage-llm-basename c) model)) pairs))
+        (car prefer)
+        model)))
+
+(defun carriage-llm-make-full-id (backend provider model)
+  "Compose full identifier from BACKEND, PROVIDER and MODEL.
+Returns:
+- \"backend:provider:model\" when BACKEND and PROVIDER are non-nil;
+- \"backend:model\" when BACKEND is non-nil and PROVIDER is nil;
+- MODEL when BACKEND is nil."
+  (let* ((b (cond
+             ((symbolp backend) (symbol-name backend))
+             ((stringp backend) backend)
+             (t (and backend (format "%s" backend))))))
+    (cond
+     ((and b provider model) (format "%s:%s:%s" b provider model))
+     ((and b model)          (format "%s:%s" b model))
+     (model))))
+
 (provide 'carriage-llm-registry)
 ;;; carriage-llm-registry.el ends here

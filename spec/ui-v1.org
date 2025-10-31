@@ -206,20 +206,31 @@
 - Неглобальность:
   - В другом буфере без carriage-mode header-line/mode-line остаются неизменными.
 
-* UI v1.1 — Изменения (модель, контекст, биндинги)
-- Mode-line — модель:
-  - В модлайне отображается только «basename» модели (последний сегмент после «:»). Пример: "gptel:ai-tunnel:gpt-5" → "gpt-5".
-  - Клик по сегменту модели (или команда) открывает выбор с полными идентификаторами; минибуфер предзаполнен текущим полным id.
-- Выбор модели:
-  - Команда carriage-select-model предзаполняет ввод текущим полным id; кандидаты включают формы "backend:provider:model" и "backend:model".
-  - Норма биндинга: C-c e m.
-- Тумблеры контекста в модлайне:
-  - [Ctx] — включать/исключать gptel-context (буферы/файлы из gptel), по умолчанию on.
-  - [Files] — включать/исключать файлы из блока #+begin_context в документе, по умолчанию on.
-  - Иконки: "link"/"description" (material) при наличии all-the-icons; фоллбэк — текстовые ярлыки [Ctx]/[Files].
-  - Нормативные команды: carriage-toggle-include-gptel-context (C-c e t c), carriage-toggle-include-doc-context (C-c e t f).
-- Префикс клавиш:
-  - Все клавиши режима должны начинаться с C-c e. Исторические биндинги могут сохраняться как временная совместимость.
-- Деградация:
-  - В TTY — текстовые ярлыки [Ctx]/[Files]; поведение идентично.
+* UI v1
+
+** Addendum v1.1 — Carriage Menu (C-c e) multi-column
+- C-c e открывает меню действий (Carriage Menu).
+- transient (если доступен):
+  - Макет: много-колоночный (2–3 колонки), группы по секциям (:navigate, :act, :session, :tools, :logs).
+  - Заголовки групп — через i18n-ключи (см. i18n-v1.org), например: :navigate-title, :act-title, :tools-title.
+  - Пункты меню строятся динамически из keyspec; действие :menu исключено из списка.
+  - Клавиши:
+    - Для многоклавишных сочетаний используется последний токен ("t c" → "c", "t f" → "f").
+    - Уникализация при коллизиях: base → UPPER(base) → первая буква :id → цифры "1"…"9".
+- Fallback (без transient):
+  - completing-read с префиксом секции в метке: "[Section] Label" (Section — i18n).
+- which-key:
+  - Подсказки: "C-c e" — Carriage Menu; "C-c e t" — Carriage Toggles (строки — через i18n).
+- Mode-line и модель:
+  - В модлайне показывается только basename модели.
+  - Tooltip/help-echo на [MODEL] показывает полный id backend[:provider]:model (строка — через i18n-шаблон).
+  - Клик по [MODEL] открывает выбор модели (C-c e m).
+- TTY:
+  - Текстовый fallback, заголовки секций присутствуют.
+
+** I18N integration (UI)
+- All visible labels (buttons, help-echo, headers, which-key hints, transient titles) must be resolved via the i18n layer.
+- Locale switching must update UI labels without global side-effects; buffer-local mode-line refresh required (force-mode-line-update).
+
+
 

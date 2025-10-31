@@ -144,6 +144,7 @@ Negative values move icons up; positive move them down."
 
 (defvar carriage-mode-map
   (let* ((map (make-sparse-keymap)))
+    ;; Legacy bindings (kept for compatibility)
     (define-key map (kbd "C-c M-RET") #'carriage-send-buffer)
     (define-key map (kbd "C-c RET")   #'carriage-send-subtree)
     (define-key map (kbd "C-c C-c")   #'carriage-apply-at-point)
@@ -157,6 +158,7 @@ Negative values move icons up; positive move them down."
     (define-key map (kbd "C-c b m")   #'carriage-commit-changes)
     (define-key map (kbd "C-c b i")   #'carriage-commit-last-iteration)
     (define-key map (kbd "C-c b e")   #'carriage-select-apply-engine)
+    ;; New v1.1 prefix bindings (C-c e …) are applied via carriage-keyspec.
     ;; Navigation placeholders (optional)
     (define-key map (kbd "M-n")       #'carriage-next-patch-block)
     (define-key map (kbd "M-p")       #'carriage-prev-patch-block)
@@ -535,6 +537,8 @@ Updates on any change of outline path, heading level, or heading title."
                        ('diffs   'carriage-ui-accent-orange-face)
                        ('confirm 'carriage-ui-accent-purple-face)
                        ('icons   'carriage-ui-accent-cyan-face)
+                       ('ctx     'carriage-ui-accent-blue-face)
+                       ('files   'carriage-ui-accent-purple-face)
                        (_        'carriage-ui-accent-blue-face))
                    'carriage-ui-muted-face))
            (fg (carriage-ui--accent-hex face))
@@ -568,6 +572,18 @@ Updates on any change of outline path, heading level, or heading title."
         ('icons
          (when (fboundp 'all-the-icons-material)
            (all-the-icons-material "image"
+                                   :height carriage-mode-icon-height
+                                   :v-adjust carriage-mode-icon-v-adjust
+                                   :face fplist)))
+        ('ctx
+         (when (fboundp 'all-the-icons-material)
+           (all-the-icons-material "link"
+                                   :height carriage-mode-icon-height
+                                   :v-adjust carriage-mode-icon-v-adjust
+                                   :face fplist)))
+        ('files
+         (when (fboundp 'all-the-icons-material)
+           (all-the-icons-material "description"
                                    :height carriage-mode-icon-height
                                    :v-adjust carriage-mode-icon-v-adjust
                                    :face fplist)))
@@ -636,21 +652,25 @@ reflects toggle state (muted when off, bright when on)."
          (suite-btn (carriage-ui--ml-button suite-label
                                             #'carriage-select-suite
                                             "Select Suite (auto|sre|patch|fileops)"))
-         ;; Backend:Model
-         (backend-str (let ((b (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
-                        (cond
-                         ((symbolp b) (symbol-name b))
-                         ((stringp b) b)
-                         (t "backend"))))
+         ;; Model (basename only)
          (model-str (or (and (boundp 'carriage-mode-model) carriage-mode-model) "model"))
-         (bm-text (format "[%s:%s]" backend-str model-str))
+         (model-base (or (car (last (split-string model-str ":" t))) model-str))
+         (bm-text (format "[%s]" model-base))
          (bm-label (if use-icons
                        (let* ((ic (carriage-ui--icon 'model)))
                          (if ic (concat ic " " bm-text) bm-text))
                      bm-text))
+         (b-backend (let ((b (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
+                      (if (symbolp b) (symbol-name b) (or b ""))))
+         (provider (and (boundp 'carriage-mode-provider) carriage-mode-provider))
+         (full-id (if (and (stringp b-backend) (not (string-empty-p b-backend)))
+                      (if (and provider (stringp provider) (not (string-empty-p provider)))
+                          (format "%s:%s:%s" b-backend provider model-str)
+                        (format "%s:%s" b-backend model-str))
+                    model-str))
          (backend-model-btn (carriage-ui--ml-button bm-label
                                                     #'carriage-select-model
-                                                    "Select model (M-x carriage-select-backend to change backend)"))
+                                                    (format "Модель: %s (клик — выбрать)" full-id)))
          ;; State + spinner (textual; spinner already handled)
          (st (let ((s (and (boundp 'carriage--ui-state) carriage--ui-state)))
                (if (symbolp s) s 'idle)))
@@ -690,7 +710,13 @@ reflects toggle state (muted when off, bright when on)."
          (wip    (carriage-ui--ml-button wip-label    #'carriage-wip-checkout          "Switch to WIP branch"))
          (commit (carriage-ui--ml-button commit-label #'carriage-commit-changes        "Commit changes"))
          (reset  (carriage-ui--ml-button reset-label  #'carriage-wip-reset-soft        "Soft reset last commit"))
-         ;; Toggles (text conveys meaning; active ones emphasized)
+         ;; Toggles (v1.1: add [Ctx]/[Files])
+         (t-ctx   (carriage-ui--toggle "[Ctx]"        'carriage-mode-include-gptel-context
+                                       #'carriage-toggle-include-gptel-context
+                                       "Toggle including gptel-context (buffers/files)" 'ctx))
+         (t-files (carriage-ui--toggle "[Files]"      'carriage-mode-include-doc-context
+                                       #'carriage-toggle-include-doc-context
+                                       "Toggle including files from #+begin_context" 'files))
          (t-auto  (carriage-ui--toggle "[AutoRpt]"    'carriage-mode-auto-open-report   #'carriage-toggle-auto-open-report   "Toggle auto-open report" 'auto))
          (t-diffs (carriage-ui--toggle "[ShowDiffs]"  'carriage-mode-show-diffs         #'carriage-toggle-show-diffs        "Toggle show diffs before apply" 'diffs))
          (t-all   (carriage-ui--toggle "[ConfirmAll]" 'carriage-mode-confirm-apply-all  #'carriage-toggle-confirm-apply-all "Toggle confirm apply-all" 'confirm))
@@ -698,7 +724,7 @@ reflects toggle state (muted when off, bright when on)."
     (mapconcat #'identity
                (list intent-btn suite-btn backend-model-btn state
                      dry apply all abort report diff ediff wip engine commit reset
-                     t-auto t-diffs t-all t-icons)
+                     t-ctx t-files t-auto t-diffs t-all t-icons)
                " ")))
 
 ;; Code style: см. spec/code-style-v1.org (The Tao of Emacs Lisp Programming for LLMs)

@@ -53,3 +53,4 @@
 - Новые спецификации в каталоге spec/:
   - context-integration-v1.org — единая модель включения контекста (gptel + блок документа).
   - keyspec-v1.org — спецификация централизованной модели биндингов и генераторов which-key/transient/hydra.
+  - i18n-v1.org — слой локализации (переводы ru/en, ключи для UI/which-key/transient).

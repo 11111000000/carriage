@@ -37,11 +37,21 @@
 
 (defun carriage-build-prompt (intent suite-id ctx)
   "Build (:system :prompt) for INTENT ('Ask|'Patch) and SUITE-ID with CTX.
-CTX may contain keys like :payload, :delim, :files, etc. Payload is user task text."
+CTX may contain keys like :payload, :context-text, :context-target, :delim, :files, etc.
+:payload is user task text."
   (pcase intent
     ('Ask
-     (list :system "Режим диалога (Ask). Не генерируй begin_patch."
-           :prompt (or (plist-get ctx :payload) "")))
+     (let* ((payload (or (plist-get ctx :payload) ""))
+            (ctx-text (plist-get ctx :context-text))
+            (ctx-target (or (plist-get ctx :context-target) 'system))
+            (sys "Режим диалога (Ask). Не генерируй begin_patch.")
+            (system (if (and (eq ctx-target 'system) (stringp ctx-text) (not (string-empty-p ctx-text)))
+                        (concat sys "\n" ctx-text)
+                      sys))
+            (prompt (if (and (eq ctx-target 'user) (stringp ctx-text) (not (string-empty-p ctx-text)))
+                        (concat ctx-text "\n" payload)
+                      payload)))
+       (list :system system :prompt prompt)))
     ('Patch
      (let* ((ops (carriage-suite-ops suite-id))
             ;; Ensure op modules are loaded so their prompt fragments are registered.
@@ -60,10 +70,19 @@ CTX may contain keys like :payload, :delim, :files, etc. Payload is user task te
                       collect (condition-case e
                                   (funcall fn ctx)
                                 (error (format ";; prompt-fragment error for %s: %s\n"
-                                               op (error-message-string e)))))))
-       (list :system (concat (carriage--suite-guardrails ops)
-                             (mapconcat #'identity (delq nil frags) "\n"))
-             :prompt (or (plist-get ctx :payload) ""))))
+                                               op (error-message-string e))))))
+            (ctx-text (plist-get ctx :context-text))
+            (ctx-target (or (plist-get ctx :context-target) 'system))
+            (payload (or (plist-get ctx :payload) ""))
+            (sys-core (concat (carriage--suite-guardrails ops)
+                              (mapconcat #'identity (delq nil frags) "\n")))
+            (system (if (and (eq ctx-target 'system) (stringp ctx-text) (not (string-empty-p ctx-text)))
+                        (concat sys-core "\n" ctx-text)
+                      sys-core))
+            (prompt (if (and (eq ctx-target 'user) (stringp ctx-text) (not (string-empty-p ctx-text)))
+                        (concat ctx-text "\n" payload)
+                      payload)))
+       (list :system system :prompt prompt)))
     (_
      (list :system "Unknown intent; defaulting to Ask." :prompt (or (plist-get ctx :payload) "")))))
 
