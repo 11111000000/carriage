@@ -108,7 +108,7 @@ payload       := любая строка; спец-случай экраниро
 - SRE_E_VERSION, SRE_E_OP, SRE_E_PATH — неверные заголовки/пути.
 - SRE_E_SEGMENTS_COUNT — нет ни одной пары.
 - SRE_E_UNPAIRED — найден from без последующего to.
-- SRE_E_UNCLOSED_BLOCK — пропущен "#+end_from"/"# +end_to".
+- SRE_E_UNCLOSED_BLOCK — пропущен "#+end_from"/"#+end_to".
 - SRE_E_OCCUR_EXPECT — :occur all без :expect.
 - SRE_E_REGEX_SYNTAX — неподдерживаемый regexp.
 - SRE_E_LIMITS — превышены лимиты (см. FREEZE).
@@ -125,11 +125,11 @@ payload       := любая строка; спец-случай экраниро
 
 * Безопасность и ограничения
 - Политики пути, symlink, TRAMP, EOL/Unicode — см. ./security-v1.org.
-- Регулярные выражения — Emacs-flavor; неподдерживаемые конструкции → SRE_E_REGEX_SYNTAX.
+- Регулярные выражения — Emacs-flavor; неподдерживаемые конструкции → SRE_E_REGEX_SYNTAX; явные запреты: lookbehind (?<=, ?<!), atomic group (?>), branch reset (?|).
 - FREEZE (лимиты): макс. пар в SRE-блоке — 200; макс. payload одной стороны — 512 KiB; макс. размер тела ответа — 4 MiB.
 
-* Рекомендации по промпту (Intent Patch / Suites)
-- Модель должна отвечать ТОЛЬКО блоками =begin_patch=:
+* Рекомендации по промпту (Intent Code/Hybrid / Suites)
+- Для Intent=Code: отвечай ТОЛЬКО блоками =begin_patch=; для Intent=Hybrid: допускается текст вне блоков, но парсинг и применение выполняются только для блоков:
   - #+begin_patch (:version "1" :op "sre" :file "RELATIVE/PATH")
   - [опционально: #+pair (<plist>) — для СЛЕДУЮЩЕЙ пары]
   - #+begin_from
@@ -182,7 +182,7 @@ timeout=60
   #+end_to
 #+end_to
 #+end_patch
-; Парсер снимет один ведущий пробел у ровной строки "#+end_from"/"# +end_to" в содержимом.
+; Парсер снимет один ведущий пробел у ровной строки "#+end_from"/"#+end_to" в содержимом.
 
 * Архитектурные принципы
 - Один блок — один файл; внутри — 1..N пар «begin_from → begin_to».
@@ -197,20 +197,9 @@ timeout=60
 - Парсер не модифицирует содержимое; apply выполняет замену последовательно.
 
 * План внедрения
-- Шаг 1 (этот документ): зафиксировать SRE v1 с begin_from/begin_to; убрать DELIM из SRE; дописать экранирование.
-- Шаг 2 (спеки): обновить registry/index/pipeline/checklist/errors на однозначный 'sre без 'sre-batch и без DELIM в SRE.
-- Шаг 3 (код): 
-  - lisp/ops/carriage-op-sre.el — парсер на begin_from/begin_to; удалить зависимость от :delim и 'sre-batch; dry-run/apply без изменений семантики.
-  - lisp/carriage-suite.el — убрать 'sre-batch из таблиц Suite.
-  - lisp/carriage-parser.el — санитайзер не должен требовать :delim для SRE; убрать ресинхронизацию DELIM для SRE.
-  - lisp/carriage-report.el — Ediff-симуляция SRE без изменений (уже работает на :pairs).
-  - lisp/carriage-sre-core.el — удалить утилиты ресинхронизации DELIM (если они используются только SRE).
-- Шаг 4 (prompt): убедиться, что prompt-фрагмент SRE использует begin_from/begin_to (см. prompt-profiles-v1.org).
-- Шаг 5 (тесты): дополнить ERT кейсами экранирования "#+end_from"/"# +end_to", пределами лимитов и ошибками UNPAIRED/UNCLOSED.
 
 * Имя спец-блока
 - Источник истины по имени спец-блока: см. ./parser-registry-v1.org.
-#+end_src
 
 
 

@@ -4,18 +4,18 @@
 #+options: toc:2 num:t
 
 * Введение
-- Этот документ — минимальный набор примеров для первого запуска: SRE (одна пара), SRE-BATCH, PATCH (unified diff), FILE OPS (create/delete/rename).
+- Этот документ — минимальный набор примеров для первого запуска: SRE (одна или несколько пар), PATCH (unified diff), FILE OPS (create/delete/rename).
 - Как запустить тесты: nix run .#tests или emacs -Q -batch -l test/ert-runner.el
 
 * SRE (одна пара)
 #+begin_example
-#+begin_patch (:version "1" :op "sre" :file "x.txt" :delim "cafe01")
-<<cafe01
+#+begin_patch (:version "1" :op "sre" :file "x.txt")
+#+begin_from
 hello
-:cafe01
-<<cafe01
+#+end_from
+#+begin_to
 world
-:cafe01
+#+end_to
 #+end_patch
 #+end_example
 - Действия:
@@ -23,20 +23,19 @@ world
   - C-c ? (dry-run) → откроется отчёт с превью, :matches 1.
   - C-c C-c (apply) → файл станет “world”.
 
-* SRE-BATCH (несколько пар)
+* SRE (несколько пар в одном блоке)
 #+begin_example
-#+begin_patch (:version "1" :op "sre-batch" :file "app.log" :delim "deadbe")
-# Пример директивы пары:
+#+begin_patch (:version "1" :op "sre" :file "app.log")
 #+pair (:occur all :expect 3)
-<<deadbe
+#+begin_from
 INFO:
-:deadbe
-<<deadbe
+#+end_from
+#+begin_to
 DEBUG:
-:deadbe
+#+end_to
 #+end_patch
 #+end_example
-- В этом примере все “INFO:” заменяются на “DEBUG:”, ожидается 3 совпадения.
+- В этом примере все строки “INFO:” заменяются на “DEBUG:”; ожидается 3 совпадения.
 
 * PATCH (unified diff одного файла)
 #+begin_example
@@ -72,7 +71,6 @@ Hello
 * Отчёты и диагностика
 - В отчёте вверху отображаются messages:
   - SRE_W_RANGE_CLAMP — диапазон :range был скорректирован.
-  - SRE_W_DELIM_RESYNC — при коллизии маркера выполнена пересинхронизация DELIM.
 
 * Порядок применения (v1)
 - delete → rename → create → patch → sre

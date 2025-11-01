@@ -9,7 +9,7 @@
 * Keymap (org-mode только)
 Примечание: начиная с UI v1.1, все команды Carriage должны иметь префикс C-c e и описываются централизованно через keyspec (см. ./keyspec-v1.org). Ниже приведённые сочетания — легаси и могут поддерживаться для совместимости.
 
-- C-c M-RET — отправить весь документ (поведение зависит от Intent: Ask|Patch).
+- C-c M-RET — отправить весь документ (поведение зависит от Intent: Ask|Code|Hybrid).
 - C-c RET — отправить текущее поддерево.
 - C-c C-c — dry-run → подтверждение → применить блок =patch= под точкой.
 - C-c ! — применить все блоки из «последней итерации».
@@ -31,8 +31,8 @@
 
 * Mode-line
 - Сегменты и кнопки (кликабельно; без мыши — дублируются командами/клавишами):
-  - Intent: [Ask|Patch] — переключение намерения ответа (toggle).
-  - Suite: [auto|sre|patch|fileops] — выбор набора допустимых операций/шаблонов.
+  - Intent: [Ask|Code|Hybrid] — переключение намерения ответа (toggle).
+  - Suite: [sre|udiff] — выбор набора допустимых операций/шаблонов.
   - Модель: [MODEL] — выбор модели (в модлайне показывается только имя модели).
   - Состояние: [idle|sending|streaming|dry-run|apply|error] + индикатор-спиннер для sending/streaming.
   - Управление циклом:
@@ -55,9 +55,12 @@
   - [ShowDiffs] — carriage-mode-show-diffs (t/nil) — требовать предпросмотр диффов перед применением.
   - [ConfirmAll] — carriage-mode-confirm-apply-all (t/nil) — подтверждение перед C-c !.
   - [Icons] — carriage-mode-use-icons (t/nil) — использовать иконки.
+  - [Ctx] — carriage-mode-use-context (t/nil) — включать контекст запроса (релевантные фрагменты; см. ./context-integration-v1.org).
+  - [Files] — carriage-mode-context-attach-files (t/nil) — прикладывать список/содержимое файлов в запрос (лимиты см. ./index.org).
 
 - Иконки (при наличии all-the-icons; иначе — текстовые метки в [скобках]):
-  - Intent: Ask — material "chat" | Patch — material "code".  - Модель: octicon "cpu" или material "memory".
+  - Intent: Ask — material "chat" | Code/Hybrid — material "code".
+  - Модель: octicon "cpu" или material "memory".
   - Состояния: sending — spinner, streaming — waves, dry-run — faicon "flask", apply — material "check_circle", error — material "error".
   - Кнопки:
     - Dry — faicon "flask".
@@ -86,7 +89,7 @@
       …накапливаемый reasoning…
       #+end_reasoning
       Закрыть блок необходимо при (reasoning . t) или завершении стрима (t|ошибка).
-    - Основной ответ выводится «как есть» по мере поступления. В Intent=Patch допускаются сразу блоки =begin_patch= — они печатаются без фильтрации; последующая обработка выполнится парсером по правилам v1.
+    - Основной ответ выводится «как есть» по мере поступления. В Intent=Code допускаются только блоки =begin_patch=; в Intent=Hybrid — текст вперемежку с блоками, парсер извлекает и обрабатывает только блоки.
     - Вставка — строго в исходный org-буфер Carriage; спец-буферы (*carriage-traffic*, *carriage-log*) используются только для диагностики (дублирование необязательно).
     - При отмене/ошибке незакрытый reasoning-блок закрывается, спиннер останавливается, состояние переводится в error.
 
@@ -159,7 +162,7 @@
 
 * Mode-line: сегменты, состояния и обновление
 - Сегменты (в порядке слева направо, минимальная реализация):
-  - [Ask|Patch] [Suite:auto|sre|patch|fileops], [MODEL], [STATE+spinner], [Dry] [Apply] [All] [Abort] [Report], [Diff] [Ediff], [WIP] [Reset]
+  - [Ask|Code|Hybrid] [Suite:sre|udiff], [MODEL], [STATE+spinner], [Dry] [Apply] [All] [Abort] [Report], [Diff] [Ediff], [WIP] [Reset]
   - Тумблеры: [AutoRpt] [ShowDiffs] [ConfirmAll] [Icons]
 - Состояния STATE:
   - idle | sending | streaming | dry-run | apply | error.

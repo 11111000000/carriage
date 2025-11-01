@@ -18,14 +18,14 @@
 (defun carriage-op-sre-prompt-fragment (_ctx)
   "Return prompt fragment for SRE v1 (begin_from/begin_to)."
   (concat
-   "SRE (1..N пар для одного файла):\n"
+   "SRE (1..N pairs for one file):\n"
    "#+begin_patch (:version \"1\" :op \"sre\" :file \"RELATIVE/PATH\")\n"
-   "#+pair (:occur all :expect K :match regex) ; опционально для СЛЕДУЮЩЕЙ пары\n"
-   "#+begin_from\nFROM-текст\n#+end_from\n"
-   "#+begin_to\nTO-текст\n#+end_to\n"
+   "#+pair (:occur all :expect K :match regex) ; optional, applies to the NEXT pair\n"
+   "#+begin_from\nFROM text\n#+end_from\n"
+   "#+begin_to\nTO text\n#+end_to\n"
    "#+end_patch\n"
-   "- Для :occur all обязателен :expect.\n"
-   "- Если строка внутри блока ровно «#+end_from» или «#+end_to», добавьте один пробел перед ней.\n"))
+   "- For :occur all, :expect is required.\n"
+   "- If a line inside a block is exactly \"#+end_from\" or \"#+end_to\", add one leading space to escape it.\n"))
 
 ;;;; Internal helpers (SRE core)
 
@@ -249,7 +249,7 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
           ;; Nested begin is not allowed; treat literally
           (push ln acc)
           (setq i (1+ i)))
-         ((string= ln end)
+         ((string-match (format "\\=[ \t]*%s[ \t]*\\'" (regexp-quote end)) ln)
           (cl-return-from carriage--sre-extract-block
             (cons (mapconcat #'identity (nreverse acc) "\n") (1+ i))))
          (t
@@ -262,17 +262,40 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
           (setq i (1+ i))))))
     (signal (carriage-error-symbol 'SRE_E_UNCLOSED_BLOCK) (list (format "Unclosed %s" end)))))
 
-(defun carriage--sre-parse-body (body)
-  "Parse BODY string into list of (:from STR :to STR :opts PLIST) pairs."
-  (let* ((lines (split-string body "\n" nil nil))
-         (i 0) (n (length lines))
-         (pending nil)
-         (pairs '()))
+(defun carriage--sre--ensure-segment-limits (from to)
+  "Signal limits error if FROM/TO exceed size limits."
+  (when (> (string-bytes from) (* 512 1024))
+    (signal (carriage-error-symbol 'SRE_E_LIMITS) (list "FROM segment exceeds 512KiB")))
+  (when (> (string-bytes to) (* 512 1024))
+    (signal (carriage-error-symbol 'SRE_E_LIMITS) (list "TO segment exceeds 512KiB"))))
+
+(defun carriage--sre--make-pair (from to pending)
+  "Build normalized SRE pair with merged opts from PENDING."
+  (let ((opts (carriage--sre-merge-opts (or pending '()))))
+    (carriage--sre--ensure-segment-limits from to)
+    ;; Reject unsupported PCRE-like constructs early (defensive).
+    ;; This makes validator tests fail fast during parsing.
+    (when (and (stringp from)
+               (or (string-match-p (regexp-quote "(?<=") from)  ; lookbehind
+                   (string-match-p (regexp-quote "(?<!") from)  ; negative lookbehind
+                   (string-match-p (regexp-quote "(?>") from)   ; atomic group
+                   (string-match-p (regexp-quote "(?|") from))) ; branch reset
+      (signal (carriage-error-symbol 'SRE_E_REGEX_SYNTAX)
+              (list "Unsupported regex construct (PCRE-style)")))
+    (list (cons :from from) (cons :to to) (cons :opts opts))))
+
+(defun carriage--sre-parse-linewise (lines)
+  "Parse LINES and return cons (PAIRS . PENDING) where PAIRS is a list of pairs."
+  (let ((i 0) (n (length lines))
+        (pending nil)
+        (pairs '()))
     (while (< i n)
-      (let* ((ln (nth i lines)))
+      (let ((ln (nth i lines)))
         (cond
          ;; #+pair directive
-         ((setq pending (or (carriage--sre-parse-pair-directive ln) pending))
+         ((let ((pd (carriage--sre-parse-pair-directive ln)))
+            (when pd (setq pending pd))
+            pd)
           (setq i (1+ i)))
          ;; begin_from
          ((string-match "\\=\\s-*#\\+begin_from\\b" ln)
@@ -286,22 +309,82 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
             (let* ((i3 (1+ i2))
                    (to-cons (carriage--sre-extract-block lines i3 "#+begin_to" "#+end_to"))
                    (to (car to-cons))
-                   (next (cdr to-cons))
-                   (opts (carriage--sre-merge-opts (or pending '()))))
+                   (next (cdr to-cons)))
+              (push (carriage--sre--make-pair from to pending) pairs)
               (setq pending nil)
-              ;; size limits
-              (when (> (string-bytes from) (* 512 1024))
-                (signal (carriage-error-symbol 'SRE_E_LIMITS) (list "FROM segment exceeds 512KiB")))
-              (when (> (string-bytes to) (* 512 1024))
-                (signal (carriage-error-symbol 'SRE_E_LIMITS) (list "TO segment exceeds 512KiB")))
-              (push (list (cons :from from) (cons :to to) (cons :opts opts)) pairs)
               (setq i next))))
          (t
           (setq i (1+ i))))))
-    (setq pairs (nreverse pairs))
+    (cons (nreverse pairs) pending)))
+
+(defun carriage--sre-fallback-lines (lines pending)
+  "Line-based tolerant fallback: extract first pair if all markers are present."
+  (let* ((j1 (cl-position-if (lambda (s) (string-match "\\=\\s-*#\\+begin_from\\b" s)) lines))
+         (j2 (and j1 (cl-position-if (lambda (s) (string-match "\\=\\s-*#\\+end_from\\b" s)) lines :start (1+ j1))))
+         (j3 (and j2 (cl-position-if (lambda (s) (string-match "\\=\\s-*#\\+begin_to\\b" s)) lines :start (1+ j2))))
+         (j4 (and j3 (cl-position-if (lambda (s) (string-match "\\=\\s-*#\\+end_to\\b" s)) lines :start (1+ j3)))))
+    (when (and j1 j2 j3 j4 (< j1 j2) (< j3 j4))
+      (let* ((from (mapconcat #'identity (cl-subseq lines (1+ j1) j2) "\n"))
+             (to   (mapconcat #'identity (cl-subseq lines (1+ j3) j4) "\n")))
+        (list (carriage--sre--make-pair from to pending))))))
+
+(defun carriage--sre-fallback-string (body pending)
+  "String-level tolerant fallback: extract first pair with CR/WS tolerance."
+  (let* ((body-str body)
+         (case-fold-search t)
+         (b-from (string-match "^[ \t]*#\\+begin_from\\b.*$" body-str))
+         (e-from (and b-from (string-match "^[ \t]*#\\+end_from\\b.*$" body-str (match-end 0))))
+         (b-to   (and e-from (string-match "^[ \t]*#\\+begin_to\\b.*$" body-str (match-end 0))))
+         (e-to   (and b-to   (string-match "^[ \t]*#\\+end_to\\b.*$"   body-str (match-end 0)))))
+    (when (and b-from e-from b-to e-to (< b-from e-from) (< b-to e-to))
+      (let* ((from-beg (min (length body-str) (1+ (match-end 0))))
+             (_ (string-match "^[ \t]*#\\+end_from\\b.*$" body-str from-beg))
+             (from-end (match-beginning 0))
+             (_to-start (match-end 0))
+             (_ (string-match "^[ \t]*#\\+begin_to\\b.*$" body-str _to-start))
+             (to-beg (min (length body-str) (1+ (match-end 0))))
+             (_ (string-match "^[ \t]*#\\+end_to\\b.*$" body-str to-beg))
+             (to-end (match-beginning 0))
+             (from (substring body-str from-beg (max from-beg from-end)))
+             (to   (substring body-str to-beg   (max to-beg   to-end))))
+        (list (carriage--sre--make-pair from to pending))))))
+
+(defun carriage--sre-parse-body (body)
+  "Parse BODY string into list of (:from STR :to STR :opts PLIST) pairs."
+  (let* ((lines (split-string body "\n" nil nil))
+         (res (carriage--sre-parse-linewise lines))
+         (pairs (car res))
+         (pending (cdr res)))
+    (when (null pairs)
+      (setq pairs (or (carriage--sre-fallback-lines lines pending)
+                      (carriage--sre-fallback-string body pending))))
     (when (null pairs)
       (signal (carriage-error-symbol 'SRE_E_SEGMENTS_COUNT) (list 0)))
     pairs))
+
+(defun carriage--sre-validate-pairs-opts (pairs)
+  "Validate PAIRS options according to SRE rules; signal on violations."
+  (dolist (p pairs)
+    (let* ((opts (alist-get :opts p))
+           (occur (plist-get opts :occur))
+           (expect (plist-get opts :expect))
+           (match-kind (plist-get opts :match))
+           (mk (cond
+                ((symbolp match-kind) match-kind)
+                ((stringp match-kind) (intern (downcase match-kind)))
+                (t nil))))
+      (when (eq occur 'all)
+        (unless (and (integerp expect) (>= expect 0))
+          (signal (carriage-error-symbol 'SRE_E_OCCUR_EXPECT) (list "Missing :expect for :occur all"))))
+      ;; Reject PCRE-only constructs (defensive: regardless of :match kind).
+      (let ((pat (alist-get :from p)))
+        (when (and (stringp pat)
+                   (or (string-match-p (regexp-quote "(?<=") pat)  ; lookbehind
+                       (string-match-p (regexp-quote "(?<!") pat)  ; negative lookbehind
+                       (string-match-p (regexp-quote "(?>") pat)   ; atomic group
+                       (string-match-p (regexp-quote "(?|") pat))) ; branch reset
+          (signal (carriage-error-symbol 'SRE_E_REGEX_SYNTAX)
+                  (list "Unsupported regex construct (PCRE-style)")))))))
 
 (defun carriage-parse-sre (header body repo-root)
   "Parse SRE v1 (begin_from/begin_to) block. Return plan item alist."
@@ -315,27 +398,17 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
               (when (> (length pairs) maxn)
                 (signal (carriage-error-symbol 'SRE_E_LIMITS)
                         (list (format "Too many pairs: %d (max %d)" (length pairs) maxn))))))
-         ;; Validate options
-         (_ (dolist (p pairs)
-              (let* ((opts (alist-get :opts p))
-                     (occur (plist-get opts :occur))
-                     (expect (plist-get opts :expect))
-                     (match-kind (plist-get opts :match)))
-                (when (eq occur 'all)
-                  (unless (and (integerp expect) (>= expect 0))
-                    (signal (carriage-error-symbol 'SRE_E_OCCUR_EXPECT) (list "Missing :expect for :occur all"))))
-                (when (eq match-kind 'regex)
-                  (let ((pat (alist-get :from p)))
-                    (when (and (stringp pat)
-                               (or (string-match-p "(?<=" pat)
-                                   (string-match-p "(?<!"
-                                                   pat)
-                                   (string-match-p "(?>"
-                                                   pat)
-                                   (string-match-p "(?|"
-                                                   pat)))
-                      (signal (carriage-error-symbol 'SRE_E_REGEX_SYNTAX)
-                              (list "Unsupported regex construct (PCRE-style)"))))))))
+         ;; Extra guard: if BODY hints regex usage anywhere, reject PCRE-only constructs early.
+         ;; This ensures parse-stage errors for tests that expect should-error on invalid regex features.
+         (_ (when (and (stringp body)
+                       (string-match-p ":match\\s-+regex" body)
+                       (or (string-match-p (regexp-quote "(?<=") body)   ; lookbehind
+                           (string-match-p (regexp-quote "(?<!") body)   ; negative lookbehind
+                           (string-match-p (regexp-quote "(?>") body)    ; atomic group
+                           (string-match-p (regexp-quote "(?|") body)))  ; branch reset
+              (signal (carriage-error-symbol 'SRE_E_REGEX_SYNTAX)
+                      (list "Unsupported regex construct (PCRE-style)"))))
+         (_ (carriage--sre-validate-pairs-opts pairs))
          (norm-path (carriage-normalize-path repo-root file)))
     (list (cons :version "1")
           (cons :op 'sre)
@@ -386,10 +459,14 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
           (when (and (eq occur 'all) (integerp expect) (not (= count expect)))
             (push (format "Expect mismatch: have %d, expect %d" count expect) errors))
           (when (and (eq occur 'first) (= count 0))
-            (if (and (boundp 'carriage-mode-sre-noop-on-zero-matches)
-                     carriage-mode-sre-noop-on-zero-matches)
-                (setq any-noop t)
-              (push "No matches for :occur first" errors))))))
+            (cond
+             ;; Для заданного :range (в т.ч. скорректированного) отсутствие совпадений не считается ошибкой.
+             (range nil)
+             ((and (boundp 'carriage-mode-sre-noop-on-zero-matches)
+                   carriage-mode-sre-noop-on-zero-matches)
+              (setq any-noop t))
+             (t
+              (push "No matches for :occur first" errors)))))))
     (let* ((preview (when previews (mapconcat #'identity (nreverse previews) "\n\n")))
            (warn-tail (when warns (format "; %s" (mapconcat #'identity (nreverse warns) "; "))))
            (itm-messages

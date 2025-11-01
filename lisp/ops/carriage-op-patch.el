@@ -158,7 +158,7 @@ Returns a plan item alist: (:version \"1\" :op 'patch :strip N :path REL :diff B
 (defun carriage-op-patch-prompt-fragment (_ctx)
   "Prompt fragment for :op patch (unified diff, single file)."
   (concat
-   "PATCH (unified diff, один файл):\n"
+   "PATCH (unified diff, single file):\n"
    "#+begin_patch (:version \"1\" :op \"patch\" :strip 1)\n"
    "--- a/RELATIVE/PATH\n"
    "+++ b/RELATIVE/PATH\n"
@@ -166,8 +166,8 @@ Returns a plan item alist: (:version \"1\" :op 'patch :strip N :path REL :diff B
    "-old\n"
    "+new\n"
    "#+end_patch\n"
-   "- Требования: один файл (ровно одна пара ---/+++); пути a/ и b/ совпадают; :strip=1 для a/b.\n"
-   "- Запрещено: binary patches, rename/copy прелюдии, многофайловые диффы.\n"))
+   "- Requirements: exactly ONE file (one ---/+++ pair); a/ and b/ paths MUST match; :strip=1 for a/b.\n"
+   "- Forbidden: binary patches, rename/copy preludes, multi-file diffs.\n"))
 
 ;;; Registration
 (carriage-format-register 'patch "1"

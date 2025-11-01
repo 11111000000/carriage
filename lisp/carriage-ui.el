@@ -523,9 +523,7 @@ Updates on any change of outline path, heading level, or heading title."
                                  'help-echo help
                                  'local-map map)
                            s)
-      (when carriage-ui-debug
-        (carriage-ui--log-face-prop "ml-button:pre" pre)
-        (carriage-ui--log-face-of-string "ml-button:post" s))
+
       s)))
 
 (defun carriage-ui--toggle-icon (key onp)
@@ -632,26 +630,31 @@ reflects toggle state (muted when off, bright when on)."
          ;; Intent and Suite
          (intent-label
           (if use-icons
-              (or (if (and (boundp 'carriage-mode-intent)
-                           (eq carriage-mode-intent 'Ask))
-                      (carriage-ui--icon 'ask)
-                    (carriage-ui--icon 'patch))
-                  (format "[%s]" (if (eq carriage-mode-intent 'Ask) "Ask" "Patch")))
-            (format "[%s]" (if (and (boundp 'carriage-mode-intent)
-                                    (eq carriage-mode-intent 'Ask))
-                               "Ask" "Patch"))))
+              (cond
+               ((and (boundp 'carriage-mode-intent) (eq carriage-mode-intent 'Ask))
+                (or (carriage-ui--icon 'ask) "[Ask]"))
+               ((eq carriage-mode-intent 'Code)
+                (or (carriage-ui--icon 'patch) "[Code]"))
+               (t
+                (or (carriage-ui--icon 'patch) "[Hybrid]")))
+            (format "[%s]"
+                    (pcase (and (boundp 'carriage-mode-intent) carriage-mode-intent)
+                      ('Ask "Ask")
+                      ('Code "Code")
+                      (_ "Hybrid")))))
          (intent-btn (carriage-ui--ml-button intent-label
                                              #'carriage-toggle-intent
-                                             "Toggle Ask/Patch intent"))
+                                             "Toggle Ask/Code/Hybrid intent"))
+
          (suite-str (let ((s (and (boundp 'carriage-mode-suite) carriage-mode-suite)))
                       (cond
                        ((symbolp s) (symbol-name s))
                        ((stringp s) s)
-                       (t "auto-v1"))))
+                       (t "udiff"))))
          (suite-label (format "[Suite:%s]" suite-str))
          (suite-btn (carriage-ui--ml-button suite-label
                                             #'carriage-select-suite
-                                            "Select Suite (auto|sre|patch|fileops)"))
+                                            "Select Suite (sre|udiff)"))
          ;; Model (basename only)
          (model-str (or (and (boundp 'carriage-mode-model) carriage-mode-model) "model"))
          (model-base (or (car (last (split-string model-str ":" t))) model-str))
@@ -731,16 +734,20 @@ reflects toggle state (muted when off, bright when on)."
 
 (defvar carriage--icon-intent-ask "A"
   "Modeline marker for Ask intent.")
-(defvar carriage--icon-intent-patch "P"
-  "Modeline marker for Patch intent.")
+(defvar carriage--icon-intent-code "C"
+  "Modeline marker for Code intent.")
+(defvar carriage--icon-intent-hybrid "H"
+  "Modeline marker for Hybrid intent.")
 
 (defun carriage-ui--segment-intent-suite ()
   "Return a short modeline segment for Intent/Suite."
   (let* ((intent (and (boundp 'carriage-mode-intent) carriage-mode-intent))
          (suite  (and (boundp 'carriage-mode-suite) carriage-mode-suite))
          (i (pcase intent
-              ('Patch carriage--icon-intent-patch)
-              (_     carriage--icon-intent-ask)))
+              ('Ask    carriage--icon-intent-ask)
+              ('Code   carriage--icon-intent-code)
+              ('Hybrid carriage--icon-intent-hybrid)
+              (_       carriage--icon-intent-ask)))
          (s (if (symbolp suite) (symbol-name suite) (or suite ""))))
     (format "[%s|%s]" i (if (string-empty-p s) "-" s))))
 

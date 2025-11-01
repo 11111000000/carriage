@@ -20,7 +20,7 @@
       (unwind-protect
           (let ((ml (carriage--modeline-string)))
             ;; Core buttons
-            (should (string-match-p "\\[Ask\\]\\|\\[Patch\\]" ml))
+            (should (string-match-p "\\[Ask\\]\\|\\[Code\\]\\|\\[Hybrid\\]" ml))
             (should (string-match-p "\\[idle\\]\\|\\[sending\\]\\|\\[streaming\\]\\|\\[dry-run\\]\\|\\[apply\\]\\|\\[error\\]" ml))
             (should (string-match-p "\\[Dry\\]" ml))
             (should (string-match-p "\\[Apply\\]" ml))
@@ -35,7 +35,9 @@
             (should (string-match-p "\\[AutoRpt\\]" ml))
             (should (string-match-p "\\[ShowDiffs\\]" ml))
             (should (string-match-p "\\[ConfirmAll\\]" ml))
-            (should (string-match-p "\\[Icons\\]" ml)))
+            (should (string-match-p "\\[Icons\\]" ml))
+            (should (string-match-p "\\[Ctx\\]" ml))
+            (should (string-match-p "\\[Files\\]" ml)))
         (carriage-mode -1)))))
 
 (ert-deftest carriage-ui-modeline-shows-model-basename ()

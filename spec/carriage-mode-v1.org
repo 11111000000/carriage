@@ -7,7 +7,7 @@
 * Объём (Scope) и цели v1
 - Цель: безопасное применение патчей, создаваемых LLM, прямо из org-документа.
 - Входит:
-  - Поддержка форматов v1: =sre=, =sre-batch= (./sre-v1.org) и =patch= (./patch-unified-diff-v1.org).
+  - Поддержка форматов v1: =sre= (./sre-v1.org) и =patch= (./patch-unified-diff-v1.org).
   - Запросы в LLM через транспорт (см. ./llm-transport-v1.org; адаптер gptel — по умолчанию), dry-run, предпросмотр, применение, git-коммиты (ветка WIP).
   - Работа только в org-mode буферах.
 - Не входит в v1:
@@ -30,11 +30,11 @@
 - Норматив: см. ./ui-v1.org (раздел Mode-line).
 
 * Построение промптов (см. ./prompt-profiles-v1.org)
-- Интенты: Ask (диалог, без =patch=), Patch (строго патчи).
-- Suite определяет набор разрешённых :op и собирает системный промпт из фрагментов op-модулей.
-- В Patch:
-  - Для SRE — инъекция DELIM (генерирует инструмент), запрет текста вне блоков.
-  - Для unified diff — строгий шаблон begin_patch с diff одного файла.
+- Интенты: Ask (диалог, без =patch=), Code (строго только блоки), Hybrid (текст вперемежку; применяются только блоки).
+- Suite определяет набор разрешённых :op и собирает системный промпт из фрагментов op-модулей (базовые: 'sre, 'udiff; file-ops доступны в обоих).
+- Правила:
+  - В Intent=Code — только begin_patch; в Intent=Hybrid — текст вне блоков допустим, но игнорируется пайплайном.
+  - Для SRE — begin_from/begin_to, без DELIM; для unified diff — один файл на блок, строгий шаблон begin_patch с diff.
 - Контекст:
   - Весь документ (C-c M-RET) или поддерево (C-c RET).
   - Сжатие контента при переполнении токенов (truncate разделов, summary).
@@ -66,7 +66,7 @@
 - Порядок: dry-run → предпросмотр → подтверждение → apply.
 - C-c ! — группа: остановка при первой ошибке; автоматический откат в v1 не выполняется.
 - Внутригрупповый порядок:
-  - delete → rename → create → patch → sre/sre-batch.
+  - delete → rename → create → patch → sre.
   - Для одного файла: create перед sre; rename перед sre (с новым путём); patch — перед sre, если оба присутствуют.
 - Коммит — отдельная команда пользователя (после правок); по умолчанию автокоммит отключён.
 
@@ -80,8 +80,8 @@
 - Бинарные патчи — см. ./security-v1.org (в v1 запрещены).
 
 * Конфигурация (Customize)
-- carriage-mode-default-intent ('Ask | 'Patch)
-- carriage-mode-default-suite ('patch-v1)
+- carriage-mode-default-intent ('Ask | 'Code | 'Hybrid)
+- carriage-mode-default-suite ('udiff)
 - carriage-mode-default-backend (symbol|string), carriage-mode-default-model (string)
 - carriage-mode-state-file (string) — путь к файлу персистентного состояния в проекте (".context/carriage/carriage-state.el")
 - carriage-mode-wip-branch (string)
@@ -89,7 +89,7 @@
 - carriage-mode-auto-open-report (boolean), carriage-mode-auto-open-log (boolean), carriage-mode-auto-open-traffic (boolean)
 - carriage-mode-show-diffs (boolean), carriage-mode-show-header-line (boolean), carriage-mode-show-mode-line-ui (boolean)
 - carriage-mode-spinner-interval (number), carriage-mode-headerline-max-width (integer or nil), carriage-mode-use-icons (boolean)
-- carriage-mode-max-batch-пairs (integer), carriage-mode-log-max-lines (integer), carriage-mode-traffic-max-lines (integer)
+- carriage-mode-max-batch-pairs (integer), carriage-mode-log-max-lines (integer), carriage-mode-traffic-max-lines (integer)
 - carriage-mode-aux-window-side (symbol), carriage-mode-aux-window-size (number), carriage-mode-aux-window-reuse (boolean)
 
 
@@ -115,4 +115,4 @@
 
 * Эволюция
 - v1.1: транзакции, :preimage-sha, расширения regex/якорей.
-- Обратная совместимость обязательна; новые возможности — опциональны.
+- Обратная совместимость обязательна для форматов v1; для Intent/Suite обратная совместимость не предоставляется.

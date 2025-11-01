@@ -18,10 +18,10 @@
     (concat
      "CREATE:\n"
      "#+begin_patch (:version \"1\" :op \"create\" :file \"RELATIVE/PATH\" :delim \"" delim "\")\n"
-     "<<" delim "\nСОДЕРЖИМОЕ ФАЙЛА\n:" delim "\n"
+     "<<" delim "\nFILE CONTENTS\n:" delim "\n"
      "#+end_patch\n"
-     "- Требования: :version \"1\"; :file (не :path); :delim — ровно 6 hex-символов в нижнем регистре.\n"
-     "- Запрещено использовать :op \"write\" и любые *_file синонимы (use: create/delete/rename/patch).\n")))
+     "- Requirements: :version \"1\"; :file (not :path); :delim — exactly 6 lowercase hex characters.\n"
+     "- Aliases like write/create_file/delete_file/rename_file are forbidden; use create/delete/rename/patch.\n")))
 
 (defun carriage-op-delete-prompt-fragment (_ctx)
   "Prompt fragment for :op delete."
@@ -29,8 +29,8 @@
    "DELETE:\n"
    "#+begin_patch (:version \"1\" :op \"delete\" :file \"RELATIVE/PATH\")\n"
    "#+end_patch\n"
-   "- Требования: :version \"1\"; :file (не :path). Без содержимого между begin/end.\n"
-   "- Не использовать синонимы *_file.\n"))
+   "- Requirements: :version \"1\"; :file (not :path). No content between begin/end.\n"
+   "- Do not use *_file aliases.\n"))
 
 (defun carriage-op-rename-prompt-fragment (_ctx)
   "Prompt fragment for :op rename."
@@ -38,8 +38,8 @@
    "RENAME:\n"
    "#+begin_patch (:version \"1\" :op \"rename\" :from \"OLD/RELATIVE/PATH\" :to \"NEW/RELATIVE/PATH\")\n"
    "#+end_patch\n"
-   "- Требования: :version \"1\"; :from/:to — относительные пути (не :path).\n"
-   "- Не использовать синонимы *_file.\n"))
+   "- Requirements: :version \"1\"; :from/:to must be relative paths (not :path).\n"
+   "- Do not use *_file aliases.\n"))
 
 ;;;; Parse
 

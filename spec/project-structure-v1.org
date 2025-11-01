@@ -12,8 +12,13 @@
   - engines/ — движки применения (реестр и реализации: git, sidecar, magit-compat и др.).
   - transports/ — адаптеры LLM/агентов (например, gptel, JSON-RPC), опционально.
   - ops/ — оп-модули (:op): один файл на формат; рядом публикуются фрагменты промптов. Suite собирает системный промпт из этих фрагментов.
+  - carriage-intent-registry.el — реестр интентов (фрагменты промптов Intent; CTX → STRING).
+  - carriage-suite.el — компоновщик Suite/Prompt Builder: собирает системный промпт из фрагментов ops и intent; публичная функция carriage-build-prompt (pure).
   - ui/ — доп. компоненты UI/виджеты (опционально).
 - spec/ — спецификации (норматив и разъяснения).
+  - prompt-profiles-v1.org — Intent/Suite и композиция промптов (один язык; i18n не применяется к промптам; замены/расширения через overrides/overlays).
+  - extensibility-points-v1.org — точки расширения (ops, транспорты, UI) и правила сборки Suite.
+  - testing-v1.org — план тестов (юниты/интеграция), включая проверки промпт-билдера.
 - test/ — ERT и интеграционные фикстуры (git-репо).
 - scripts/ — batch-скрипты (lint, compile-strict, checkdoc).
 - examples/ — «golden» документы.
@@ -35,7 +40,7 @@
 - Интерактивные команды — ;;;###autoload.
 
 * Порядок загрузки
-- carriage.el: require errors→(carriage-define-errors)→logging→utils→git→carriage-format-registry→carriage-suite→parser→apply→ops→mode.
+- carriage.el: require errors→(carriage-define-errors)→logging→utils→git→carriage-format-registry→carriage-intent-registry→carriage-suite→parser→apply→ops→mode.
 - Транспорты подключаются через абстракцию (см. llm-transport-v1), не require-ятся по умолчанию.
 
 * Тестирование/CI

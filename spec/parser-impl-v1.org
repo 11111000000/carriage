@@ -16,7 +16,7 @@
 - dry-run(PLAN-ITEM, REPO) → REPORT-ITEM[, DIFF]
 - apply(PLAN-ITEM, REPO) → RESULT
 - Все функции должны сигнализировать условия (define-error) с кодами ./errors-v1.org.
-- Алиасы :op запрещены (MODE_E_DISPATCH). Разрешение возможно только в режиме совместимости (defcustom carriage-mode-allow-op-aliases=t), что выводит реализацию за рамки строгого v1; по умолчанию nil.
+- Алиасы :op запрещены (MODE_E_DISPATCH); режимов совместимости не предусмотрено.
 
 * SRE v1 — begin_from/begin_to (без DELIM)
 - Парсинг SRE выполняется по спецблокам "#+begin_from … #+end_from" и "#+begin_to … #+end_to".
@@ -31,7 +31,7 @@
 - Внутреннее представление: (:pairs ((:from STR :to STR :opts PLIST) ...)).
 
 * Скелеты (Elisp)
-#+end_#+begin_src emacs-lisp
+#+begin_src emacs-lisp
 (cl-defgeneric carriage-parse (op header-plist body-text repo-root))
 (cl-defgeneric carriage-dry-run (plan-item repo-root))
 (cl-defgeneric carriage-apply (plan-item repo-root))

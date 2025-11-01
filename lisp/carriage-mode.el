@@ -25,14 +25,14 @@
   (unless (fboundp 'carriage-transport-begin)
     (ignore-errors (require 'carriage-transport))))
 
-(defcustom carriage-mode-default-intent 'Patch
-  "Default Intent for Carriage: `Ask' or `Patch'."
-  :type '(choice (const Ask) (const Patch))
+(defcustom carriage-mode-default-intent 'Code
+  "Default Intent for Carriage: 'Ask | 'Code | 'Hybrid."
+  :type '(choice (const Ask) (const Code) (const Hybrid))
   :group 'carriage)
 
-(defcustom carriage-mode-default-suite 'patch-v1
-  "Default Suite for Patch intent: one of 'auto-v1, 'sre-v1, 'patch-v1, 'file-ops-v1."
-  :type '(choice (const auto-v1) (const sre-v1) (const patch-v1) (const file-ops-v1))
+(defcustom carriage-mode-default-suite 'udiff
+  "Default Suite: one of 'sre or 'udiff."
+  :type '(choice (const sre) (const udiff))
   :group 'carriage)
 
 (defcustom carriage-mode-default-model "gptel-default"
@@ -151,10 +151,7 @@ If nil (default v1 behavior), such cases are considered a failure in dry-run."
 Note: v1 forbids binary patches; this option remains nil in v1 and is reserved for future versions."
   :type 'boolean :group 'carriage)
 
-(defcustom carriage-mode-allow-op-aliases nil
-  "When non-nil, accept alias :op values (e.g., write/create_file/delete_file/rename_file/diff/replace).
-Default is nil per v1: aliases are rejected with MODE_E_DISPATCH."
-  :type 'boolean :group 'carriage)
+
 
 (defcustom carriage-commit-default-message "carriage: apply changes"
   "Default commit message used by Commit commands.
@@ -162,10 +159,10 @@ May be a string or a function of zero args returning string."
   :type '(choice string function) :group 'carriage)
 
 (defvar-local carriage-mode-intent carriage-mode-default-intent
-  "Current Carriage Intent for this buffer: 'Ask or 'Patch.")
+  "Current Carriage Intent for this buffer: 'Ask | 'Code | 'Hybrid.")
 
 (defvar-local carriage-mode-suite carriage-mode-default-suite
-  "Current Carriage Suite for this buffer (when Intent='Patch).")
+  "Current Carriage Suite for this buffer.")
 
 (defvar-local carriage-mode-model carriage-mode-default-model
   "Current Carriage model string for this buffer.")
@@ -757,26 +754,30 @@ Stages as needed depending on staging policy; with 'none, runs git add -A then r
 
 ;;;###autoload
 (defun carriage-toggle-intent ()
-  "Toggle Intent between `Ask' and `Patch'."
+  "Cycle Intent: Ask → Code → Hybrid → Ask."
   (interactive)
-  (setq carriage-mode-intent (if (eq carriage-mode-intent 'Ask) 'Patch 'Ask))
+  (setq carriage-mode-intent
+        (pcase carriage-mode-intent
+          ('Ask 'Code)
+          ('Code 'Hybrid)
+          (_ 'Ask)))
   (message "Carriage intent: %s" carriage-mode-intent)
   (force-mode-line-update t))
 
 ;;;###autoload
 (defun carriage-select-suite (&optional suite)
-  "Select Suite for Patch intent (auto-v1|sre-v1|patch-v1|file-ops-v1)."
+  "Select Suite (sre|udiff)."
   (interactive)
   (let* ((choices
           (condition-case _e
               (let ((ids (and (fboundp 'carriage-suite-ids) (carriage-suite-ids))))
                 (if (and ids (listp ids))
                     (mapcar (lambda (s) (if (symbolp s) (symbol-name s) (format "%s" s))) ids)
-                  '("auto-v1" "sre-v1" "patch-v1" "file-ops-v1")))
-            (error '("auto-v1" "sre-v1" "patch-v1" "file-ops-v1"))))
+                  '("sre" "udiff")))
+            (error '("sre" "udiff"))))
          (default (if (symbolp carriage-mode-suite)
                       (symbol-name carriage-mode-suite)
-                    (or carriage-mode-suite "auto-v1")))
+                    (or carriage-mode-suite "udiff")))
          (sel (or suite (completing-read "Suite: " choices nil t default))))
     (setq carriage-mode-suite (intern sel))
     (message "Carriage suite: %s" carriage-mode-suite)
@@ -916,6 +917,18 @@ Return a single string with blocks concatenated by blank lines."
             (push (buffer-substring-no-properties beg end) chunks))
           (forward-line 1)))
       (mapconcat #'identity (nreverse chunks) "\n\n"))))
+
+(defun carriage--sre--rewrite-delim-markers (body old new)
+  "Rewrite create segment markers in BODY from OLD to NEW token.
+Only rewrites full marker lines:
+- <<OLD
+- :OLD
+Returns modified BODY string."
+  (let* ((rx-open (concat "^[ \t]*<<\\(" (regexp-quote (or old "")) "\\)[ \t]*$"))
+         (rx-close (concat "^[ \t]*:\\(" (regexp-quote (or old "")) "\\)[ \t]*$"))
+         (s1 (replace-regexp-in-string rx-open (concat "<<" new) (or body "") t t))
+         (s2 (replace-regexp-in-string rx-close (concat ":" new) s1 t t)))
+    s2))
 
 (defun carriage--sanitize-llm-response (raw)
   "Return only sanitized #+begin_patch blocks from RAW.

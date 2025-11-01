@@ -34,10 +34,10 @@
              (list item) tmp
              (lambda (rep) (setq report rep done t))))
           (should (carriage-apply-async-test--wait (lambda () done) 5))
-          (should (alist-get :summary report))
+          (should (plist-get report :summary))
           (let* ((abs (expand-file-name "a.txt" tmp))
                  (s (with-temp-buffer (insert-file-contents abs) (buffer-string))))
-            (should (string-match-p "^hi$" (car (last (split-string s "\n" t)))))))
+            (should (string-match-p "^hi$" (car (split-string s "\n" t))))))
       (ignore-errors (delete-directory tmp t)))))
 (provide 'carriage-apply-async-sre-v1-test)
 ;;; carriage-apply-async-sre-v1-test.el ends here

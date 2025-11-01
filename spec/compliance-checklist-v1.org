@@ -13,14 +13,14 @@
   - sre (./sre-v1.org)
   - patch (unified diff одного файла) (./patch-unified-diff-v1.org)
   - create/delete/rename (./file-ops-v1.org)
-- Алисы блоков не поддерживаются — см. ./parser-registry-v1.org.
+- Алиасы блоков не поддерживаются — см. ./parser-registry-v1.org.
 
 
 * Парсеры
 - SRE-парсинг: см. ./sre-v1.org (спецблоки begin_from/begin_to; без DELIM и без вложенных конструкций).
 - Валидация путей: см. ./security-v1.org.
 - PATCH: ограничения — см. ./patch-unified-diff-v1.org.
-- MODE: алиасы :op запрещены (v1); опция carriage-mode-allow-op-aliases=nil по умолчанию; включение — режим совместимости (вне строгого v1).
+- MODE: алиасы :op запрещены (v1); режимов совместимости не предусмотрено.
 - Ошибки: см. ./errors-v1.org (define-error и коды).
 
 * Dry-run
@@ -49,8 +49,8 @@
 - TRAMP/remote — см. ./security-v1.org (в v1 отключено).
 
 * Промпты
-- Интенты Ask/Patch и сьюиты из ./prompt-profiles-v1.org (Intent/Suite).
-- Правила Intent=Patch: см. ./prompt-profiles-v1.org; имя блока/пути/DELIM — см. ./parser-registry-v1.org, ./security-v1.org, ./index.org (FREEZE).
+- Интенты Ask/Code/Hybrid и сьюиты из ./prompt-profiles-v1.org (Intent/Suite).
+- Правила: для Intent=Code — только begin_patch; для Intent=Hybrid — допускается текст вне блоков, применяется только содержимое begin_patch; имя блока/пути/DELIM — см. ./parser-registry-v1.org, ./security-v1.org, ./index.org (FREEZE).
 
 * Тестирование
 - Тесты: см. ./testing-v1.org (юниты, интеграция, golden files).

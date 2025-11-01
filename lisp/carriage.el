@@ -8,6 +8,7 @@
 (require 'carriage-git)
 ;; Registries and suite builder (ops modules register themselves)
 (require 'carriage-format-registry)
+(require 'carriage-intent-registry)
 (require 'carriage-suite)
 
 ;; Ensure 'ops' and 'engines' directories are on load-path for requiring modules

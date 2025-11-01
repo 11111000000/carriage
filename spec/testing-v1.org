@@ -19,8 +19,7 @@
   - PATCH: отсутствуют заголовки ---/+++ → PATCH_E_DIFF_SYNTAX.
   - PATCH: rename/copy прелюдии → PATCH_E_RENAME_COPY; бинарные секции → PATCH_E_BINARY.
   - PATCH: превышение размера тела (> 4 MiB) → PATCH_E_LIMITS.
-  - MODE: алиасы :op (replace/diff/write/create_file/delete_file/rename_file) — по умолчанию отказ с MODE_E_DISPATCH.
-  - MODE: при carriage-mode-allow-op-aliases=t — алиасы принимаются; добавляется предупреждение в :messages.
+  - MODE: алиасы :op запрещены; любые алиасы → MODE_E_DISPATCH.
   - MODE: sanitizer — SRE-блоки не переписываются; для create обязателен и нормализуется :delim (6 lower hex).
 
   - File Ops: create/delete/rename — предусловия, :mkdir, :ensure-final-newline, конфликты путей и существование/отсутствие файлов; create: валидация :delim (=6 hex, Emacs regexp \\`[0-9a-f]\\{6\\}\\'), негативный кейс при неверном токене.
@@ -51,6 +50,8 @@
     - При (reasoning . TEXT|t) создан и корректно закрыт блок #+begin_reasoning/#+end_reasoning.
   - Ошибка: nil → состояние error, лог и завершение (carriage-transport-complete t); reasoning-блок закрыт.
   - Abort: 'abort → обработчик отмены вызывает gptel-abort; состояние error; reasoning-блок закрыт, регион ответа сброшен.
+  - Intent=Code: текст вне блоков =patch= игнорируется на этапе парсинга/применения; «последняя итерация» включает только блоки.
+  - Intent=Hybrid: допускается текст вне блоков; парсер извлекает и применяет только блоки.
 - echo (dev): без gptel — backend='echo' стримит тестовые чанки, проверяем видимость в *carriage-traffic*, переходы состояний и корректную отмену (abort).
 
 ** Золотые документы (golden files)
@@ -168,4 +169,42 @@
       (run-hooks 'post-command-hook)
       (should (bound-and-true-p carriage-mode))
       (should (eq buffer-read-only before-ro)))))
+
+;; Промпт-билдер (минимальные скелеты)
+(ert-deftest carriage-prompt-builder-suite-sre-excludes-udiff ()
+  "Suite=sre: system не должен содержать маркеров unified diff."
+  (let* ((intent 'Code)
+         (suite 'sre)
+         (ctx '(:payload "Do X" :files nil))
+         ;; Моки registry/overrides по умолчанию должны быть настроены в тестовой среде
+         (sys (alist-get :system (carriage--build-prompt intent suite ctx))))
+    (should (string-match-p (rx (not (or bol "--- " "+++ " "diff --git"))) sys))
+    (should-not (string-match-p (rx bol ("--- " | "+++ " | "diff --git")) sys))
+    (should-not (string-match-p (rx "unified diff") sys))))
+
+(ert-deftest carriage-prompt-builder-suite-udiff-excludes-sre ()
+  "Suite=udiff: system не должен содержать маркеров SRE begin_from/begin_to."
+  (let* ((intent 'Code)
+         (suite 'udiff)
+         (ctx '(:payload "Do Y"))
+         (sys (alist-get :system (carriage--build-prompt intent suite ctx))))
+    (should-not (string-match-p (rx "#+begin_from") sys))
+    (should-not (string-match-p (rx "#+begin_to") sys))))
+
+(ert-deftest carriage-prompt-builder-intent-overrides-win ()
+  "intent override заменяет фрагмент реестра."
+  (let* ((intent 'Hybrid)
+         (suite 'sre)
+         (carriage-intent-fragment-overrides `((,intent . "OVERRIDE HYBRID")))
+         (ctx '(:payload "Z")))
+    (should (string-match-p "OVERRIDE HYBRID"
+                            (alist-get :system (carriage--build-prompt intent suite ctx))))))
+
+(ert-deftest carriage-prompt-builder-op-overrides-win ()
+  "op override заменяет фрагмент op-модуля."
+  (let* ((intent 'Code)
+         (suite 'udiff)
+         (carriage-op-fragment-overrides '((patch . "OVERRIDE PATCH FRAGMENT")))
+         (sys (alist-get :system (carriage--build-prompt intent suite '(:payload "P")))))
+    (should (string-match-p "OVERRIDE PATCH FRAGMENT" sys))))
 #+end_src
