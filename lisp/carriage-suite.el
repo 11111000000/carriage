@@ -102,17 +102,22 @@ FRAG is STRING or function (lambda (ctx) STRING)."
 
 (defun carriage--suite-guardrails (ops)
   "Return common guardrails string for Code/Hybrid intents, tailored to allowed OPS."
-  (let* ((allowed (mapconcat (lambda (o) (format "%s" o)) ops ", ")))
-    (concat
-     "Carriage tool: respond with Org #+begin_patch ... #+end_patch blocks.\n"
-     "- Code mode: NO text outside blocks. Hybrid mode: prose is allowed, tool applies ONLY blocks.\n"
-     (format "- Allowed operations: %s.\n" allowed)
-     "- Use EXACT operation names. Aliases like write/create_file/delete_file/rename_file are forbidden.\n"
-     "- Header must include :version \"1\" and only keys defined by the selected operation.\n"
-     "- Paths must be relative to repo root. Use :file (not :path) where applicable.\n"
-     "- For create: require :delim (exactly 6 lower hex). Body marker lines: <<DELIM and :DELIM.\n"
-     "- For patch: unified diff of EXACTLY ONE file (one ---/+++ pair), a/ and b/ paths MUST match, :strip=1. No binary or rename/copy preludes.\n"
-     "- No base64 payloads; the tool will handle fallbacks itself.\n")))
+  (let* ((allowed (mapconcat (lambda (o) (format "%s" o)) ops ", "))
+         (lines (list
+                 "Carriage tool: respond with Org #+begin_patch ... #+end_patch blocks."
+                 "- Code mode: NO text outside blocks. Hybrid mode: prose is allowed, tool applies ONLY blocks."
+                 (format "- Allowed operations: %s." allowed)
+                 "- Use EXACT operation names. Aliases like write/create_file/delete_file/rename_file are forbidden."
+                 "- Header must include :version \"1\" and only keys defined by the selected operation."
+                 "- Paths must be relative to repo root. Use :file (not :path) where applicable."
+                 "- For create: require :delim (exactly 6 lower hex). Body marker lines: <<DELIM and :DELIM."
+                 "- No base64 payloads; the tool will handle fallbacks itself.")))
+    ;; Include patch-specific guardrails only when 'patch is allowed in this suite.
+    (when (memq 'patch ops)
+      (setq lines
+            (append lines
+                    '("- For patch: unified diff of EXACTLY ONE file (one ---/+++ pair), a/ and b/ paths MUST match, :strip=1. No binary or rename/copy preludes."))))
+    (mapconcat #'identity lines "\n")))
 
 (defun carriage--resolve-op-fragment (op ctx)
   "Resolve prompt fragment for OP using overrides or registry.
