@@ -12,13 +12,18 @@
   "SRE apply should return 'skip if after==before."
   (skip-unless (fboundp 'carriage-apply-sre))
   (let* ((tmp (make-temp-file "sre-" nil ".txt" "hello"))
-         (plan =(:version "1" :op 'sre :file ,(file-name-nondirectory tmp)
-                          :pairs ((:from "hello" :to "hello" :opts (:occur first :match literal))))))
+         (plan (list (cons :version "1")
+                     (cons :op 'sre)
+                     (cons :file (file-name-nondirectory tmp))
+                     (cons :pairs
+                           (list (list (cons :from "hello")
+                                       (cons :to "hello")
+                                       (cons :opts '(:occur first :match literal))))))))
     (unwind-protect
-        (let/ ((root (file-name-directory tmp))
-               (res (carriage-apply-sre plan root)))
-              ;; Accept either 'skip (preferred) or 'ok with 0 change in legacy
-              (should (memq (plist-get res :status) '(skip ok))))
+        (let* ((root (file-name-directory tmp))
+               (res  (carriage-apply-sre plan root)))
+          ;; Accept either 'skip (preferred) or 'ok with 0 change in legacy
+          (should (memq (plist-get res :status) '(skip ok))))
       (ignore-errors (delete-file tmp)))))
 
 (provide 'carriage-sre-noop-skip-test)

@@ -13,6 +13,19 @@
 (defvar carriage-mode-sre-preview-max 3
   "Default maximum number of SRE preview chunks when Customize is not loaded.")
 
+;; Helpers to read plan items/pairs regardless of plist|alist representation.
+(defun carriage--plan-get (item key)
+  "Get KEY from ITEM supporting both plist and alist representations."
+  (if (and (listp item) (plist-member item key))
+      (plist-get item key)
+    (alist-get key item)))
+
+(defun carriage--pair-get (pair key)
+  "Get KEY from PAIR supporting both plist and alist pair representations."
+  (if (and (listp pair) (plist-member pair key))
+      (plist-get pair key)
+    (alist-get key pair)))
+
 ;;;; Prompt fragment (begin_from/begin_to)
 
 (defun carriage-op-sre-prompt-fragment (_ctx)
@@ -82,12 +95,14 @@ Guard against zero-length matches."
   "Replace first match of REGEXP in TEXT with TO. Return (NEW . COUNT)."
   (if (not (string-match regexp text))
       (cons text 0)
-    (cons (replace-match to nil replacement-literal-p text) 1)))
+    ;; FIXEDCASE=t to prevent case-munging of replacement based on match
+    (cons (replace-match to t replacement-literal-p text) 1)))
 
 (defun carriage--sre-replace-all (text regexp to replacement-literal-p)
   "Replace all matches of REGEXP in TEXT with TO. Return (NEW . COUNT)."
   (let ((count (carriage--sre-count-nonoverlapping text regexp))
-        (new (replace-regexp-in-string regexp to text nil replacement-literal-p)))
+        ;; FIXEDCASE=t to prevent case-munging of replacement based on match
+        (new (replace-regexp-in-string regexp to text t replacement-literal-p)))
     (cons new count)))
 
 (defun carriage--sre-count-matches (text from opts)
@@ -334,23 +349,30 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
 (defun carriage--sre-fallback-string (body pending)
   "String-level tolerant fallback: extract first pair with CR/WS tolerance."
   (let* ((body-str body)
+         (len (length body-str))
          (case-fold-search t)
-         (b-from (string-match "^[ \t]*#\\+begin_from\\b.*$" body-str))
-         (e-from (and b-from (string-match "^[ \t]*#\\+end_from\\b.*$" body-str (match-end 0))))
-         (b-to   (and e-from (string-match "^[ \t]*#\\+begin_to\\b.*$" body-str (match-end 0))))
-         (e-to   (and b-to   (string-match "^[ \t]*#\\+end_to\\b.*$"   body-str (match-end 0)))))
-    (when (and b-from e-from b-to e-to (< b-from e-from) (< b-to e-to))
-      (let* ((from-beg (min (length body-str) (1+ (match-end 0))))
-             (_ (string-match "^[ \t]*#\\+end_from\\b.*$" body-str from-beg))
-             (from-end (match-beginning 0))
-             (_to-start (match-end 0))
-             (_ (string-match "^[ \t]*#\\+begin_to\\b.*$" body-str _to-start))
-             (to-beg (min (length body-str) (1+ (match-end 0))))
-             (_ (string-match "^[ \t]*#\\+end_to\\b.*$" body-str to-beg))
-             (to-end (match-beginning 0))
-             (from (substring body-str from-beg (max from-beg from-end)))
-             (to   (substring body-str to-beg   (max to-beg   to-end))))
-        (list (carriage--sre--make-pair from to pending))))))
+         (re-begin-from "^[ \t]*#\\+begin_from\\b.*$")
+         (re-end-from   "^[ \t]*#\\+end_from\\b.*$")
+         (re-begin-to   "^[ \t]*#\\+begin_to\\b.*$")
+         (re-end-to     "^[ \t]*#\\+end_to\\b.*$"))
+    (save-match-data
+      (let* ((b1  (string-match re-begin-from body-str))
+             (b1e (and b1 (match-end 0)))                 ; end of begin_from line
+             (ef  (and b1e (string-match re-end-from body-str b1e)))
+             (efb (and ef (match-beginning 0)))           ; begin of end_from line
+             (efe (and ef (match-end 0)))                 ; end of end_from line
+             (bt  (and efe (string-match re-begin-to body-str efe)))
+             (bte (and bt (match-end 0)))                 ; end of begin_to line
+             (et  (and bte (string-match re-end-to body-str bte)))
+             (etb (and et (match-beginning 0))))          ; begin of end_to line
+        (when (and b1 ef bt et (< b1 efb) (< bt etb))
+          (let* ((from-beg (min len (1+ b1e)))
+                 (from-end (max from-beg (or efb from-beg)))
+                 (to-beg   (min len (1+ bte)))
+                 (to-end   (max to-beg (or etb to-beg)))
+                 (from (substring body-str from-beg from-end))
+                 (to   (substring body-str to-beg to-end)))
+            (list (carriage--sre--make-pair from to pending))))))))
 
 (defun carriage--sre-parse-body (body)
   "Parse BODY string into list of (:from STR :to STR :opts PLIST) pairs."
@@ -430,17 +452,17 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
 
 (defun carriage-sre-dry-run-on-text (plan-item text)
   "Dry-run SRE on TEXT content. Return report alist."
-  (let* ((file (alist-get :file plan-item))
-         (pairs (or (alist-get :pairs plan-item) '()))
+  (let* ((file (carriage--plan-get plan-item :file))
+         (pairs (or (carriage--plan-get plan-item :pairs) '()))
          (total-matches 0)
          (errors nil)
          (warns nil)
          (previews '())
          (any-noop nil))
     (dolist (p pairs)
-      (let* ((from (alist-get :from p))
-             (to   (alist-get :to p))
-             (opts (alist-get :opts p))
+      (let* ((from (carriage--pair-get p :from))
+             (to   (carriage--pair-get p :to))
+             (opts (carriage--pair-get p :opts))
              (range (plist-get opts :range))
              (occur (or (plist-get opts :occur) 'first))
              (expect (plist-get opts :expect))
@@ -516,7 +538,7 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
 
 (defun carriage-dry-run-sre (plan-item repo-root)
   "Dry-run SRE on file under REPO-ROOT."
-  (let* ((file (alist-get :file plan-item))
+  (let* ((file (carriage--plan-get plan-item :file))
          (abs (ignore-errors (carriage-normalize-path (or repo-root default-directory) file))))
     (if (not (and abs (file-exists-p abs)))
         (append (list :op 'sre :status 'fail) (list :file file :details "File not found"))
@@ -525,7 +547,7 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
 
 (defun carriage-sre-simulate-apply (plan-item repo-root)
   "Simulate apply for PLAN-ITEM under REPO-ROOT and return (:after STRING :count N)."
-  (let* ((file (alist-get :file plan-item))
+  (let* ((file (carriage--plan-get plan-item :file))
          (abs (and file (ignore-errors (carriage-normalize-path (or repo-root default-directory) file)))))
     (if (not (and abs (file-exists-p abs)))
         (list :after "" :count 0)
@@ -534,9 +556,9 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
                (changed 0)
                (new-text text))
           (dolist (p pairs)
-            (let* ((from (alist-get :from p))
-                   (to   (alist-get :to p))
-                   (opts (alist-get :opts p))
+            (let* ((from (carriage--pair-get p :from))
+                   (to   (carriage--pair-get p :to))
+                   (opts (carriage--pair-get p :opts))
                    (range (plist-get opts :range))
                    (match-kind (or (plist-get opts :match) 'literal))
                    (occur (or (plist-get opts :occur) 'first))
@@ -559,7 +581,7 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
 (defun carriage-apply-sre (plan-item repo-root)
   "Apply SRE pairs by rewriting file. Optional staging per policy.
 Implements NOOP→'skip when after==before and reports :matches and :changed-bytes."
-  (let* ((file (alist-get :file plan-item))
+  (let* ((file (carriage--plan-get plan-item :file))
          (abs (carriage-normalize-path (or repo-root default-directory) file))
          (stage (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy)))
     (unless (file-exists-p abs)

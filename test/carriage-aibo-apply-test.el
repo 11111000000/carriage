@@ -57,7 +57,7 @@
               (should (eq (plist-get ap2 :status) 'skip))
               (should (numberp (plist-get ap2 :changed-bytes)))
               (should (zerop (plist-get ap2 :changed-bytes)))))))
-    (ignore-errors (delete-directory dir t)))))
+    (ignore-errors (delete-directory dir t))))
 
 (provide 'carriage-aibo-apply-test)
 ;;; carriage-aibo-apply-test.el ends here

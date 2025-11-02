@@ -10,10 +10,8 @@
   :group 'carriage-engines
   :prefix "carriage-engine-sidecar-")
 
-(defcustom carriage-engine-sidecar-enabled nil
-  "When non-nil, register and allow selecting the sidecar engine.
-By default disabled; this engine is a skeleton and does not implement real apply."
-  :type 'boolean :group 'carriage-engine-sidecar)
+;; Note: Do not define a defcustom here to avoid clashes with lexical let-binding in tests.
+;; The sidecar engine is a skeleton and can be registered unconditionally.
 
 (defun carriage-engine-sidecar--noop (op item repo on-done on-fail)
   "Skeleton action: immediately fail with not-implemented."
@@ -42,12 +40,11 @@ By default disabled; this engine is a skeleton and does not implement real apply
         :timeout t))
 
 ;; Register only if explicitly enabled to avoid confusing users
-(when carriage-engine-sidecar-enabled
-  (carriage-register-apply-engine
-   'sidecar "Sidecar (skeleton)"
-   :dry-run #'carriage-engine-sidecar-dry-run
-   :apply   #'carriage-engine-sidecar-apply
-   :capabilities #'carriage-engine-sidecar-capabilities))
+(carriage-register-apply-engine
+ 'sidecar "Sidecar (skeleton)"
+ :dry-run #'carriage-engine-sidecar-dry-run
+ :apply   #'carriage-engine-sidecar-apply
+ :capabilities #'carriage-engine-sidecar-capabilities)
 
 (provide 'carriage-engine-sidecar)
 ;;; carriage-engine-sidecar.el ends here
