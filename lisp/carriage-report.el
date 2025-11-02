@@ -87,15 +87,7 @@
                         'follow-link t
                         'action (lambda (_btn) (carriage-report-apply-at-point))))))
 
-(defun carriage--report-install-keys ()
-  "Install local keymap for report interactions."
-  (let* ((base (or (current-local-map) (make-sparse-keymap)))
-         (map  (make-sparse-keymap)))
-    (set-keymap-parent map base)
-    (define-key map (kbd "RET") #'carriage-report-show-diff-at-point)
-    (define-key map (kbd "e")   #'carriage-report-ediff-at-point)
-    (define-key map (kbd "a")   #'carriage-report-apply-at-point)
-    (use-local-map map)))
+
 
 (defun carriage-report-render (report)
   "Render REPORT alist into the report buffer.
@@ -178,7 +170,7 @@ REPORT shape:
                 (carriage--report-attach-row row-beg row-end it has-preview)
                 (setq cur (cdr cur))
                 (forward-line 1))))))
-      (carriage--report-install-keys)
+
       (goto-char (point-min))
       (carriage-report-mode)
       (read-only-mode 1))
@@ -319,9 +311,8 @@ In batch mode runs non-interactively and refreshes report."
   (defvar carriage-report-mode-map
     (let* ((map (make-sparse-keymap)))
       (set-keymap-parent map special-mode-map)
+      ;; Keep RET for accessibility; action aliases under C-c e are provided via keyspec.
       (define-key map (kbd "RET") #'carriage-report-show-diff-at-point)
-      (define-key map (kbd "e")   #'carriage-report-ediff-at-point)
-      (define-key map (kbd "a")   #'carriage-report-apply-at-point)
       (define-key map (kbd "q")   #'quit-window)
       map)
     "Keymap for Carriage report buffers."))
@@ -333,6 +324,14 @@ In batch mode runs non-interactively and refreshes report."
   (setq truncate-lines t))
 
 ;; Report buffer mode is now set inside carriage-report-render; no advice needed.
+
+;; Ensure keyspec bindings are applied to carriage-report-mode-map (report context + global).
+;; Apply immediately if keyspec is loaded, and also after it loads.
+(when (fboundp 'carriage-keys-apply-known-keymaps)
+  (ignore-errors (carriage-keys-apply-known-keymaps)))
+(with-eval-after-load 'carriage-keyspec
+  (when (fboundp 'carriage-keys-apply-known-keymaps)
+    (ignore-errors (carriage-keys-apply-known-keymaps))))
 
 (provide 'carriage-report)
 ;;; carriage-report.el ends here

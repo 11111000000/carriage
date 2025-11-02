@@ -142,28 +142,7 @@ Negative values move icons up; positive move them down."
   "Face for ERR rows in report."
   :group 'carriage-ui)
 
-(defvar carriage-mode-map
-  (let* ((map (make-sparse-keymap)))
-    ;; Legacy bindings (kept for compatibility)
-    (define-key map (kbd "C-c M-RET") #'carriage-send-buffer)
-    (define-key map (kbd "C-c RET")   #'carriage-send-subtree)
-    (define-key map (kbd "C-c C-c")   #'carriage-apply-at-point)
-    (define-key map (kbd "C-c !")     #'carriage-apply-last-iteration)
-    (define-key map (kbd "C-c ?")     #'carriage-dry-run-at-point)
-    (define-key map (kbd "C-c b c")   #'carriage-wip-checkout)
-    (define-key map (kbd "C-c b l")   #'carriage-show-log)
-    (define-key map (kbd "C-c b t")   #'carriage-show-traffic)
-    (define-key map (kbd "C-c b L")   #'carriage-show-log-and-traffic)
-    (define-key map (kbd "C-c b r")   #'carriage-wip-reset-soft)
-    (define-key map (kbd "C-c b m")   #'carriage-commit-changes)
-    (define-key map (kbd "C-c b i")   #'carriage-commit-last-iteration)
-    (define-key map (kbd "C-c b e")   #'carriage-select-apply-engine)
-    ;; New v1.1 prefix bindings (C-c e …) are applied via carriage-keyspec.
-    ;; Navigation placeholders (optional)
-    (define-key map (kbd "M-n")       #'carriage-next-patch-block)
-    (define-key map (kbd "M-p")       #'carriage-prev-patch-block)
-    map)
-  "Keymap for =carriage-mode'.")
+;; carriage-mode-map moved to carriage-mode.el (UI must not define keymaps; keys go via keyspec)
 
 (defvar carriage--ui-state 'idle
   "Current UI state: one of 'idle 'sending 'streaming 'dry-run 'apply 'error.")

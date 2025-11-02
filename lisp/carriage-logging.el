@@ -177,5 +177,13 @@ already showing BUFFER."
   (setq buffer-read-only t)
   (setq truncate-lines t))
 
+;; Ensure keyspec bindings are applied to carriage-aux-mode-map (log/traffic contexts).
+;; Apply immediately if keyspec is loaded, and also after it loads.
+(when (fboundp 'carriage-keys-apply-known-keymaps)
+  (ignore-errors (carriage-keys-apply-known-keymaps)))
+(with-eval-after-load 'carriage-keyspec
+  (when (fboundp 'carriage-keys-apply-known-keymaps)
+    (ignore-errors (carriage-keys-apply-known-keymaps))))
+
 (provide 'carriage-logging)
 ;;; carriage-logging.el ends here

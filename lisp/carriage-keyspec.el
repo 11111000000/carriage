@@ -1,4 +1,4 @@
-;;; carriage-keyspec.el --- Centralized key binding model (v1.1) -*- lexical-binding: t; -*-
+;;; carriage-keyspec.el --- Centralized key binding model (v1.2) -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
 (require 'subr-x)
@@ -33,16 +33,27 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
     (:id toggle-doc   :cmd carriage-toggle-include-doc-context   :keys ("t f") :contexts (carriage) :section tools :desc-key :toggle-doc)
     (:id menu         :cmd carriage-keys-open-menu               :keys ("e")   :contexts (carriage) :section tools :desc-key :menu)
     ;; Actions
-    (:id dry-run      :cmd carriage-dry-run-at-point        :keys ("d")  :contexts (carriage) :section act :desc-key :dry-run)
-    (:id apply        :cmd carriage-apply-at-point          :keys ("a")  :contexts (carriage) :section act :desc-key :apply)
-    (:id apply-all    :cmd carriage-apply-last-iteration    :keys ("A")  :contexts (carriage) :section act :desc-key :apply-all)
-    (:id abort        :cmd carriage-abort-current           :keys ("x")  :contexts (carriage) :section act :desc-key :abort)
-    (:id report       :cmd carriage-report-open             :keys ("r")  :contexts (carriage) :section tools :desc-key :report)
+    (:id dry-run      :cmd carriage-dry-run-at-point        :keys ("d")     :contexts (carriage) :section act :desc-key :dry-run)
+    (:id apply        :cmd carriage-apply-at-point          :keys ("a")     :contexts (carriage) :section act :desc-key :apply)
+    (:id apply-all    :cmd carriage-apply-last-iteration    :keys ("A")     :contexts (carriage) :section act :desc-key :apply-all)
+    (:id abort        :cmd carriage-abort-current           :keys ("x")     :contexts (carriage) :section act :desc-key :abort)
+    (:id send-buffer  :cmd carriage-send-buffer             :keys ("RET")   :contexts (carriage) :section act :desc-key :send-buffer)
+    (:id send-subtree :cmd carriage-send-subtree            :keys ("M-RET") :contexts (carriage) :section act :desc-key :send-subtree)
+    (:id report       :cmd carriage-report-open             :keys ("r")     :contexts (carriage) :section tools :desc-key :report)
+    ;; Report context actions (available in report buffers under the configured prefix)
+    (:id report-diff  :cmd carriage-report-show-diff-at-point :keys ("d")   :contexts (report)   :section act   :desc-key :report-diff)
+    (:id report-ediff :cmd carriage-report-ediff-at-point     :keys ("e")   :contexts (report)   :section act   :desc-key :report-ediff)
+    (:id report-apply :cmd carriage-report-apply-at-point     :keys ("a")   :contexts (report)   :section act   :desc-key :report-apply)
     ;; Git/WIP
     (:id wip          :cmd carriage-wip-checkout            :keys ("w")  :contexts (carriage) :section session :desc-key :wip)
     (:id reset        :cmd carriage-wip-reset-soft          :keys ("R")  :contexts (carriage) :section session :desc-key :reset)
     (:id commit-all   :cmd carriage-commit-changes          :keys ("c")  :contexts (carriage) :section session :desc-key :commit-all)
-    (:id commit-last  :cmd carriage-commit-last-iteration   :keys ("i")  :contexts (carriage) :section session :desc-key :commit-last)
+    (:id commit-last  :cmd carriage-commit-last-iteration   :keys ("i")     :contexts (carriage) :section session :desc-key :commit-last)
+    ;; Global
+    (:id show-log     :cmd carriage-show-log                :keys ("L")     :contexts (carriage report global) :section logs :desc-key :show-log)
+    (:id show-traffic :cmd carriage-show-traffic            :keys ("T")     :contexts (carriage report global) :section logs :desc-key :show-traffic)
+    (:id aux-quit     :cmd quit-window                      :keys ("q")     :contexts (report log traffic)     :section navigate :desc-key :quit)
+    (:id open-buffer  :cmd carriage-open-buffer             :keys ("e")     :contexts (global)   :section session :desc-key :open-buffer)
     ;; Engine
     (:id engine       :cmd carriage-select-apply-engine     :keys ("E")  :contexts (carriage) :section tools :desc-key :engine)
     )
@@ -63,6 +74,38 @@ KEY may be a single token (\"m\") or a space-separated sequence (\"t c\")."
      (let ((cs (plist-get pl :contexts)))
        (or (null cs) (memq context cs))))
    carriage-keys--spec))
+
+(defun carriage-keys--actions-for-contexts (contexts)
+  "Return merged action list for CONTEXTS with left-to-right priority.
+Earlier contexts in CONTEXTS take precedence over later ones by :id."
+  (let ((seen (make-hash-table :test 'eq))
+        (acc '()))
+    (dolist (ctx contexts)
+      (dolist (pl (carriage-keys--actions-for-context ctx))
+        (let ((id (plist-get pl :id)))
+          (unless (gethash id seen)
+            (puthash id t seen)
+            (push pl acc)))))
+    (nreverse acc)))
+
+(defun carriage-keys--current-contexts ()
+  "Detect active contexts in current buffer with priority order.
+- In carriage buffers: (carriage [report|log|traffic?] global)
+- In report/log/traffic buffers: (that-context global)
+- Else: (global) only when =carriage-global-mode' is on."
+  (let* ((in-carriage (and (boundp 'carriage-mode) carriage-mode))
+         (is-report  (derived-mode-p 'carriage-report-mode))
+         (is-log     (string= (buffer-name) "*carriage-log*"))
+         (is-traffic (string= (buffer-name) "*carriage-traffic*"))
+         (ctxs '()))
+    (when in-carriage (push 'carriage ctxs))
+    (when is-report   (push 'report ctxs))
+    (when is-log      (push 'log ctxs))
+    (when is-traffic  (push 'traffic ctxs))
+    ;; Global is available always inside carriage-mode; outside only if carriage-global-mode is enabled.
+    (when (or in-carriage (bound-and-true-p carriage-global-mode))
+      (setq ctxs (append ctxs (list 'global))))
+    (or ctxs (when (bound-and-true-p carriage-global-mode) '(global)))))
 
 (defun carriage-keys--apply-action (map action)
   "Apply ACTION binding(s) to MAP according to keyspec + profile overlays."
@@ -94,10 +137,81 @@ KEY may be a single token (\"m\") or a space-separated sequence (\"t c\")."
     (carriage-keys--apply-action map act))
   map)
 
+(defun carriage-keys-apply-prefix-suffixes (map context)
+  "Apply keyspec of CONTEXT to prefix MAP by binding suffix keys relative to MAP.
+
+This is intended for true prefix maps already assigned to a leading prefix
+derived from =carriage-keys-prefix'. The keys from keyspec are bound WITHOUT the =carriage-keys-prefix'
+added. For example:
+- \"t c\" in keyspec becomes (kbd \"t c\") inside MAP,
+- \"RET\" becomes (kbd \"RET\") inside MAP.
+
+Profile overlays (:add/:remove) are respected similar to =carriage-keys--apply-action'."
+  (dolist (act (carriage-keys--actions-for-context context))
+    (let* ((id   (plist-get act :id))
+           (cmd  (plist-get act :cmd))
+           (keys (copy-sequence (or (plist-get act :keys) '()))))
+      (when (and (symbolp cmd) keys)
+        (let* ((ov (alist-get carriage-keys-profile carriage-keys--profile-overlays))
+               (rm (plist-get ov :remove))
+               (ad (plist-get ov :add))
+               (rm-keys (cl-loop for el in rm
+                                 when (eq (plist-get el :id) id)
+                                 append (or (plist-get el :keys) '())))
+               (ad-keys (cl-loop for el in ad
+                                 when (eq (plist-get el :id) id)
+                                 append (or (plist-get el :keys) '()))))
+          (dolist (rk rm-keys)
+            (setq keys (delete rk keys)))
+          (dolist (ak ad-keys)
+            (push ak keys)))
+        (dolist (k (delete-dups (delq nil keys)))
+          (define-key map (kbd (string-trim k)) cmd)))))
+  map)
+
+(defun carriage-keys-apply-multi (map contexts)
+  "Apply keyspec for CONTEXTS to MAP in order; later contexts override earlier.
+Example: (global carriage) → локальные биндинги перекрывают глобальные."
+  (dolist (ctx contexts)
+    (carriage-keys-apply-to map ctx))
+  map)
+
 (defun carriage-keys-apply-known-keymaps ()
-  "Apply keyspec to known Carriage keymaps."
+  "Apply keyspec to known Carriage keymaps with proper context priority.
+- carriage buffers:
+  - when `carriage-mode-use-transient' is non-nil, bind the bare prefix (from
+    `carriage-keys-prefix') to the menu command and DO NOT bind any suffix
+    sequences under this prefix in `carriage-mode-map' to avoid \"non-prefix\"
+    errors;
+  - when transient is nil, install full prefix sequences for (global carriage).
+- report/log/traffic buffers: install (global report|log/traffic) sequences.
+
+This avoids binding conflicts where a bare prefix key is a command (menu)
+and therefore cannot also serve as a prefix for longer sequences."
+  ;; Carriage buffers
   (when (and (boundp 'carriage-mode-map) (keymapp carriage-mode-map))
-    (carriage-keys-apply-to carriage-mode-map 'carriage))
+    (let ((base (string-trim-right (or carriage-keys-prefix "C-c e ")
+                                   "[ \t\n\r]+")))
+      (if (and (boundp 'carriage-mode-use-transient) carriage-mode-use-transient)
+          (progn
+            ;; Do not install any suffixes in carriage-mode-map when transient is ON.
+            ;; Only bind the bare prefix to open the menu.
+            (define-key carriage-mode-map (kbd base) #'carriage-keys-open-menu)
+            ;; Ensure there is no accidental local C-c e e binding left.
+            (define-key carriage-mode-map (carriage-keys--ensure-kbd "e") nil))
+        ;; Transient is OFF → full prefix behavior: install global first, then carriage.
+        (carriage-keys-apply-multi carriage-mode-map '(global carriage))
+        ;; Ensure bare prefix is not bound to a command in this mode (prefix-only).
+        (define-key carriage-mode-map (kbd base) nil))))
+  ;; Child modes (best-effort: apply if the maps are defined)
+  ;; Apply report-specific bindings only to report map; apply log/traffic to aux map if present.
+  (dolist (mp '(carriage-report-mode-map carriage-aux-mode-map))
+    (when (and (boundp mp) (keymapp (symbol-value mp)))
+      (carriage-keys-apply-multi
+       (symbol-value mp)
+       (if (eq mp 'carriage-report-mode-map)
+           '(global report)
+         '(global log traffic)))))
   t)
 
 (defun carriage-keys-first-key (id)
@@ -128,7 +242,8 @@ KEY may be a single token (\"m\") or a space-separated sequence (\"t c\")."
 If transient is available, show multi-column grouped menu with i18n headers.
 Fallback: completing-read (group prefix in labels)."
   (interactive)
-  (let* ((all-acts (carriage-keys--actions-for-context 'carriage))
+  (let* ((ctxs (carriage-keys--current-contexts))
+         (all-acts (carriage-keys--actions-for-contexts ctxs))
          ;; exclude :menu itself
          (acts (cl-remove-if (lambda (pl) (eq (plist-get pl :id) 'menu)) all-acts))
          (sections '(navigate act session tools logs)))
@@ -190,8 +305,6 @@ Fallback: completing-read (group prefix in labels)."
                               for col = (funcall build-col sec)
                               when (> (length col) 1)
                               collect col))
-               ;; Note: transient-define-prefix expects body forms (lists/vectors)
-               ;; Splice a LIST of column vectors (cols), not a single vector.
                (menu-title (if (and (require 'carriage-i18n nil t)
                                     (fboundp 'carriage-i18n))
                                (carriage-i18n :carriage-menu)
@@ -199,10 +312,11 @@ Fallback: completing-read (group prefix in labels)."
           ;; Redefine transient prefix dynamically
           (when (fboundp 'carriage-keys--menu)
             (fset 'carriage-keys--menu nil))
-          (eval
-           `(transient-define-prefix carriage-keys--menu ()
-              ,menu-title
-              ,@cols))
+          ;; Build multi-column layout: top-level vector with title and nested column vectors.
+          (let ((layout (apply #'vector (cons menu-title cols))))
+            (eval
+             `(transient-define-prefix carriage-keys--menu ()
+                ,layout)))
           (call-interactively #'carriage-keys--menu))
       ;; Fallback: completing-read with section prefix in label
       (let* ((_ (require 'carriage-i18n nil t))
@@ -244,28 +358,19 @@ Fallback: completing-read (group prefix in labels)."
       (which-key-add-key-based-replacements (concat base " t") toggles)
       t)))
 
-(defcustom carriage-keys-global-prefix-install t
-  "When non-nil, install a global prefix keymap on \"C-c e\" with a minimal menu entry.
-This makes \"C-c e\" a visible prefix even outside carriage-mode buffers and binds
-\"C-c e e\" to =carriage-keys-open-menu' globally. All other normative bindings
-remain buffer-local and are applied via keyspec in =carriage-mode' buffers."
-  :type 'boolean
-  :group 'carriage-keyspec)
+;;;###autoload
+(defun carriage-keys-which-key-unregister ()
+  "Remove which-key replacements for Carriage prefix keys, if present."
+  (interactive)
+  (when (require 'which-key nil t)
+    (let* ((base (string-trim-right (or carriage-keys-prefix "C-c e ") "[ \t\n\r]+")))
+      (when (fboundp 'which-key-remove-key-based-replacements)
+        (ignore-errors (which-key-remove-key-based-replacements base))
+        (ignore-errors (which-key-remove-key-based-replacements (concat base " t"))))
+      t)))
 
-(defvar carriage-keys--global-prefix-map nil
-  "Global prefix keymap installed under \"C-c e\" when =carriage-keys-global-prefix-install' is non-nil.")
-
-(defun carriage-keys--ensure-global-prefix ()
-  "Install global binding: \"C-c e\" opens Carriage menu (transient or fallback)."
-  (when (and carriage-keys-global-prefix-install (keymapp global-map))
-    (define-key global-map (kbd "C-c e") #'carriage-keys-open-menu)
-    ;; which-key hints (optional)
-    (ignore-errors (carriage-keys-which-key-register))
-    t))
-
-;; Install global prefix on load if configured.
-(when carriage-keys-global-prefix-install
-  (ignore-errors (carriage-keys--ensure-global-prefix)))
+;; Global prefix is managed by carriage-global-mode (see carriage-global-mode.el).
+;; No global prefix is installed from keyspec; only buffer-local bindings are applied here.
 
 (provide 'carriage-keyspec)
 ;;; carriage-keyspec.el ends here

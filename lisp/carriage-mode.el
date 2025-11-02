@@ -127,8 +127,6 @@ as a “(+N more)” tail."
 If nil (default v1 behavior), such cases are considered a failure in dry-run."
   :type 'boolean :group 'carriage)
 
-
-
 (defcustom carriage-mode-show-header-line t
   "When non-nil, install a buffer-local header-line segment for Carriage."
   :type 'boolean :group 'carriage)
@@ -151,12 +149,20 @@ If nil (default v1 behavior), such cases are considered a failure in dry-run."
 Note: v1 forbids binary patches; this option remains nil in v1 and is reserved for future versions."
   :type 'boolean :group 'carriage)
 
-
-
 (defcustom carriage-commit-default-message "carriage: apply changes"
   "Default commit message used by Commit commands.
 May be a string or a function of zero args returning string."
   :type '(choice string function) :group 'carriage)
+
+(defcustom carriage-mode-use-transient t
+  "When non-nil, C-c e invokes Carriage menu (transient or fallback) in carriage-mode buffers.
+When nil, C-c e acts purely as a prefix for keyspec sequences (no menu on bare C-c e)."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-enable-legacy-bindings nil
+  "When non-nil, enable legacy bindings (C-c M-RET / C-c RET) in carriage-mode buffers.
+These are provided for compatibility and may be removed in a future release."
+  :type 'boolean :group 'carriage)
 
 (defvar-local carriage-mode-intent carriage-mode-default-intent
   "Current Carriage Intent for this buffer: 'Ask | 'Code | 'Hybrid.")
@@ -185,6 +191,13 @@ May be a string or a function of zero args returning string."
 The handler should be a zero-argument function that cancels the ongoing request or apply.
 Set by transports/pipelines when starting an async activity; cleared on completion or when disabling carriage-mode.")
 
+(defvar carriage-mode-map (make-sparse-keymap)
+  "Keymap for carriage-mode.
+Do not define bindings here; all key bindings are applied via keyspec and mode setup.")
+
+;; Ensure menu command autoload is available even if keyspec isn't loaded yet.
+;; This allows binding C-c e to open the menu immediately in carriage-mode buffers.
+(autoload 'carriage-keys-open-menu "carriage-keyspec" "Open Carriage action menu from keyspec." t)
 
 ;;;###autoload
 (define-minor-mode carriage-mode
@@ -1126,6 +1139,73 @@ FN must be a zero-argument function that cancels the ongoing activity."
   (setq carriage-mode-include-doc-context (not carriage-mode-include-doc-context))
   (message "Include #+begin_context files: %s" (if carriage-mode-include-doc-context "on" "off"))
   (force-mode-line-update t))
+
+;; -------------------------------------------------------------------
+;; Project-scoped ephemeral buffer (open-buffer) and exit prompt
+
+(defvar carriage--project-buffers (make-hash-table :test 'equal)
+  "Map of project-root (string) → live buffer for Carriage ephemeral project buffers.")
+
+(defvar carriage--ephemeral-exit-hook-installed nil
+  "Guard to install kill-emacs query hook only once per session.")
+
+(defvar-local carriage--ephemeral-project-buffer nil
+  "Non-nil in buffers created by =carriage-open-buffer' (ephemeral, not visiting a file by default).")
+
+(defun carriage--project-name-from-root (root)
+  "Return project name (basename of ROOT directory)."
+  (file-name-nondirectory (directory-file-name (or root default-directory))))
+
+(defun carriage--ensure-ephemeral-exit-hook ()
+  "Install a kill-emacs query hook to offer saving ephemeral project buffers."
+  (unless carriage--ephemeral-exit-hook-installed
+    (setq carriage--ephemeral-exit-hook-installed t)
+    (add-hook
+     'kill-emacs-query-functions
+     (lambda ()
+       (let* ((bufs (cl-loop for k being the hash-keys of carriage--project-buffers
+                             for b = (gethash k carriage--project-buffers)
+                             when (and (buffer-live-p b)
+                                       (with-current-buffer b
+                                         (and carriage--ephemeral-project-buffer
+                                              (buffer-modified-p))))
+                             collect b))
+              (need (and bufs (> (length bufs) 0))))
+         (if (not need)
+             t
+           (when (y-or-n-p "Carriage: save ephemeral project buffers to files before exit? ")
+             (dolist (b bufs)
+               (when (buffer-live-p b)
+                 (with-current-buffer b
+                   (when (and carriage--ephemeral-project-buffer
+                              (buffer-modified-p))
+                     ;; Offer a filename interactively
+                     (call-interactively #'write-file))))))
+           t))))))
+
+;;;###autoload
+(defun carriage-open-buffer ()
+  "Open or switch to the Carriage ephemeral buffer for the current project.
+Creates an org-mode buffer with carriage-mode enabled and default-directory bound to the project root."
+  (interactive)
+  (let* ((root (or (carriage-project-root) default-directory))
+         (pname (carriage--project-name-from-root root))
+         (bname (format "*carriage:%s/" (or (and pname (not (string-empty-p pname)) pname) "-")))
+         (existing (gethash root carriage--project-buffers))
+         (buf (if (and (buffer-live-p existing)) existing (get-buffer-create bname))))
+    (puthash root buf carriage--project-buffers)
+    (carriage--ensure-ephemeral-exit-hook)
+    (unless (get-buffer-window buf t)
+      (pop-to-buffer buf))
+    (with-current-buffer buf
+      (setq default-directory (file-name-as-directory (expand-file-name root)))
+      (setq carriage--ephemeral-project-buffer t)
+      (unless (derived-mode-p 'org-mode)
+        (ignore-errors (org-mode)))
+      ;; Ensure carriage-mode is enabled
+      (unless (bound-and-true-p carriage-mode)
+        (carriage-mode 1)))
+    buf))
 
 (provide 'carriage-mode)
 ;;; carriage-mode.el ends here

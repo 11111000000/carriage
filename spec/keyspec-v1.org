@@ -1,4 +1,4 @@
-#+title: Keyspec v1.1 — Централизованная модель биндингов
+#+title: Keyspec v1.2 — Централизованная модель биндингов
 #+author: Carriage Team
 #+language: ru
 #+options: toc:2 num:t
@@ -12,7 +12,7 @@
 - Поддержка профилей (classic|vimish|custom).
 
 * Структура записи
-- Плест-запись на действие:
+- Плист-запись на действие:
   (:id ID
    :cmd SYMBOL
    :keys ("k" "alias")
@@ -23,6 +23,8 @@
 * Контексты (минимум)
 - carriage — основной буфер режима.
 - report — буфер отчёта.
+- log — буфер журнала (*carriage-log*).
+- traffic — буфер трафика (*carriage-traffic*).
 - global — глобальные действия/подсказки (без навязывания глобальных keymaps).
 
 * API (рекомендуемая реализация)
@@ -79,6 +81,7 @@
 - Доступность глобальных клавиш:
   - Клавиши из :contexts (global) доступны везде при включённом carriage-global-mode.
   - В буферах carriage-mode глобальные клавиши также доступны, но при конфликте приоритет у локального контекста (carriage > report/log/traffic > global).
+  - Примечание: при carriage-mode-use-transient=t локальная привязка "C-c e" как команда перехватывает последовательность целиком; глобальный суффикс "e" (open-buffer) в таком буфере недостижим — это ожидаемо по семантике Emacs.
 - Префикс C-c e:
   - Вне carriage-mode префикс C-c e не занят, если carriage-global-mode выключен.
   - При включённом carriage-global-mode C-c e показывает меню для :contexts (global) или действует как префикс (если transient выключен).
