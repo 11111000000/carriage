@@ -70,3 +70,25 @@
 - i18n:
   - Подписи пунктов меню берутся из :desc-key в keyspec (через i18n); при отсутствии — fallback к имени команды.
   - Переключение локали обновляет заголовки групп, подписи и which-key подсказки.
+
+* Дополнения v1.2 — Контексты и глобальный префикс
+- Новые контексты: log, traffic и дочерние спец-режимы.
+  - log — спец-буфер журнала (*carriage-log*).
+  - traffic — спец-буфер трафика (*carriage-traffic*).
+  - report — уже определён; все дочерние режимы (report/log/traffic) назначаются через keyspec, а не локальные define-key.
+- Доступность глобальных клавиш:
+  - Клавиши из :contexts (global) доступны везде при включённом carriage-global-mode.
+  - В буферах carriage-mode глобальные клавиши также доступны, но при конфликте приоритет у локального контекста (carriage > report/log/traffic > global).
+- Префикс C-c e:
+  - Вне carriage-mode префикс C-c e не занят, если carriage-global-mode выключен.
+  - При включённом carriage-global-mode C-c e показывает меню для :contexts (global) или действует как префикс (если transient выключен).
+  - В carriage-mode C-c e показывает меню для текущего буфера (при transient=t) или является префиксом (при transient=nil).
+- Новые записи keyspec (рекомендуемые):
+#+begin_src emacs-lisp
+;; Отправка (внутри carriage)
+(:id send-buffer  :cmd carriage-send-buffer   :keys ("RET")    :contexts (carriage) :section act :desc-key :send-buffer)
+(:id send-subtree :cmd carriage-send-subtree  :keys ("M-RET")  :contexts (carriage) :section act :desc-key :send-subtree)
+
+;; Глобальное «открыть буфер Carriage» (уникальный на проект)
+(:id open-buffer  :cmd carriage-open-buffer   :keys ("e")      :contexts (global)   :section session :desc-key :open-buffer)
+#+end_src

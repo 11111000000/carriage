@@ -130,3 +130,23 @@
   - carriage-mode-context-max-total-bytes (integer, default 1048576) — суммарный лимит байт включаемого содержимого.
 - Норматив для префикса клавиш:
   - Все биндинги режима — под C-c e; исторические могут сохраняться как опциональная совместимость.
+
+* Дополнения v1.2 — Глобальный префикс, Open Buffer и Transient toggle
+- Новые/уточнённые команды:
+  - carriage-open-buffer
+    - Открыть или переключиться на «эфемерный проектный» буфер Carriage для текущего проекта (без файла, org-mode + carriage-mode).
+    - Гарантия уникальности на проект: один буфер на корень project.el/git; повторный вызов — переключение в существующий.
+  - carriage-global-mode
+    - Глобальный минор-режим, включающий префикс C-c e вне carriage-mode и строящий меню из :contexts (global).
+- Новые/уточнённые переменные:
+  - carriage-mode-use-transient (boolean, default t)
+    - Включает показ transient по C-c e в carriage-mode. При nil C-c e — префикс; пункты transient не используются.
+  - carriage-enable-legacy-bindings (boolean, default nil)
+    - Временно включает исторические биндинги (например, C-c M-RET/RET) поверх схемы keyspec.
+- Эфемерные проектные буферы:
+  - Буферный признак: buffer-local флаг «эпемерный проектный буфер» (реализация — внутренняя переменная).
+  - Политика выхода: хук kill-emacs-query-functions обязан предлагать сохранить такие буферы в файл перед завершением Emacs.
+  - Специфика имени: формат имени буфера может включать имя проекта (например, *carriage:PROJECT*).
+- Рекомендуемые биндинги через keyspec:
+  - :contexts (carriage): ("RET" → carriage-send-buffer), ("M-RET" → carriage-send-subtree).
+  - :contexts (global): ("e" → carriage-open-buffer).

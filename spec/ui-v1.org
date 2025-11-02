@@ -238,5 +238,23 @@
 - All visible labels (buttons, help-echo, headers, which-key hints, transient titles) must be resolved via the i18n layer.
 - Locale switching must update UI labels without global side-effects; buffer-local mode-line refresh required (force-mode-line-update).
 
+** Addendum v1.2 — Префикс C-c e, carriage-global-mode и проектный буфер
+- Норматив ключей и transient:
+  - По умолчанию transient включён (carriage-mode-use-transient=t): в carriage-mode сочетание C-c e сразу открывает меню (без дополнительной «e»).
+  - Если carriage-mode-use-transient=nil — C-c e становится префиксом; под ним действуют keyspec-суффиксы (например, "t c").
+  - Вне carriage-mode C-c e не занят, за исключением включённого carriage-global-mode.
+- carriage-global-mode (глобальный минор-режим):
+  - При включении регистрирует глобальный префикс C-c e и строит меню/префикс только из действий :contexts (global).
+  - В буферах carriage-mode одновременно действуют и global-, и carriage-клавиши; при коллизии приоритет у локального контекста (carriage > report/log/traffic > global).
+  - which-key: "C-c e" — Carriage Menu (global), "C-c e t" — Carriage Toggles (если тумблеры объявлены в global).
+- Источник правды по клавишам:
+  - Любые биндинги настраиваются через keyspec; статический (defvar carriage-mode-map ...) в carriage-ui.el запрещён.
+  - В дочерних спец-буферах (report/log/traffic) клавиши задаются контекстами keyspec; локальные define-key в этих файлах недопустимы.
+- Проектный буфер без файла (carriage-open-buffer):
+  - Действие из :contexts (global), рекомендуемая клавиша "e" под префиксом C-c e в global-меню.
+  - Открывает (или переключает на существующий) уникальный для текущего проекта буфер с включённым carriage-mode и default-directory в корне проекта.
+  - Буфер помечается как «эфемерный проектный»; при попытке выхода из Emacs система должна предложить сохранить такие буферы в файл (через kill-emacs-query-functions).
+  - Поведение в TTY/без transient: fallback-меню через completing-read; пункт :menu исключается из списка.
+
 
 

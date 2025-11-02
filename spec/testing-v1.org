@@ -212,4 +212,22 @@
          (carriage-op-fragment-overrides '((patch . "OVERRIDE PATCH FRAGMENT")))
          (sys (alist-get :system (carriage--build-prompt intent suite '(:payload "P")))))
     (should (string-match-p "OVERRIDE PATCH FRAGMENT" sys))))
+
+* Keyspec/UI v1.2 — Глобальный префикс, контексты и open-buffer
+- Префикс/Transient:
+  - В carriage-mode и carriage-mode-use-transient=t на "C-c e" открывается меню (transient|fallback).
+  - При carriage-mode-use-transient=nil "C-c e" — префикс; последовательности "C-c e t c" работают.
+  - Вне carriage-mode "C-c e" не занят, кроме включённого carriage-global-mode.
+- Глобальный режим:
+  - При включённом carriage-global-mode "C-c e" доступен глобально; меню/префикс строятся только из :contexts (global).
+  - В буфере carriage-mode глобальные клавиши доступны и могут перекрываться локальными; локальные имеют приоритет.
+- Контексты дочерних режимов:
+  - report/log/traffic: в соответствующих спец-буферах доступны только клавиши их контекстов; отсутствуют локальные define-key вне keyspec.
+- Новые действия:
+  - "C-c e RET" → carriage-send-buffer (в carriage-mode при transient=nil).
+  - "C-c e M-RET" → carriage-send-subtree (в carriage-mode при transient=nil).
+  - "C-c e e" (global) → carriage-open-buffer (при включённом carriage-global-mode).
+- Open-buffer (эфемерный проектный буфер):
+  - Создаёт/находит уникальный для проекта буфер с включённым carriage-mode; default-directory — корень проекта.
+  - При kill-emacs тест проверяет, что хук предлагает сохранить такие буферы (мокаем пользовательский ответ).
 #+end_src
