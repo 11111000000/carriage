@@ -766,15 +766,15 @@ Stages as needed depending on staging policy; with 'none, runs git add -A then r
 
 ;;;###autoload
 (defun carriage-select-suite (&optional suite)
-  "Select Suite (sre|udiff)."
+  "Select Suite (sre|aibo|udiff)."
   (interactive)
   (let* ((choices
           (condition-case _e
               (let ((ids (and (fboundp 'carriage-suite-ids) (carriage-suite-ids))))
                 (if (and ids (listp ids))
                     (mapcar (lambda (s) (if (symbolp s) (symbol-name s) (format "%s" s))) ids)
-                  '("sre" "udiff")))
-            (error '("sre" "udiff"))))
+                  '("sre" "aibo" "udiff")))
+            (error '("sre" "aibo" "udiff"))))
          (default (if (symbolp carriage-mode-suite)
                       (symbol-name carriage-mode-suite)
                     (or carriage-mode-suite "udiff")))

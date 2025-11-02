@@ -235,7 +235,7 @@ PAIRS — список пар вида ((:from . STR) (:to . STR) (:opts . PLIST
           (when (and (eq occur 'all) (not expect))
             (signal (carriage-error-symbol 'SRE_E_OCCUR_EXPECT) nil)))
         (setq tail (cdr tail))))
-    pairs)))
+    pairs))
 
 ;; Post-parse validator: ensure parse-aibo signals on invalid opts
 (defun carriage--aibo--validate-parse-result (plan)

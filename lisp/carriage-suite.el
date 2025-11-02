@@ -50,6 +50,7 @@ FRAG is either a STRING or a function of (CTX) returning STRING).")
 
 (defconst carriage--suite-table
   '((sre   . (:ops-allowed (sre aibo create delete rename)))
+    (aibo  . (:ops-allowed (aibo create delete rename)))
     (udiff . (:ops-allowed (patch create delete rename))))
   "Mapping of suite-id to properties. :ops-allowed is a list of ops symbols.")
 
