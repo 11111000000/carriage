@@ -14,6 +14,7 @@
 
 * Операции и версии
 - "sre" v1 — 1..N пар FROM→TO в одном блоке =patch= (begin_from/begin_to).
+- "aibo" v1 — literal-only поиск/замена (без регулярок) в одном блоке =patch= (begin_from/begin_to).
 - "patch" v1 — unified diff одного файла в блоке =patch=.
 - "create" v1 — создать файл с содержимым (см. ./file-ops-v1.org).
 - "delete" v1 — удалить файл (см. ./file-ops-v1.org).
@@ -30,6 +31,10 @@
   - parse: carriage-parse-sre
   - dry-run: carriage-dry-run-sre
   - apply: carriage-apply-sre
+- aibo:
+  - parse: carriage-parse-aibo
+  - dry-run: carriage-dry-run-aibo
+  - apply: carriage-apply-aibo
 - patch:
   - parse: carriage-parse-diff
   - dry-run/apply: через Apply Engine ('git) — см. ./apply-engines-v1.org
@@ -50,3 +55,4 @@
 - Неизвестная :version или :op → отказ с кодом MODE_E_DISPATCH.
 - Несоответствие имени блока → отказ (в v1 алиасы не поддерживаются).
 - Логирование всех ошибок в единый канал диагностики.
+- NOOP-политика: когда after == before, шаг применения возвращает статус 'skip (а не 'ok); отчёт включает :matches и, при наличии, :changed-bytes.

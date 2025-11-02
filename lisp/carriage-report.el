@@ -131,6 +131,11 @@ REPORT shape:
                  (status      (plist-get it :status))
                  (matches     (plist-get it :matches))
                  (details     (or (plist-get it :details) ""))
+                 ;; Append changed-bytes to details when present
+                 (dummy-cb (let ((cb (plist-get it :changed-bytes)))
+                             (when (numberp cb)
+                               (setq details (format "%s (Δbytes=%d)" details cb)))
+                             nil))
                  (preview-raw  (or (plist-get it :diff) ""))
                  (has-preview  (and (stringp preview-raw) (> (length preview-raw) 0)))
                  (preview-flat (if has-preview

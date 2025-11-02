@@ -14,6 +14,8 @@
   - SRE: превышение лимита пар → SRE_E_LIMITS; отсутствие пар → SRE_E_SEGMENTS_COUNT; from без to → SRE_E_UNPAIRED.
   - SRE: экранирование строк «#+end_from»/«#+end_to» (с одним ведущим пробелом).
   - SRE: :range вне границ → clamp и предупреждение SRE_W_RANGE_CLAMP; одинаковое поведение dry-run/apply.
+  - SRE: валидация :occur — только 'first|'all; любые иные значения → SRE_E_OCCUR_VALUE; пустые FROM/TO → SRE_E_EMPTY_SEGMENT.
+  - AIBO: literal-only; ключ :match запрещён; :occur 'first|'all (при all обязателен :expect); пустые FROM/TO → SRE_E_EMPTY_SEGMENT.
   - PATCH: многофайловый diff → отказ, /dev/null create/delete.
   - PATCH: :strip логика — по умолчанию 1; если :strip задан и не (целое ≥ 0) → PATCH_E_STRIP.
   - PATCH: отсутствуют заголовки ---/+++ → PATCH_E_DIFF_SYNTAX.
@@ -104,6 +106,9 @@
 ;; SRE
 (ert-deftest carriage-sre-parse-basic ()
   (should (fboundp 'carriage-parse-sre)))
+
+(ert-deftest carriage-aibo-parse-basic ()
+  (should (fboundp 'carriage-parse-aibo)))
 
 (ert-deftest carriage-sre-occur-all-expect-required ()
   (let ((plan '((:version "1" :op 'sre :file "x"

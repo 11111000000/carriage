@@ -42,8 +42,9 @@ Strict v1 behavior:
       (unless (functionp fn)
         ;; Лениво грузим ops-модуль и повторяем поиск
         (pcase op-sym
-          ('sre (load "ops/carriage-op-sre" t t))
-          ('patch               (load "ops/carriage-op-patch" t t))
+          ('sre                  (load "ops/carriage-op-sre" t t))
+          ('aibo                 (load "ops/carriage-op-aibo" t t))
+          ('patch                (load "ops/carriage-op-patch" t t))
           ((or 'create 'delete 'rename) (load "ops/carriage-op-file" t t))
           (_ nil))
         (setq rec (and (fboundp 'carriage-format-get) (carriage-format-get op-sym "1"))

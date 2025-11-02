@@ -35,7 +35,10 @@
   - apply: git apply [--index при policy='index] --directory=<root> [-p strip].
 - sre:
   - dry-run: симуляция замен; сбор мини-диффа.
-  - apply: запись в рабочее дерево; опциональная индексация по policy.
+  - apply: запись в рабочее дерево; опциональная индексация по policy; NOOP-политика — если after==before, вернуть 'skip и указать :matches и :changed-bytes=0.
+- aibo:
+  - dry-run: симуляция замен (literal-only); сбор мини-диффа.
+  - apply: запись в рабочее дерево; опциональная индексация по policy; NOOP-политика аналогична sre (after==before → 'skip).
 - file-ops:
   - create: mkdir -p (если :mkdir t), запись, ensure-final-newline, индексация по policy.
   - delete: git rm (или удаление + индексирование) по policy.

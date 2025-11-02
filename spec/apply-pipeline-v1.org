@@ -48,7 +48,8 @@
 
 * Идемпотентность и повторное применение
 - При повторном apply на уже изменённый файл:
-  - SRE-first: 0 совпадений → отказ (по умолчанию); если carriage-mode-sre-noop-on-zero-matches=t — статус 'skip с предупреждением.
+  - SRE/AIBO: 0 совпадений → отказ (по умолчанию) или 'skip по политике (carriage-mode-sre-noop-on-zero-matches=t).
+  - SRE/AIBO: if after==before (симуляция даёт тот же текст) → 'skip (NOOP), отчёт включает :matches и :changed-bytes=0.
   - Patch: git apply --check даст отказ — блок пропускается с сообщением (добавить PATCH_E_GIT_CHECK в :messages).
 
 * Ограничения

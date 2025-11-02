@@ -26,7 +26,7 @@
 
 * Intent: Code/Hybrid и Suites
 ** Базовые сьюиты v1
-- 'sre — разрешены :op (sre, create, delete, rename).
+- 'sre — разрешены :op (sre, aibo, create, delete, rename).
 - 'udiff — разрешены :op (patch, create, delete, rename).
 - Примечание: file-ops (create/delete/rename) разрешены в обоих сьюитах; отдельных 'auto и 'file-ops нет.
 
@@ -56,6 +56,23 @@
 - Замечания:
   - Intent=Code: ничего вне блока; Intent=Hybrid: текст вне блоков допускается (инструмент применяет только блоки). Сначала begin_from/end_from, затем begin_to/end_to для КАЖДОЙ пары.
   - Если внутри содержимого встречается строка «#+end_from» или «#+end_to», поставь перед ней один пробел.
+
+** AIBO (literal-only, один файл)
+- Шаблон:
+  - #+begin_patch (:version "1" :op "aibo" :file "RELATIVE/PATH")
+  - [опционально: #+pair (<plist>) — опции для СЛЕДУЮЩЕЙ пары]
+  - #+begin_from
+  - FROM-текст (literal)
+  - #+end_from
+  - #+begin_to
+  - TO-текст (literal)
+  - #+end_to
+  - … повторять пары при необходимости …
+  - #+end_patch
+- Замечания:
+  - Никаких регулярок; ключ :match запрещён.
+  - Допустимы только :occur 'first|'all (при all обязателен :expect), :range и (опционально) :anchor.
+  - Идемпотентность: при after==before — шаг помечается 'skip; отчёт включает :matches и :changed-bytes.
 
 ** PATCH (unified diff, один файл)
 - Шаблон:
@@ -91,6 +108,7 @@
 - В Intent=Code — запрет текста вне блоков; в Intent=Hybrid — текст допускается, но применяется только содержимое блоков.
 - Примеры соответствуют формату; минимум вариативности.
 - Запрет на base64 по умолчанию (инструмент делает fallback сам).
+- Идемпотентность: шаблоны должны быть устойчивыми к повторному применению (повторный запуск не меняет файл); используйте якоря (\=, ^, $), :range и проверку ближайшего контекста без PCRE-lookbehind; для aibo — только literal + anchor/range.
 
 * Диагностика несоответствия
 - Текст вне =patch= → фильтрация/перегенерация (по политике).

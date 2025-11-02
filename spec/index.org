@@ -12,7 +12,9 @@
   - Макс. размер тела ответа: 4 MiB
   - Тайм-аут git: 15 сек.
   - Пути: только относительные, внутри корня проекта; symlink — deny escape.
-  - SRE: only :occur first|all, :expect обязателен для all.
+  - SRE: only :occur first|all, :expect обязателен для all (любые иные значения :occur → SRE_E_OCCUR_VALUE).
+  - AIBO: literal-only, регулярные выражения запрещены.
+  - NOOP: для SRE/AIBO, если after==before — статус 'skip; отчёт должен включать :matches и :changed-bytes.
   - Patch: только один файл на блок; :strip=1 по умолчанию (a/ b/ префиксы обязательны).
   - TRAMP и бинарные патчи — не поддерживаются.
 - Контекст (v1.1): максимум 100 файлов; максимум 1024 KiB суммарно включаемого содержимого.
@@ -42,6 +44,7 @@
 * Состав
 - Форматы патчей:
   - ./sre-v1.org — Search/Replace формат (sre; пары begin_from/begin_to) в блоке =patch=.
+  - ./aibo-v1.org — Literal-only Search/Replace (aibo; без регулярок) в блоке =patch=.
   - ./patch-unified-diff-v1.org — Unified Diff в блоке =patch=.
   - ./file-ops-v1.org — Операции над файлами (create, delete, rename) в блоках =patch=.
 - Спецификация мода (основы и модули):

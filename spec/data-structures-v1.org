@@ -75,6 +75,7 @@
               :details STRING
               :diff PREVIEW-DIFF-STRING ; для SRE/preview
               :matches K
+              :changed-bytes INT?
               :pid PID? :elapsed-ms INT? :engine SYMBOL?) ... )
      :messages ((:code SYMBOL :severity 'info|'warn|'error
                  :file "path" :details STRING :hint STRING? ) ... ))

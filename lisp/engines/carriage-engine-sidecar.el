@@ -37,7 +37,7 @@ By default disabled; this engine is a skeleton and does not implement real apply
 (defun carriage-engine-sidecar-capabilities (_op)
   "Capabilities for sidecar engine (skeleton)."
   (list :name "Sidecar (skeleton)"
-        :ops '(patch create delete rename sre)
+        :ops '(patch create delete rename sre aibo)
         :async t
         :timeout t))
 

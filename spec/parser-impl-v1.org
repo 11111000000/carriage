@@ -27,6 +27,8 @@
   - SRE_E_UNCLOSED_BLOCK — отсутствует закрывающий end-блок.
   - SRE_E_SEGMENTS_COUNT — нет ни одной пары.
   - SRE_E_OCCUR_EXPECT — :occur all без :expect.
+  - SRE_E_OCCUR_VALUE — значение :occur не 'first|'all.
+  - SRE_E_EMPTY_SEGMENT — пустой FROM или TO.
   - SRE_E_LIMITS — лимиты пар/размеров (см. FREEZE).
 - Внутреннее представление: (:pairs ((:from STR :to STR :opts PLIST) ...)).
 
@@ -62,6 +64,18 @@
 
 (defun carriage-apply-sre (plan-item repo-root)
   "Применить пары по порядку; при необходимости — индексация по политике; без коммита."
+  )
+
+(defun carriage-parse-aibo (header body repo-root)
+  "Парсинг AIBO v1 (literal-only FROM/TO). Запрещает :match и любые regex."
+  )
+
+(defun carriage-dry-run-aibo (plan-item repo-root)
+  "Подсчитать совпадения (literal-only), подготовить мини-дифф и :changed-bytes."
+  )
+
+(defun carriage-apply-aibo (plan-item repo-root)
+  "Применить literal-only пары; NOOP (after==before) → 'skip; опционально индексировать."
   )
 
 (defun carriage-parse-diff (header body repo-root)

@@ -49,7 +49,7 @@ FRAG is either a STRING or a function of (CTX) returning STRING).")
   (provide 'carriage-intent-registry))
 
 (defconst carriage--suite-table
-  '((sre   . (:ops-allowed (sre create delete rename)))
+  '((sre   . (:ops-allowed (sre aibo create delete rename)))
     (udiff . (:ops-allowed (patch create delete rename))))
   "Mapping of suite-id to properties. :ops-allowed is a list of ops symbols.")
 
@@ -133,7 +133,20 @@ Return STRING or nil."
         (cond
          ((stringp pf) pf)
          ((functionp pf) (ignore-errors (funcall pf ctx)))
-         (t nil)))))))
+         (t
+          ;; Fallback fragments to keep Suite robust when an op module isn't loaded yet.
+          (pcase op
+            ('aibo
+             (concat
+              "AIBO (literal-only, one file):\n"
+              "#+begin_patch (:version \"1\" :op \"aibo\" :file \"RELATIVE/PATH\")\n"
+              "#+pair (:occur all :expect K) ; optional, applies to the NEXT pair\n"
+              "#+begin_from\nFROM text\n#+end_from\n"
+              "#+begin_to\nTO text\n#+end_to\n"
+              "#+end_patch\n"
+              "- No regex; :match is forbidden.\n"
+              "- For :occur all, :expect is required.\n"))
+            (_ nil)))))))))
 
 (defun carriage--resolve-intent-fragment (intent ctx)
   "Resolve intent fragment for INTENT using overrides or registry.
@@ -199,6 +212,7 @@ CTX may contain keys like :payload, :context-text, :context-target, :delim, :fil
                    (unless (carriage-format-get op "1")
                      (pcase op
                        ('sre                 (load "ops/carriage-op-sre" t t))
+                       ('aibo                (load "ops/carriage-op-aibo" t t))
                        ('patch               (load "ops/carriage-op-patch" t t))
                        ((or 'create 'delete 'rename) (load "ops/carriage-op-file" t t))
                        (_ nil)))))

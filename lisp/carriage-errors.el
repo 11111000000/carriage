@@ -8,15 +8,20 @@
     (SRE_E_OP               carriage-sre-op               "Неверное значение :op (SRE_E_OP)")
     (SRE_E_PATH             carriage-sre-path             "Недопустимый путь (SRE_E_PATH)")
     (SRE_E_SEGMENTS_COUNT   carriage-sre-segments-count   "Нет ни одной пары (SRE_E_SEGMENTS_COUNT)")
-    (SRE_E_SEGMENTS_ODD     carriage-sre-segments-odd     "Нечётное количество сегментов (SRE_E_SEGMENTS_ODD)")
+    (SRE_E_UNPAIRED         carriage-sre-unpaired         "FROM без последующего TO (SRE_E_UNPAIRED)")
     (SRE_E_UNCLOSED_BLOCK   carriage-sre-unclosed-block   "Незакрытый блок FROM/TO (SRE_E_UNCLOSED_BLOCK)")
+    (SRE_E_UNCLOSED_SEGMENT carriage-sre-unclosed-segment "Незакрытый сегмент (SRE_E_UNCLOSED_SEGMENT)")
     (SRE_E_OCCUR_EXPECT     carriage-sre-occur-expect     "Для :occur all требуется :expect (SRE_E_OCCUR_EXPECT)")
+    (SRE_E_OCCUR_VALUE      carriage-sre-occur-value      "Неверное значение :occur (SRE_E_OCCUR_VALUE)")
     (SRE_E_REGEX_SYNTAX     carriage-sre-regex-syntax     "Неподдерживаемый синтаксис regexp (SRE_E_REGEX_SYNTAX)")
+    (SRE_E_EMPTY_SEGMENT    carriage-sre-empty-segment    "Пустой FROM/TO сегмент (SRE_E_EMPTY_SEGMENT)")
     (SRE_E_NO_MATCHES       carriage-sre-no-matches       "Совпадений не найдено (SRE_E_NO_MATCHES)")
     (SRE_E_EXPECT_MISMATCH  carriage-sre-expect-mismatch  "Число замен не соответствует :expect (SRE_E_EXPECT_MISMATCH)")
 
 
     (SRE_E_LIMITS           carriage-sre-limits           "Превышены лимиты размера (SRE_E_LIMITS)")
+    (SRE_W_RANGE_CLAMP      carriage-sre-range-clamp      "Диапазон скорректирован к границам файла (SRE_W_RANGE_CLAMP)")
+    (SRE_W_NOOP             carriage-sre-noop             "Нет изменений (NOOP) — after==before (SRE_W_NOOP)")
 
     (PATCH_E_VERSION        carriage-patch-version        "Неверная версия (PATCH_E_VERSION)")
     (PATCH_E_OP             carriage-patch-op             "Неверное значение :op (PATCH_E_OP)")

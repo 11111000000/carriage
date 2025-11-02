@@ -7,7 +7,7 @@
 * Объём (Scope) и цели v1
 - Цель: безопасное применение патчей, создаваемых LLM, прямо из org-документа.
 - Входит:
-  - Поддержка форматов v1: =sre= (./sre-v1.org) и =patch= (./patch-unified-diff-v1.org).
+  - Поддержка форматов v1: =sre= (./sre-v1.org), =aibo= (./aibo-v1.org) и =patch= (./patch-unified-diff-v1.org).
   - Запросы в LLM через транспорт (см. ./llm-transport-v1.org; адаптер gptel — по умолчанию), dry-run, предпросмотр, применение, git-коммиты (ветка WIP).
   - Работа только в org-mode буферах.
 - Не входит в v1:

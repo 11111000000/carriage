@@ -71,5 +71,12 @@
     (should (string-prefix-p "CTX\n" pr))
     (should (string-match-p "P\\'" pr))))
 
+(ert-deftest carriage-prompt-builder-includes-aibo-fragment ()
+  "Suite=sre system should include AIBO fragment when op module is available."
+  (let* ((ret (carriage-build-prompt 'Code 'sre '(:payload "X")))
+         (sys (plist-get ret :system)))
+    (should (stringp sys))
+    (should (string-match-p "AIBO (literal-only" sys))))
+
 (provide 'carriage-prompt-builder-test)
 ;;; carriage-prompt-builder-test.el ends here

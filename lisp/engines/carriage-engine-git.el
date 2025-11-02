@@ -298,7 +298,7 @@
 (defun carriage-engine-git-capabilities (_op)
   "Return engine capability plist (static for v1)."
   (list :name "Git apply engine"
-        :ops '(patch create delete rename sre)
+        :ops '(patch create delete rename sre aibo)
         :async t
         :timeout t))
 

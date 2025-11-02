@@ -1,53 +1,71 @@
-;;; carriage-intent-registry.el --- Intent fragments registry and overrides  -*- lexical-binding: t; -*-
+;;; carriage-intent-registry.el --- Intent fragments registry  -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
 (require 'subr-x)
 
-(defgroup carriage-intents nil
-  "Carriage intent fragments registry and configuration."
-  :group 'carriage)
+(defgroup carriage-prompts nil
+  "Prompt composition: intent fragments and suite builder."
+  :group 'applications)
 
 (defcustom carriage-intent-fragment-overrides nil
-  "Alist ((INTENT . FRAG) ...) for intent prompt fragment overrides.
-FRAG is either a STRING or a function of (CTX) returning STRING."
+  "Alist of overrides for intent prompt fragments.
+Each entry is (INTENT . FRAG), where FRAG is either STRING or FUNCTION (CTX → STRING).
+Override takes precedence over the registry defaults."
   :type '(alist :key-type symbol :value-type (choice string function))
-  :group 'carriage-intents)
+  :group 'carriage-prompts)
 
-(defvar carriage--intent-registry nil
-  "Alist ((INTENT . FRAG) ...) of default intent fragments.
-FRAG is either a STRING or a function (lambda (ctx) STRING).")
+(defvar carriage--intent-fragments (make-hash-table :test 'eq)
+  "Registry of intent fragments: INTENT → FRAG (STRING or FUNCTION (CTX → STRING)).")
 
-(defun carriage-intent-register (intent frag)
-  "Register INTENT fragment FRAG (STRING or (lambda (ctx) STRING))."
-  (let* ((cell (assq intent carriage--intent-registry)))
-    (if cell
-        (setcdr cell frag)
-      (push (cons intent frag) carriage--intent-registry)))
+(defun carriage-intent-register (intent fragment)
+  "Register FRAGMENT for INTENT in the intent registry.
+FRAGMENT must be a STRING or a FUNCTION of one argument CTX returning STRING."
+  (unless (memq (type-of fragment) '(string cons))
+    ;; Allow lambdas/closures as functions; `functionp' covers both.
+    (unless (functionp fragment)
+      (error "Invalid fragment for intent %S: must be string or function" intent)))
+  (puthash intent fragment carriage--intent-fragments)
   t)
 
 (defun carriage-intent-get (intent)
-  "Return fragment for INTENT considering overrides.
-Result is STRING or FUNCTION (lambda (ctx) STRING), or nil if unknown."
-  (let* ((ov (and (boundp 'carriage-intent-fragment-overrides)
-                  (alist-get intent carriage-intent-fragment-overrides))))
+  "Return fragment (STRING or FUNCTION) for INTENT with overrides applied.
+The caller is responsible for FUNCALL if the result is a function."
+  (let* ((ov (assoc-default intent carriage-intent-fragment-overrides)))
     (cond
-     ;; Override wins
      (ov ov)
-     ;; Registry default
-     (t (cdr (assq intent carriage--intent-registry))))))
+     ((gethash intent carriage--intent-fragments))
+     (t (error "Unknown intent: %S" intent)))))
 
 (defun carriage-intent-known ()
-  "Return list of known intent symbols."
-  (mapcar #'car carriage--intent-registry))
+  "Return list of known intent symbols in the registry."
+  (let (res)
+    (maphash (lambda (k _v) (push k res)) carriage--intent-fragments)
+    (nreverse res)))
 
-;; Defaults (English, single-language; can be overridden via defcustom above)
-;; Keep concise and format-neutral; Suite adds guardrails and op fragments.
-(carriage-intent-register 'Ask
-                          "Ask mode: dialogue only. Do NOT generate any #+begin_patch blocks.")
-(carriage-intent-register 'Code
-                          "Code mode: answer ONLY with Org #+begin_patch ... #+end_patch blocks. No text outside blocks.")
-(carriage-intent-register 'Hybrid
-                          "Hybrid mode: you MAY include prose, but the tool will apply ONLY the content of #+begin_patch ... #+end_patch blocks.")
+;; -------------------------------------------------------------------
+;; Default fragments (English-only by spec; overrides can replace)
+
+(defun carriage--intent-frag-code (_ctx)
+  "Default fragment for Intent=Code."
+  "Answer ONLY with Org begin_patch blocks.
+Do NOT include any prose outside blocks. No reasoning, no commentary.
+- Use exactly one block per operation.
+- Paths must be RELATIVE to project root; no absolute paths, no \"..\" segments.
+- Allowed operations depend on Suite. Do not mention formats that are not allowed by the Suite.")
+
+(defun carriage--intent-frag-hybrid (_ctx)
+  "Default fragment for Intent=Hybrid."
+  "You MAY include brief prose, but the tool will extract and apply ONLY Org begin_patch blocks.
+Keep prose minimal and place it before or after the blocks. Do not insert text inside blocks.")
+
+(defun carriage--intent-frag-ask (_ctx)
+  "Default fragment for Intent=Ask."
+  "Do NOT produce any begin_patch blocks. Provide a concise prose answer only.")
+
+;; Register defaults
+(carriage-intent-register 'Code   #'carriage--intent-frag-code)
+(carriage-intent-register 'Hybrid #'carriage--intent-frag-hybrid)
+(carriage-intent-register 'Ask    #'carriage--intent-frag-ask)
 
 (provide 'carriage-intent-registry)
 ;;; carriage-intent-registry.el ends here

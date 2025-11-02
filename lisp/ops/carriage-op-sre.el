@@ -273,6 +273,9 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
   "Build normalized SRE pair with merged opts from PENDING."
   (let ((opts (carriage--sre-merge-opts (or pending '()))))
     (carriage--sre--ensure-segment-limits from to)
+    ;; Empty segment check (v1.1 hardening)
+    (when (or (null from) (null to) (string-empty-p from) (string-empty-p to))
+      (signal (carriage-error-symbol 'SRE_E_EMPTY_SEGMENT) (list "Empty FROM/TO segment")))
     ;; Reject unsupported PCRE-like constructs early (defensive).
     ;; This makes validator tests fail fast during parsing.
     (when (and (stringp from)
@@ -373,6 +376,14 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
                 ((symbolp match-kind) match-kind)
                 ((stringp match-kind) (intern (downcase match-kind)))
                 (t nil))))
+      ;; Strict :occur validation (v1.1)
+      (let* ((oc (cond
+                  ((symbolp occur) occur)
+                  ((stringp occur) (intern (downcase occur)))
+                  (t occur))))
+        (unless (memq oc '(first all))
+          (signal (carriage-error-symbol 'SRE_E_OCCUR_VALUE)
+                  (list (format "Invalid :occur: %S (expected 'first|'all)" occur)))))
       (when (eq occur 'all)
         (unless (and (integerp expect) (>= expect 0))
           (signal (carriage-error-symbol 'SRE_E_OCCUR_EXPECT) (list "Missing :expect for :occur all"))))
@@ -546,24 +557,32 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
           (list :after new-text :count changed))))))
 
 (defun carriage-apply-sre (plan-item repo-root)
-  "Apply SRE pairs by rewriting file. Optional staging per policy."
+  "Apply SRE pairs by rewriting file. Optional staging per policy.
+Implements NOOP→'skip when after==before and reports :matches and :changed-bytes."
   (let* ((file (alist-get :file plan-item))
          (abs (carriage-normalize-path (or repo-root default-directory) file))
          (stage (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy)))
     (unless (file-exists-p abs)
       (cl-return-from carriage-apply-sre
         (list :op 'sre :status 'fail :file file :details "File not found")))
-    (let* ((text (with-temp-buffer (insert-file-contents abs) (buffer-string)))
-           (sim (carriage-sre-simulate-apply plan-item repo-root))
-           (after (plist-get sim :after))
-           (changed (or (plist-get sim :count) 0)))
-      (if (<= changed 0)
-          (list :op 'sre :status 'fail :file file :details "No changes")
+    (let* ((before (with-temp-buffer (insert-file-contents abs) (buffer-string)))
+           (sim    (carriage-sre-simulate-apply plan-item repo-root))
+           (after  (or (plist-get sim :after) before))
+           (matches (or (plist-get sim :count) 0))
+           (changed-bytes (max 0 (abs (- (string-bytes after) (string-bytes before))))))
+      (if (string= before after)
+          ;; NOOP → skip
+          (list :op 'sre :status 'skip :file file
+                :matches matches :changed-bytes 0
+                :details "No changes (noop)")
+        ;; Write and optionally stage
         (progn
           (carriage-write-file-string abs after t)
           (when (eq stage 'index)
             (carriage-git-add repo-root file))
-          (list :op 'sre :status 'ok :file file :details (format "Applied %d replacements" changed)))))))
+          (list :op 'sre :status 'ok :file file
+                :matches matches :changed-bytes changed-bytes
+                :details (format "Applied %d replacements" matches)))))))
 
 ;;;; Registration
 
