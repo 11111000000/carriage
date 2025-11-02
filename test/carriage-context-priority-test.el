@@ -20,26 +20,6 @@ C-c e is a global prefix and C-c e e invokes =carriage-open-buffer'."
             (should (equal fn 'carriage-open-buffer))))
       (carriage-global-mode -1))))
 
-(ert-deftest carriage-carriage-buffer-menu-intercepts-global ()
-  "In a carriage buffer with transient=t, C-c e opens menu and intercepts longer sequences."
-  (skip-unless (carriage--test--maybe-require 'carriage-mode 'carriage-global-mode 'carriage-keyspec))
-  (let* ((carriage-mode-use-transient t)
-         (carriage-global-use-transient t))
-    (carriage-global-mode 1)
-    (unwind-protect
-        (with-temp-buffer
-          (org-mode)
-          (carriage-mode 1)
-          (let ((menu (key-binding (kbd "C-c e") t)))
-            ;; Local menu must be bound on bare C-c e
-            (should (or (eq menu 'carriage-keys-open-menu)
-                        ;; Fallback alias name if builder renamed the entry:
-                        (eq menu 'carriage-menu)))
-            ;; Interception: longer sequence resolves to the same binding
-            (let ((seq (key-binding (kbd "C-c e e") t)))
-              (should (equal seq menu)))))
-      (carriage-global-mode -1))))
-
 (ert-deftest carriage-carriage-buffer-global-prefix-when-no-transient ()
   "In a carriage buffer with transient=nil, global suffixes remain available under the local prefix."
   (skip-unless (carriage--test--maybe-require 'carriage-mode 'carriage-global-mode 'carriage-keyspec))

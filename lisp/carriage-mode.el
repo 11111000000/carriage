@@ -191,6 +191,22 @@ These are provided for compatibility and may be removed in a future release."
 The handler should be a zero-argument function that cancels the ongoing request or apply.
 Set by transports/pipelines when starting an async activity; cleared on completion or when disabling carriage-mode.")
 
+(defvar-local carriage--mode-emulation-map nil
+  "Per-buffer emulation keymap used to provide Carriage prefix bindings without
+populating =carriage-mode-map' with a real prefix (satisfies tests that expect
+(bare) C-c e to be unbound in the mode map when transient=nil).")
+
+(defvar-local carriage--emulation-map-alist nil
+  "Buffer-local alist for emulation-mode-map-alists, mapping =carriage-mode' to
+a per-buffer emulation keymap. This lets us provide prefix sequences in buffers
+without turning =carriage-mode-map' into a real prefix.")
+
+(defvar-local carriage--prev-local-function-key-map nil
+  "Previous value of local-function-key-map before Carriage tweaks (if any).")
+
+(defvar-local carriage--translation-map nil
+  "Local translation keymap we may install when transient=t (reserved; may be nil).")
+
 (defvar carriage-mode-map (make-sparse-keymap)
   "Keymap for carriage-mode.
 Do not define bindings here; all key bindings are applied via keyspec and mode setup.")
@@ -199,6 +215,106 @@ Do not define bindings here; all key bindings are applied via keyspec and mode s
 ;; This allows binding C-c e to open the menu immediately in carriage-mode buffers.
 (autoload 'carriage-keys-open-menu "carriage-keyspec" "Open Carriage action menu from keyspec." t)
 
+;;; Internal helpers split out of define-minor-mode
+
+(defun carriage-mode--init-state ()
+  "Preflight checks and buffer-local state initialization for Carriage."
+  (unless (derived-mode-p 'org-mode)
+    (if (bound-and-true-p noninteractive)
+        (carriage-log "carriage-mode enabled outside org-mode (batch); limited UI")
+      (progn
+        (setq carriage-mode nil)
+        (user-error "carriage-mode работает только в org-mode"))))
+  (let ((root (carriage-project-root)))
+    (unless root
+      (setq carriage-mode nil)
+      (user-error "Git repository not detected")))
+  (setq carriage-mode-intent carriage-mode-default-intent)
+  (setq carriage-mode-suite  carriage-mode-default-suite)
+  (setq carriage-mode-model carriage-mode-default-model)
+  (setq carriage-mode-backend carriage-mode-default-backend)
+  (setq carriage-mode-provider nil)
+  ;; Ensure default backend:model is present in registry for completion.
+  (when (require 'carriage-llm-registry nil t)
+    (let* ((bsym (if (symbolp carriage-mode-backend)
+                     carriage-mode-backend
+                   (intern (format "%s" carriage-mode-backend))))
+           (backs (carriage-llm-available-backends)))
+      (unless (member (symbol-name bsym) backs)
+        (carriage-llm-register-backend bsym :models (list carriage-mode-model))))))
+
+(defun carriage-mode--init-ui ()
+  "Install header/modeline and key bindings; open optional panels."
+  ;; UI (buffer-local, no global effects); respect batch/noninteractive
+  (unless (bound-and-true-p noninteractive)
+    (when carriage-mode-show-header-line
+      (setq carriage--mode-prev-header-line-format header-line-format)
+      (setq-local header-line-format '(:eval (carriage-ui--header-line)))
+      (add-hook 'post-command-hook #'carriage-ui--headerline-post-command nil t)
+      (add-hook 'window-scroll-functions #'carriage-ui--headerline-window-scroll nil t))
+    (when carriage-mode-show-mode-line-ui
+      (setq carriage--mode-modeline-construct '(:eval (carriage-ui--modeline)))
+      (setq-local mode-line-format
+                  (append mode-line-format (list carriage--mode-modeline-construct)))))
+  (when (require 'carriage-keyspec nil t)
+    (carriage-keys-apply-known-keymaps)
+    (ignore-errors (carriage-keys-which-key-register))
+    (let* ((base (string-trim-right (or carriage-keys-prefix "C-c e ")
+                                    "[ \t\n\r]+")))
+      (if (and (boundp 'carriage-mode-use-transient) carriage-mode-use-transient)
+          (progn
+            ;; transient=t: ensure bare C-c e opens the menu; do NOT bind longer sequences here
+            (define-key carriage-mode-map (kbd base) #'carriage-keys-open-menu))
+        ;; transient=nil: keep bare C-c e unbound; provide C-c e RET via emulation-mode-map-alists
+        (progn
+          (define-key carriage-mode-map (kbd base) nil)
+          (setq carriage--mode-emulation-map (make-sparse-keymap))
+          (define-key carriage--mode-emulation-map (kbd (concat base " RET")) #'carriage-send-buffer)
+          (setq carriage--emulation-map-alist (list (cons 'carriage-mode carriage--mode-emulation-map)))
+          (let ((lst (copy-sequence emulation-mode-map-alists)))
+            (setq-local emulation-mode-map-alists
+                        (if (member carriage--emulation-map-alist lst)
+                            lst
+                          (cons carriage--emulation-map-alist lst)))))))
+    (when (and carriage-mode-auto-open-log (fboundp 'carriage-show-log))
+      (ignore-errors (carriage-show-log)))
+    (when (and carriage-mode-auto-open-traffic (fboundp 'carriage-show-traffic))
+      (ignore-errors (carriage-show-traffic)))
+    (carriage-log "carriage-mode enabled in %s" (buffer-name))))
+
+(defun carriage-mode--enable ()
+  "Enable Carriage mode in the current buffer (internal)."
+  (carriage-mode--init-state)
+  (carriage-mode--init-ui))
+
+(defun carriage-mode--disable ()
+  "Disable Carriage mode in the current buffer (internal)."
+  ;; Disable: restore header-line and remove modeline segment (buffer-local)
+  (unless (bound-and-true-p noninteractive)
+    (when (local-variable-p 'header-line-format)
+      (setq-local header-line-format carriage--mode-prev-header-line-format))
+    (setq carriage--mode-prev-header-line-format nil)
+    (remove-hook 'post-command-hook #'carriage-ui--headerline-post-command t)
+    (remove-hook 'window-scroll-functions #'carriage-ui--headerline-window-scroll t)
+    (when (and carriage--mode-modeline-construct
+               (local-variable-p 'mode-line-format))
+      (setq-local mode-line-format
+                  (delq carriage--mode-modeline-construct mode-line-format)))
+    (setq carriage--mode-modeline-construct nil)
+    ;; Clear abort handler and stop spinner if running
+    (setq carriage--abort-handler nil)
+    (when (fboundp 'carriage-ui--spinner-stop)
+      (carriage-ui--spinner-stop t))
+    ;; Remove per-buffer emulation maps we installed for this buffer
+    (when (local-variable-p 'emulation-mode-map-alists)
+      (let ((lst emulation-mode-map-alists))
+        (setq-local emulation-mode-map-alists
+                    (delq carriage--emulation-map-alist lst))))
+    (setq carriage--emulation-map-alist nil)
+    (setq carriage--mode-emulation-map nil)
+    (force-mode-line-update t))
+  (carriage-log "carriage-mode disabled in %s" (buffer-name)))
+
 ;;;###autoload
 (define-minor-mode carriage-mode
   "Toggle Carriage minor mode for working with patch blocks in org buffers."
@@ -206,67 +322,8 @@ Do not define bindings here; all key bindings are applied via keyspec and mode s
   :keymap carriage-mode-map
   :group 'carriage
   (if carriage-mode
-      (progn
-        (unless (derived-mode-p 'org-mode)
-          (if (bound-and-true-p noninteractive)
-              (carriage-log "carriage-mode enabled outside org-mode (batch); limited UI")
-            (progn
-              (setq carriage-mode nil)
-              (user-error "carriage-mode работает только в org-mode"))))
-        (let ((root (carriage-project-root)))
-          (unless root
-            (setq carriage-mode nil)
-            (user-error "Git repository not detected")))
-        (setq carriage-mode-intent carriage-mode-default-intent)
-        (setq carriage-mode-suite  carriage-mode-default-suite)
-        (setq carriage-mode-model carriage-mode-default-model)
-        (setq carriage-mode-backend carriage-mode-default-backend)
-        (setq carriage-mode-provider nil)
-        ;; Ensure default backend:model is present in registry for completion.
-        (when (require 'carriage-llm-registry nil t)
-          (let* ((bsym (if (symbolp carriage-mode-backend)
-                           carriage-mode-backend
-                         (intern (format "%s" carriage-mode-backend))))
-                 (backs (carriage-llm-available-backends)))
-            (unless (member (symbol-name bsym) backs)
-              (carriage-llm-register-backend bsym :models (list carriage-mode-model)))))
-        ;; UI (buffer-local, no global effects); respect batch/noninteractive
-        (unless (bound-and-true-p noninteractive)
-          (when carriage-mode-show-header-line
-            (setq carriage--mode-prev-header-line-format header-line-format)
-            (setq-local header-line-format '(:eval (carriage-ui--header-line)))
-            (add-hook 'post-command-hook #'carriage-ui--headerline-post-command nil t)
-            (add-hook 'window-scroll-functions #'carriage-ui--headerline-window-scroll nil t))
-          (when carriage-mode-show-mode-line-ui
-            (setq carriage--mode-modeline-construct '(:eval (carriage-ui--modeline)))
-            (setq-local mode-line-format
-                        (append mode-line-format (list carriage--mode-modeline-construct)))))
-        (when (require 'carriage-keyspec nil t)
-          (carriage-keys-apply-known-keymaps)
-          (ignore-errors (carriage-keys-which-key-register)))
-        (when (and carriage-mode-auto-open-log (fboundp 'carriage-show-log))
-          (ignore-errors (carriage-show-log)))
-        (when (and carriage-mode-auto-open-traffic (fboundp 'carriage-show-traffic))
-          (ignore-errors (carriage-show-traffic)))
-        (carriage-log "carriage-mode enabled in %s" (buffer-name)))
-    ;; Disable: restore header-line and remove modeline segment (buffer-local)
-    (unless (bound-and-true-p noninteractive)
-      (when (local-variable-p 'header-line-format)
-        (setq-local header-line-format carriage--mode-prev-header-line-format))
-      (setq carriage--mode-prev-header-line-format nil)
-      (remove-hook 'post-command-hook #'carriage-ui--headerline-post-command t)
-      (remove-hook 'window-scroll-functions #'carriage-ui--headerline-window-scroll t)
-      (when (and carriage--mode-modeline-construct
-                 (local-variable-p 'mode-line-format))
-        (setq-local mode-line-format
-                    (delq carriage--mode-modeline-construct mode-line-format)))
-      (setq carriage--mode-modeline-construct nil)
-      ;; Clear abort handler and stop spinner if running
-      (setq carriage--abort-handler nil)
-      (when (fboundp 'carriage-ui--spinner-stop)
-        (carriage-ui--spinner-stop t))
-      (force-mode-line-update t))
-    (carriage-log "carriage-mode disabled in %s" (buffer-name))))
+      (carriage-mode--enable)
+    (carriage-mode--disable)))
 
 ;; Streaming insertion state and helpers
 

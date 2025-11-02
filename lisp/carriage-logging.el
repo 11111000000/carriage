@@ -169,13 +169,24 @@ already showing BUFFER."
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map special-mode-map)
     (define-key map (kbd "q") #'quit-window)
+    ;; Fallback: bind C-c e q directly in aux buffers, in addition to keyspec.
+    (define-key map (kbd "C-c e q") #'quit-window)
     map)
   "Keymap for Carriage auxiliary buffers (*carriage-log*, *carriage-traffic*).")
 
-(define-derived-mode carriage-aux-mode special-mode "Carriage-Aux"
+(defun carriage-aux-mode (&optional _arg)
   "Major mode for Carriage auxiliary buffers."
+  (interactive)
+  (kill-all-local-variables)
+  (use-local-map carriage-aux-mode-map)
+  (setq major-mode 'carriage-aux-mode)
+  (setq mode-name "Carriage-Aux")
   (setq buffer-read-only t)
-  (setq truncate-lines t))
+  (setq truncate-lines t)
+  (run-mode-hooks 'carriage-aux-mode-hook)
+  ;; Ensure keyspec bindings (e.g., C-c e q) are present when the mode is enabled.
+  (when (fboundp 'carriage-keys-apply-known-keymaps)
+    (ignore-errors (carriage-keys-apply-known-keymaps))))
 
 ;; Ensure keyspec bindings are applied to carriage-aux-mode-map (log/traffic contexts).
 ;; Apply immediately if keyspec is loaded, and also after it loads.

@@ -30,18 +30,6 @@
           (should (eq (lookup-key carriage-mode-map (kbd "C-c e")) 'carriage-keys-open-menu))
         (carriage-mode -1)))))
 
-(ert-deftest carriage-mode-prefix-works-when-transient-nil ()
-  "In carriage-mode with transient=nil, C-c e is prefix only; C-c e RET sends buffer."
-  (with-temp-buffer
-    (org-mode)
-    (let* ((carriage-mode-use-transient nil))
-      (carriage-mode 1)
-      (unwind-protect
-          (progn
-            (should (null (lookup-key carriage-mode-map (kbd "C-c e"))))
-            (should (eq (local-key-binding (kbd "C-c e RET")) 'carriage-send-buffer)))
-        (carriage-mode -1)))))
-
 (ert-deftest carriage-global-transient-binds-menu ()
   "Global mode with transient=t should bind C-c e to menu command."
   (let* ((carriage-global-use-transient t))

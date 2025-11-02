@@ -129,7 +129,18 @@ Earlier contexts in CONTEXTS take precedence over later ones by :id."
           (push ak keys)))
       ;; Bind all effective keys
       (dolist (k (delete-dups (delq nil keys)))
-        (define-key map (carriage-keys--ensure-kbd k) cmd)))))
+        (let* ((seq (carriage-keys--ensure-kbd k))
+               (ok t)
+               (i 0))
+          ;; Skip binding if any prefix of seq is already bound to a non-prefix command in MAP.
+          (while (and ok (< i (1- (length seq))))
+            (let* ((sub (cl-subseq seq 0 (1+ i)))
+                   (binding (lookup-key map sub)))
+              (when (and binding (not (keymapp binding)))
+                (setq ok nil)))
+            (setq i (1+ i)))
+          (when ok
+            (define-key map seq cmd)))))))
 
 (defun carriage-keys-apply-to (map context)
   "Apply keyspec to MAP for CONTEXT."
@@ -195,14 +206,14 @@ and therefore cannot also serve as a prefix for longer sequences."
       (if (and (boundp 'carriage-mode-use-transient) carriage-mode-use-transient)
           (progn
             ;; Do not install any suffixes in carriage-mode-map when transient is ON.
-            ;; Only bind the bare prefix to open the menu.
-            (define-key carriage-mode-map (kbd base) #'carriage-keys-open-menu)
-            ;; Ensure there is no accidental local C-c e e binding left.
-            (define-key carriage-mode-map (carriage-keys--ensure-kbd "e") nil))
-        ;; Transient is OFF → full prefix behavior: install global first, then carriage.
-        (carriage-keys-apply-multi carriage-mode-map '(global carriage))
-        ;; Ensure bare prefix is not bound to a command in this mode (prefix-only).
+            ;; Only bind the bare prefix to open the menu. Do NOT bind longer sequences
+            ;; (like "C-c e e") here since base is a non-prefix command in this map.
+            (define-key carriage-mode-map (kbd base) #'carriage-keys-open-menu))
+        ;; Transient is OFF → do not install absolute prefix sequences into carriage-mode-map.
+        ;; Per-buffer bindings (e.g., C-c e RET) are installed by carriage-mode itself
+        ;; using emulation maps; ensure bare prefix is not a command here.
         (define-key carriage-mode-map (kbd base) nil))))
+
   ;; Child modes (best-effort: apply if the maps are defined)
   ;; Apply report-specific bindings only to report map; apply log/traffic to aux map if present.
   (dolist (mp '(carriage-report-mode-map carriage-aux-mode-map))

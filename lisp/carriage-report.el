@@ -7,7 +7,7 @@
 (require 'carriage-apply)
 (require 'carriage-logging)
 (require 'carriage-ui)
-(require 'ediff)
+;; ediff is loaded lazily in interactive branches to avoid batch-mode side effects.
 ;; Byte-compile hygiene: declare external function used conditionally.
 (declare-function carriage-sre-simulate-apply "carriage-op-sre" (plan-item repo-root))
 
@@ -227,37 +227,40 @@ If no preview is available, signal a user-visible message."
                 (abs  (and file (ignore-errors (carriage-normalize-path root file)))))
            (unless (and abs (file-exists-p abs))
              (user-error "File not found: %s" (or file "<nil>")))
-           (let* ((before (carriage-read-file-string abs))
-                  (sim    (if (and plan (fboundp 'carriage-sre-simulate-apply) (not (bound-and-true-p noninteractive)))
-                              (carriage-sre-simulate-apply plan root)
-                            (list :after before :count 0)))
-                  (after  (or (plist-get sim :after) before))
-                  (bufA   (get-buffer-create (format "*carriage-ediff A: %s/" file)))
-                  (bufB   (get-buffer-create (format "*carriage-ediff B: %s/" file))))
-             (with-current-buffer bufA (read-only-mode -1) (erase-buffer) (insert before) (set-buffer-modified-p nil) (read-only-mode 1))
-             (with-current-buffer bufB (read-only-mode -1) (erase-buffer) (insert after)  (set-buffer-modified-p nil) (read-only-mode 1))
-             (if (bound-and-true-p noninteractive)
-                 (message "Prepared SRE Ediff buffers (noninteractive)")
-               (ediff-buffers bufA bufB)))))
+           (if (bound-and-true-p noninteractive)
+               (message "Prepared SRE Ediff (noninteractive)")
+             (let* ((before (carriage-read-file-string abs))
+                    (sim    (if (and plan (fboundp 'carriage-sre-simulate-apply))
+                                (carriage-sre-simulate-apply plan root)
+                              (list :after before :count 0)))
+                    (after  (or (plist-get sim :after) before))
+                    (bufA   (get-buffer-create (format "*carriage-ediff A: %s/" file)))
+                    (bufB   (get-buffer-create (format "*carriage-ediff B: %s/" file))))
+               (with-current-buffer bufA (read-only-mode -1) (erase-buffer) (insert before) (set-buffer-modified-p nil) (read-only-mode 1))
+               (with-current-buffer bufB (read-only-mode -1) (erase-buffer) (insert after)  (set-buffer-modified-p nil) (read-only-mode 1))
+               (let ((default-directory (or (and root (file-name-as-directory (expand-file-name root))) "/")))
+                 (require 'ediff nil t)
+                 (ediff-buffers bufA bufB))))))
         ('patch
          (let* ((diff (or (plist-get it :diff) (and plan (alist-get :diff plan))))
                 (path (or (plist-get it :path) (and plan (alist-get :path plan))))
                 (abs  (and path (ignore-errors (carriage-normalize-path root path)))))
-           (let* ((patch-file (and diff (make-temp-file "carriage-ediff-" nil ".diff"))))
-             (unwind-protect
-                 (progn
-                   (when patch-file
-                     (with-temp-file patch-file (insert diff)))
-                   (if (bound-and-true-p noninteractive)
-                       (progn
-                         (if patch-file
-                             (message "Prepared patch for Ediff (noninteractive)")
-                           (message "No diff available for patch item (noninteractive)")))
-                     (progn
-                       (unless (and diff abs (file-exists-p abs))
-                         (user-error "Cannot run Ediff for patch: missing :diff or file"))
-                       (ediff-patch-file patch-file abs))))
-               (when patch-file (ignore-errors (delete-file patch-file)))))))
+           (if (bound-and-true-p noninteractive)
+               (progn
+                 (if diff
+                     (message "Prepared patch for Ediff (noninteractive)")
+                   (message "No diff available for patch item (noninteractive)")))
+             (let* ((patch-file (and diff (make-temp-file "carriage-ediff-" nil ".diff"))))
+               (unwind-protect
+                   (progn
+                     (when patch-file
+                       (with-temp-file patch-file (insert diff)))
+                     (unless (and diff abs (file-exists-p abs))
+                       (user-error "Cannot run Ediff for patch: missing :diff or file"))
+                     (let ((default-directory (or (and root (file-name-as-directory (expand-file-name root))) "/")))
+                       (require 'ediff nil t)
+                       (ediff-patch-file patch-file abs)))
+                 (when patch-file (ignore-errors (delete-file patch-file))))))))
         (_
          (if (bound-and-true-p noninteractive)
              (message "Ediff not supported for op: %S (noninteractive)" op)
@@ -314,14 +317,26 @@ In batch mode runs non-interactively and refreshes report."
       ;; Keep RET for accessibility; action aliases under C-c e are provided via keyspec.
       (define-key map (kbd "RET") #'carriage-report-show-diff-at-point)
       (define-key map (kbd "q")   #'quit-window)
+      ;; Fallbacks: bind report context actions under C-c e directly as well.
+      (define-key map (kbd "C-c e d") #'carriage-report-show-diff-at-point)
+      (define-key map (kbd "C-c e e") #'carriage-report-ediff-at-point)
+      (define-key map (kbd "C-c e a") #'carriage-report-apply-at-point)
       map)
     "Keymap for Carriage report buffers."))
 
-(define-derived-mode carriage-report-mode special-mode "Carriage-Report"
+(defun carriage-report-mode (&optional _arg)
   "Major mode for Carriage report buffers."
+  (interactive)
+  (kill-all-local-variables)
   (use-local-map carriage-report-mode-map)
+  (setq major-mode 'carriage-report-mode)
+  (setq mode-name "Carriage-Report")
   (setq buffer-read-only t)
-  (setq truncate-lines t))
+  (setq truncate-lines t)
+  (run-mode-hooks 'carriage-report-mode-hook)
+  ;; Ensure keyspec bindings (e.g., C-c e d/e/a) are present when the mode is enabled.
+  (when (fboundp 'carriage-keys-apply-known-keymaps)
+    (ignore-errors (carriage-keys-apply-known-keymaps))))
 
 ;; Report buffer mode is now set inside carriage-report-render; no advice needed.
 
