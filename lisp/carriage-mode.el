@@ -447,14 +447,26 @@ Does not modify buffer text; only clears markers/state so the next chunk opens a
                                 (goto-char (marker-position carriage--stream-end-marker))
                                 (forward-line -1)
                                 (line-end-position))))
-                (if (featurep 'org-fold)
-                    (org-fold-region body-beg body-end t)
+                (cond
+                 ;; Prefer specialized folding APIs when available
+                 ((fboundp 'org-fold-hide-drawer-or-block)
+                  (save-excursion
+                    (goto-char beg-pos)
+                    (org-fold-hide-drawer-or-block t)))
+                 ((fboundp 'org-hide-block-toggle)
+                  (save-excursion
+                    (goto-char beg-pos)
+                    (org-hide-block-toggle t)))
+                 ;; Fallbacks
+                 ((featurep 'org-fold)
+                  (org-fold-region body-beg body-end t))
+                 (t
                   (let ((ov (make-overlay body-beg body-end)))
                     (overlay-put ov 'invisible t)
-                    (overlay-put ov 'evaporate t)))))
-          (error nil))))
-    (setq carriage--reasoning-open nil)
-    t))
+                    (overlay-put ov 'evaporate t)))))))
+        (error nil))))
+  (setq carriage--reasoning-open nil)
+  t)
 
 (defun carriage--stream-insert-at-end (s)
   "Insert string S at the end of the current streaming region."
@@ -621,6 +633,24 @@ May include :context-text and :context-target per v1.1."
                                         carriage-mode-include-gptel-context)
                                    (and (boundp 'carriage-mode-include-doc-context)
                                         carriage-mode-include-doc-context)))
+                      ;; Traffic: log context summary and individual elements (paths only)
+                      (let* ((files (plist-get col :files))
+                             (stats (plist-get col :stats))
+                             (inc   (and stats (plist-get stats :included)))
+                             (sk    (and stats (plist-get stats :skipped)))
+                             (bytes (and stats (plist-get stats :total-bytes))))
+                        (carriage-traffic-log 'out "context: target=%s included=%s skipped=%s total-bytes=%s"
+                                              target (or inc 0) (or sk 0) (or bytes 0))
+                        (dolist (f files)
+                          (let ((rel (plist-get f :rel))
+                                (included (plist-get f :content))
+                                (reason (plist-get f :reason)))
+                            (carriage-traffic-log 'out " - %s (%s)"
+                                                  rel
+                                                  (if (stringp included)
+                                                      "included"
+                                                    (format "omitted%s"
+                                                            (if reason (format ": %s" reason) "")))))))
                       (carriage-context-format col :where target))))
               (error nil))))
       (let ((res (list :payload payload)))
