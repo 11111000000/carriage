@@ -71,6 +71,7 @@
     - Diff — octicon "git-compare".
     - Ediff — octicon "diff".
     - WIP — octicon "git-branch".
+    - Commit — octicon "git-commit".
     - Reset — octicon "history".
   - Фоллбэк: если шрифт иконок недоступен — используются короткие текстовые ярлыки: [Dry], [Apply], [All], [Abort], [Report], [Diff], [Ediff], [WIP], [Reset].
 
@@ -233,6 +234,44 @@
   - Клик по [MODEL] открывает выбор модели (C-c e m).
 - TTY:
   - Текстовый fallback, заголовки секций присутствуют.
+
+** Addendum v1.3 — UI улучшения (цвета, иконки, flash, звук, folding)
+- Цвета состояний (faces в модлайне):
+  - Новые лица:
+    - carriage-ui-state-idle-face — синий (idle).
+    - carriage-ui-state-sending-face — зелёный (sending/streaming).
+    - carriage-ui-state-error-face — красный (error).
+  - Норматив: сегмент состояния (включая спиннер при sending/streaming) окрашивается через propertize с соответствующим face. Остальные состояния (dry-run/apply) — без обязательной перекраски.
+  - Доступность: текстовое состояние [idle|sending|…] обязательно, цвет не единственный носитель смысла.
+
+- Иконки для контролов модлайна:
+  - Commit: иконка octicon "git-commit" (фоллбэк — текст [Commit]).
+  - Intent=Hybrid: отдельная иконка material "merge_type" (или octicon "git-merge"); Intent=Code — material "code"; Intent=Ask — material "chat".
+  - Тумблер gptel-context [Ctx]: заменить иконку на material "link"; [Files] оставить текущую (например, material "description").
+  - Suite/Engine как лейблы:
+    - Формат отображения: ICON [value] при carriage-mode-use-icons=t и включённых переключателях; в текстовом фоллбэке — "Suite: [udiff]" и "Engine: [git]".
+    - Новые переключатели:
+      - carriage-mode-use-suite-icon (boolean, default t) — заменять слово "Suite" на иконку.
+      - carriage-mode-use-engine-icon (boolean, default t) — заменять слово "Engine" на иконку.
+
+- Модель (выбор в минибуфере):
+  - Правило предзаполнения: если активная модель — "gptel-default", initial-input в промпте выбора модели пустой; иначе — предзаполняется полным id backend[:provider]:model (как прежде).
+
+- Эффекты завершения запроса:
+  - Flash патчей: по успешному завершению запроса все блоки «последней итерации» визуально подсвечиваются на короткое время (~1 сек).
+    - Настройки:
+      - carriage-mode-flash-patches (boolean, default t) — включить/выключить эффект.
+      - carriage-mode-flash-duration (number, default 1.0) — длительность, сек.
+    - Реализация: предпочтительно pulse.el (pulse-momentary-highlight-region); фоллбэк — временные overlays с последующим удалением.
+  - Звук (опционально): по завершении запроса (успех; по желанию также для ошибки) можно подать звуковой сигнал.
+    - Настройки:
+      - carriage-mode-audio-notify (boolean, default nil) — включить звуковое уведомление.
+      - carriage-mode-audio-sound (symbol|string) — 'beep или путь к файлу для play-sound-file.
+    - Поведение по умолчанию — тихо (notify=nil).
+
+- Reasoning folding:
+  - Сразу после закрытия reasoning-блока (вставлен "#+end_reasoning") содержимое блока автоматически сворачивается.
+  - Норматив: при наличии org-fold — использовать org-fold для скрытия содержимого блока; фоллбэк — overlay 'invisible на теле блока. Повторное раскрытие — стандартным org-cycle.
 
 ** I18N integration (UI)
 - All visible labels (buttons, help-echo, headers, which-key hints, transient titles) must be resolved via the i18n layer.

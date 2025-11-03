@@ -65,3 +65,23 @@
   - :open-buffer — «Открыть буфер Carriage».
   - :carriage-menu — заголовок/подсказка «Carriage Menu».
   - :carriage-toggles — заголовок/подсказка «Carriage Toggles».
+
+* Ключи (дополнение v1.3)
+- UI/Mode-line:
+  - :suite — метка "Suite".
+  - :engine — метка "Engine".
+  - :suite-tooltip — всплывающая подсказка для выбора Suite.
+  - :engine-tooltip — всплывающая подсказка для выбора Engine.
+  - :commit — метка кнопки Commit.
+  - :commit-tooltip — подсказка для Commit.
+  - :intent-ask — метка Intent Ask.
+  - :intent-code — метка Intent Code.
+  - :intent-hybrid — метка Intent Hybrid.
+  - :ctx-toggle — метка тумблера контекста (gptel-context).
+  - :files-toggle — метка тумблера файлов (#begin_context).
+  - :ctx-tooltip — подсказка для тумблера контекста.
+  - :files-tooltip — подсказка для тумблера файлов.
+  - :model-tooltip — шаблон тултипа модели (например, "Модель: %s").
+- Эффекты и уведомления:
+  - :flash-enabled — описание опции мигать патчами.
+  - :audio-enabled — описание опции звукового уведомления.

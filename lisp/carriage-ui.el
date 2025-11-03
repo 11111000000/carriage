@@ -10,13 +10,13 @@
   :group 'applications
   :prefix "carriage-")
 
-(defcustom carriage-mode-icon-v-adjust -0.05
+(defcustom carriage-mode-icon-v-adjust -0.00
   "Vertical offset for all-the-icons in Carriage modeline/header-line.
 Negative values move icons up; positive move them down."
   :type 'number
   :group 'carriage-ui)
 
-(defcustom carriage-mode-icon-height 0.75
+(defcustom carriage-mode-icon-height 0.82
   "Uniform icon height scale for all-the-icons in mode-line/header-line."
   :type 'number
   :group 'carriage-ui)
@@ -108,6 +108,22 @@ Negative values move icons up; positive move them down."
 (defface carriage-ui-muted-face
   '((t :inherit nil :foreground "#9e9e9e"))
   "Muted face for disabled toggle icons."
+  :group 'carriage-ui)
+
+;; State faces (UI v1.3)
+(defface carriage-ui-state-idle-face
+  '((t :inherit nil :foreground "#268bd2"))
+  "Mode-line face for idle state (blue)."
+  :group 'carriage-ui)
+
+(defface carriage-ui-state-sending-face
+  '((t :inherit nil :foreground "#93c47d"))
+  "Mode-line face for sending/streaming states (green)."
+  :group 'carriage-ui)
+
+(defface carriage-ui-state-error-face
+  '((t :inherit nil :foreground "#e06666"))
+  "Mode-line face for error state (red)."
   :group 'carriage-ui)
 
 ;; Faces for patch block highlighting (spec/ui-v1.org)
@@ -295,6 +311,11 @@ Emits debug logs with the resulting face property/foreground."
                                                :height carriage-mode-icon-height
                                                :v-adjust carriage-mode-icon-v-adjust
                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
+             ('hybrid (when (fboundp 'all-the-icons-material)
+                        (all-the-icons-material "merge_type"
+                                                :height carriage-mode-icon-height
+                                                :v-adjust carriage-mode-icon-v-adjust
+                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
              ;; Model/backend (prefer Material; fallback to Octicon CPU)
              ('model (cond
                       ((fboundp 'all-the-icons-material)
@@ -345,6 +366,30 @@ Emits debug logs with the resulting face property/foreground."
                                                 :v-adjust carriage-mode-icon-v-adjust
                                                 :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-yellow-face))))
                         (t nil)))
+             ('suite (cond
+                      ((fboundp 'all-the-icons-octicon)
+                       (all-the-icons-octicon "package"
+                                              :height carriage-mode-icon-height
+                                              :v-adjust carriage-mode-icon-v-adjust
+                                              :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
+                      ((fboundp 'all-the-icons-material)
+                       (all-the-icons-material "category"
+                                               :height carriage-mode-icon-height
+                                               :v-adjust carriage-mode-icon-v-adjust
+                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
+                      (t nil)))
+             ('engine (cond
+                       ((fboundp 'all-the-icons-octicon)
+                        (all-the-icons-octicon "gear"
+                                               :height carriage-mode-icon-height
+                                               :v-adjust carriage-mode-icon-v-adjust
+                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face))))
+                       ((fboundp 'all-the-icons-material)
+                        (all-the-icons-material "build"
+                                                :height carriage-mode-icon-height
+                                                :v-adjust carriage-mode-icon-v-adjust
+                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face))))
+                       (t nil)))
              ;; Actions
              ('dry    (when (fboundp 'all-the-icons-faicon)
                         (all-the-icons-faicon "flask"
@@ -393,6 +438,11 @@ Emits debug logs with the resulting face property/foreground."
                                                :height carriage-mode-icon-height
                                                :v-adjust carriage-mode-icon-v-adjust
                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-yellow-face)))))
+             ('commit (when (fboundp 'all-the-icons-octicon)
+                        (all-the-icons-octicon "git-commit"
+                                               :height carriage-mode-icon-height
+                                               :v-adjust carriage-mode-icon-v-adjust
+                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
              ('reset  (when (fboundp 'all-the-icons-octicon)
                         (all-the-icons-octicon "history"
                                                :height carriage-mode-icon-height
@@ -615,7 +665,7 @@ reflects toggle state (muted when off, bright when on)."
                ((eq carriage-mode-intent 'Code)
                 (or (carriage-ui--icon 'patch) "[Code]"))
                (t
-                (or (carriage-ui--icon 'patch) "[Hybrid]")))
+                (or (carriage-ui--icon 'hybrid) "[Hybrid]")))
             (format "[%s]"
                     (pcase (and (boundp 'carriage-mode-intent) carriage-mode-intent)
                       ('Ask "Ask")
@@ -630,20 +680,33 @@ reflects toggle state (muted when off, bright when on)."
                        ((symbolp s) (symbol-name s))
                        ((stringp s) s)
                        (t "udiff"))))
-         (suite-label (format "[Suite:%s]" suite-str))
-         (suite-btn (carriage-ui--ml-button suite-label
-                                            #'carriage-select-suite
-                                            "Select Suite (sre|udiff)"))
+         (suite-label
+          (let ((ic (and use-icons
+                         (boundp 'carriage-mode-use-suite-icon) carriage-mode-use-suite-icon
+                         (carriage-ui--icon 'suite))))
+            (if ic
+                (format "%s [%s]" ic suite-str)
+              (let* ((_ (require 'carriage-i18n nil t))
+                     (name (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                               (carriage-i18n :suite)
+                             "Suite")))
+                (format "%s: [%s]" name suite-str)))))
+         (suite-btn
+          (let* ((_ (require 'carriage-i18n nil t))
+                 (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                           (carriage-i18n :suite-tooltip)
+                         "Select Suite (sre|udiff)")))
+            (carriage-ui--ml-button suite-label #'carriage-select-suite help)))
          ;; Model (basename only)
          (model-str (or (and (boundp 'carriage-mode-model) carriage-mode-model) "model"))
+         (b-backend (let ((b (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
+                      (if (symbolp b) (symbol-name b) (or b ""))))
          (model-base (or (car (last (split-string model-str ":" t))) model-str))
          (bm-text (format "[%s]" model-base))
          (bm-label (if use-icons
                        (let* ((ic (carriage-ui--icon 'model)))
                          (if ic (concat ic " " bm-text) bm-text))
                      bm-text))
-         (b-backend (let ((b (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
-                      (if (symbolp b) (symbol-name b) (or b ""))))
          (provider (and (boundp 'carriage-mode-provider) carriage-mode-provider))
          (full-id (if (and (stringp b-backend) (not (string-empty-p b-backend)))
                       (if (and provider (stringp provider) (not (string-empty-p provider)))
@@ -656,11 +719,18 @@ reflects toggle state (muted when off, bright when on)."
          ;; State + spinner (textual; spinner already handled)
          (st (let ((s (and (boundp 'carriage--ui-state) carriage--ui-state)))
                (if (symbolp s) s 'idle)))
-         (state (format "[%s%s]"
-                        (symbol-name st)
-                        (if (memq st '(sending streaming))
-                            (concat " " (carriage-ui--spinner-char))
-                          "")))
+         (state
+          (let* ((txt (format "[%s%s]"
+                              (symbol-name st)
+                              (if (memq st '(sending streaming))
+                                  (concat " " (carriage-ui--spinner-char))
+                                "")))
+                 (face (pcase st
+                         ('idle 'carriage-ui-state-idle-face)
+                         ((or 'sending 'streaming) 'carriage-ui-state-sending-face)
+                         ('error 'carriage-ui-state-error-face)
+                         (_ nil))))
+            (if face (propertize txt 'face face) txt)))
          ;; Actions (icon fallback to text)
          (dry-label    (or (and use-icons (carriage-ui--icon 'dry))    "[Dry]"))
          (apply-label  (or (and use-icons (carriage-ui--icon 'apply))  "[Apply]"))
@@ -670,7 +740,7 @@ reflects toggle state (muted when off, bright when on)."
          (diff-label   (or (and use-icons (carriage-ui--icon 'diff))   "[Diff]"))
          (ediff-label  (or (and use-icons (carriage-ui--icon 'ediff))  "[Ediff]"))
          (wip-label    (or (and use-icons (carriage-ui--icon 'wip))    "[WIP]"))
-         (commit-label "[Commit]")
+         (commit-label (or (and use-icons (carriage-ui--icon 'commit)) "[Commit]"))
          (reset-label  (or (and use-icons (carriage-ui--icon 'reset))  "[Reset]"))
          ;; Engine indicator and selector
          (engine-str (let ((e (and (boundp 'carriage-apply-engine) carriage-apply-engine)))
@@ -678,10 +748,23 @@ reflects toggle state (muted when off, bright when on)."
                         ((symbolp e) (symbol-name e))
                         ((stringp e) e)
                         (t "git"))))
-         (engine-label (format "[Engine:%s]" engine-str))
-         (engine (carriage-ui--ml-button engine-label
-                                         #'carriage-select-apply-engine
-                                         "Select apply engine"))
+         (engine-label
+          (let ((ic (and use-icons
+                         (boundp 'carriage-mode-use-engine-icon) carriage-mode-use-engine-icon
+                         (carriage-ui--icon 'engine))))
+            (if ic
+                (format "%s [%s]" ic engine-str)
+              (let* ((_ (require 'carriage-i18n nil t))
+                     (name (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                               (carriage-i18n :engine)
+                             "Engine")))
+                (format "%s: [%s]" name engine-str)))))
+         (engine
+          (let* ((_ (require 'carriage-i18n nil t))
+                 (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                           (carriage-i18n :engine-tooltip)
+                         "Select apply engine")))
+            (carriage-ui--ml-button engine-label #'carriage-select-apply-engine help)))
          (dry    (carriage-ui--ml-button dry-label    #'carriage-dry-run-at-point      "Dry-run at point"))
          (apply  (carriage-ui--ml-button apply-label  #'carriage-apply-at-point        "Apply at point"))
          (all    (carriage-ui--ml-button all-label    #'carriage-apply-last-iteration  "Apply last iteration"))
@@ -690,22 +773,39 @@ reflects toggle state (muted when off, bright when on)."
          (diff   (carriage-ui--ml-button diff-label   #'carriage-ui--diff-button       "Show diff (report)"))
          (ediff  (carriage-ui--ml-button ediff-label  #'carriage-ui--ediff-button      "Open Ediff (report)"))
          (wip    (carriage-ui--ml-button wip-label    #'carriage-wip-checkout          "Switch to WIP branch"))
-         (commit (carriage-ui--ml-button commit-label #'carriage-commit-changes        "Commit changes"))
+         (commit
+          (let* ((_ (require 'carriage-i18n nil t))
+                 (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                           (carriage-i18n :commit-tooltip)
+                         "Commit changes")))
+            (carriage-ui--ml-button commit-label #'carriage-commit-changes help)))
          (reset  (carriage-ui--ml-button reset-label  #'carriage-wip-reset-soft        "Soft reset last commit"))
          ;; Toggles (v1.1: add [Ctx]/[Files])
-         (t-ctx   (carriage-ui--toggle "[Ctx]"        'carriage-mode-include-gptel-context
-                                       #'carriage-toggle-include-gptel-context
-                                       "Toggle including gptel-context (buffers/files)" 'ctx))
-         (t-files (carriage-ui--toggle "[Files]"      'carriage-mode-include-doc-context
-                                       #'carriage-toggle-include-doc-context
-                                       "Toggle including files from #+begin_context" 'files))
+         (t-ctx
+          (carriage-ui--toggle
+           "[Ctx]" 'carriage-mode-include-gptel-context
+           #'carriage-toggle-include-gptel-context
+           (let* ((_ (require 'carriage-i18n nil t)))
+             (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                 (carriage-i18n :ctx-tooltip)
+               "Toggle including gptel-context (buffers/files)"))
+           'ctx))
+         (t-files
+          (carriage-ui--toggle
+           "[Files]" 'carriage-mode-include-doc-context
+           #'carriage-toggle-include-doc-context
+           (let* ((_ (require 'carriage-i18n nil t)))
+             (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                 (carriage-i18n :files-tooltip)
+               "Toggle including files from #+begin_context"))
+           'files))
          (t-auto  (carriage-ui--toggle "[AutoRpt]"    'carriage-mode-auto-open-report   #'carriage-toggle-auto-open-report   "Toggle auto-open report" 'auto))
          (t-diffs (carriage-ui--toggle "[ShowDiffs]"  'carriage-mode-show-diffs         #'carriage-toggle-show-diffs        "Toggle show diffs before apply" 'diffs))
          (t-all   (carriage-ui--toggle "[ConfirmAll]" 'carriage-mode-confirm-apply-all  #'carriage-toggle-confirm-apply-all "Toggle confirm apply-all" 'confirm))
          (t-icons (carriage-ui--toggle "[Icons]"      'carriage-mode-use-icons          #'carriage-toggle-use-icons         "Toggle icons in UI" 'icons)))
     (mapconcat #'identity
-               (list intent-btn suite-btn backend-model-btn state
-                     dry apply all abort report diff ediff wip engine commit reset
+               (list intent-btn suite-btn engine backend-model-btn  state
+                     dry apply all abort report diff ediff wip  commit reset
                      t-ctx t-files t-auto t-diffs t-all t-icons)
                " ")))
 
@@ -730,5 +830,37 @@ reflects toggle state (muted when off, bright when on)."
          (s (if (symbolp suite) (symbol-name suite) (or suite ""))))
     (format "[%s|%s]" i (if (string-empty-p s) "-" s))))
 
+(defun carriage-ui--flash-last-iteration-patches (&optional buffer)
+  "Flash all begin_patch…end_patch blocks of the last streamed region in BUFFER (or current).
+If a streamed region is not available, flash all patch blocks in the buffer.
+Uses pulse.el when available, otherwise temporary overlays."
+  (with-current-buffer (or buffer (current-buffer))
+    (let* ((dur (or (and (boundp 'carriage-mode-flash-duration)
+                         carriage-mode-flash-duration)
+                    1.0))
+           (use-pulse (require 'pulse nil t))
+           (r (and (fboundp 'carriage-stream-region) (carriage-stream-region)))
+           (beg (and (consp r) (car r)))
+           (end (and (consp r) (cdr r))))
+      (save-excursion
+        (save-restriction
+          (when (and beg end) (narrow-to-region beg end))
+          (goto-char (point-min))
+          (let ((ranges '()))
+            (while (re-search-forward "^[ \t]*#\\+begin_patch\\b" nil t)
+              (let ((pbeg (match-beginning 0)))
+                (if (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
+                    (let ((pend (line-end-position)))
+                      (push (cons pbeg pend) ranges))
+                  (push (cons pbeg (point-max)) ranges))))
+            (dolist (rg ranges)
+              (let ((rb (car rg)) (re (cdr rg)))
+                (if use-pulse
+                    (pulse-momentary-highlight-region rb re 'carriage-patch-valid-face)
+                  (let ((ov (make-overlay rb re)))
+                    (overlay-put ov 'face 'carriage-patch-valid-face)
+                    (run-at-time dur nil
+                                 (lambda (o) (when (overlayp o) (delete-overlay o)))
+                                 ov)))))))))))
 (provide 'carriage-ui)
 ;;; carriage-ui.el ends here

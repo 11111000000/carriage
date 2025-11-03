@@ -150,3 +150,19 @@
 - Рекомендуемые биндинги через keyspec:
   - :contexts (carriage): ("RET" → carriage-send-buffer), ("M-RET" → carriage-send-subtree).
   - :contexts (global): ("e" → carriage-open-buffer).
+
+** Дополнения v1.3 — Новые переменные и лица UI
+- Новые переменные Customize:
+  - carriage-mode-use-suite-icon (boolean) — default t; отображать Suite с иконкой вместо текста "Suite".
+  - carriage-mode-use-engine-icon (boolean) — default t; отображать Engine с иконкой вместо текста "Engine".
+  - carriage-mode-flash-patches (boolean) — default t; мигать «последними» патчами по завершении запроса.
+  - carriage-mode-flash-duration (number) — default 1.0; длительность эффекта flash, сек.
+  - carriage-mode-audio-notify (boolean) — default nil; включить звуковое уведомление о завершении.
+  - carriage-mode-audio-sound (symbol|string) — 'beep или путь к звуковому файлу; используется когда audio-notify=t.
+- Новые лица (faces) для состояния модлайна:
+  - carriage-ui-state-idle-face — синий для idle.
+  - carriage-ui-state-sending-face — зелёный для sending/streaming (спиннер наследует этот face).
+  - carriage-ui-state-error-face — красный для error.
+
+- Поведение выбора модели:
+  - carriage-select-model — если активная модель равна "gptel-default", initial-input минибуфера пустой; иначе — предзаполняется текущим полным id backend[:provider]:model.

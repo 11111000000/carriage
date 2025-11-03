@@ -74,6 +74,47 @@
   "Use all-the-icons in mode-line if available."
   :type 'boolean :group 'carriage)
 
+;; UI v1.3 — Suite/Engine iconized labels
+(defcustom carriage-mode-use-suite-icon t
+  "When non-nil, show Suite label as an icon (with [value]) in mode-line."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-use-engine-icon t
+  "When non-nil, show Engine label as an icon (with [value]) in mode-line."
+  :type 'boolean :group 'carriage)
+
+;; UI v1.3 — Flash and audio notifications
+(defcustom carriage-mode-flash-patches t
+  "When non-nil, flash last-iteration patch blocks on successful request completion."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-flash-duration 1.0
+  "Flash duration (seconds) for highlighting generated patches."
+  :type 'number :group 'carriage)
+
+(defcustom carriage-mode-audio-notify nil
+  "When non-nil, play a sound on successful request completion."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-audio-sound 'beep
+  "Sound to use for notifications: 'beep or a path to a sound file."
+  :type '(choice (const :tag "Beep" beep) (string :tag "Sound file path"))
+  :group 'carriage)
+
+(defun carriage--audio-notify-success ()
+  "Play an audio notification according to Customize settings."
+  (when (and (boundp 'carriage-mode-audio-notify) carriage-mode-audio-notify)
+    (condition-case _e
+        (let ((snd (and (boundp 'carriage-mode-audio-sound) carriage-mode-audio-sound)))
+          (cond
+           ((and (stringp snd) (file-exists-p snd))
+            (play-sound-file snd))
+           ((eq snd 'beep)
+            (beep))
+           (t
+            (ignore-errors (beep)))))
+      (error nil))))
+
 (defcustom carriage-mode-include-reasoning 'block
   "Policy for including reasoning during streaming:
 - 'block — print reasoning inside #+begin_reasoning/#+end_reasoning
@@ -382,13 +423,36 @@ Does not modify buffer text; only clears markers/state so the next chunk opens a
         (setq carriage--reasoning-open t)))))
 
 (defun carriage-end-reasoning ()
-  "Close the #+begin_reasoning block if it is open."
+  "Close the #+begin_reasoning block if it is open and fold its contents."
   (when carriage--reasoning-open
-    (let ((inhibit-read-only t))
+    (let ((inhibit-read-only t)
+          (end-pos nil) (beg-pos nil) (body-beg nil))
       (save-excursion
         (goto-char (marker-position carriage--stream-end-marker))
         (insert "\n#+end_reasoning\n")
-        (set-marker carriage--stream-end-marker (point) (current-buffer))))
+        (setq end-pos (point))
+        (set-marker carriage--stream-end-marker end-pos (current-buffer))
+        (when (re-search-backward "^[ \t]*#\\+begin_reasoning\\b" nil t)
+          (setq beg-pos (match-beginning 0))
+          (setq body-beg (save-excursion
+                           (goto-char (match-end 0))
+                           (forward-line 1)
+                           (point)))))
+      ;; Fold body between body-beg and the line before end marker
+      (when (and beg-pos body-beg)
+        (condition-case _e
+            (progn
+              (require 'org)
+              (let ((body-end (save-excursion
+                                (goto-char (marker-position carriage--stream-end-marker))
+                                (forward-line -1)
+                                (line-end-position))))
+                (if (featurep 'org-fold)
+                    (org-fold-region body-beg body-end t)
+                  (let ((ov (make-overlay body-beg body-end)))
+                    (overlay-put ov 'invisible t)
+                    (overlay-put ov 'evaporate t)))))
+          (error nil))))
     (setq carriage--reasoning-open nil)
     t))
 
@@ -426,8 +490,8 @@ TYPE is either 'text (default) or 'reasoning.
 (defun carriage-stream-finalize (&optional errorp mark-last-iteration)
   "Finalize the current streaming session.
 - Close an open reasoning block, if any.
-- When MARK-LAST-ITERATION and not ERRORP: mark the inserted region as \"last iteration\"
-  so that C-c ! can pick it up. This writes the Org property and text properties on blocks."
+- When MARK-LAST-ITERATION and not ERRORP: mark the inserted region as last iteration.
+- Trigger UI effects (flash/audio) on success."
   (ignore-errors (carriage-end-reasoning))
   (when (and (not errorp) mark-last-iteration)
     (let ((r (carriage-stream-region)))
@@ -435,6 +499,13 @@ TYPE is either 'text (default) or 'reasoning.
                  (numberp (car r)) (numberp (cdr r))
                  (< (car r) (cdr r)))
         (carriage-mark-last-iteration (car r) (cdr r)))))
+  ;; Effects on success
+  (when (not errorp)
+    (when (and (boundp 'carriage-mode-flash-patches) carriage-mode-flash-patches
+               (fboundp 'carriage-ui--flash-last-iteration-patches))
+      (carriage-ui--flash-last-iteration-patches (current-buffer)))
+    (when (fboundp 'carriage--audio-notify-success)
+      (carriage--audio-notify-success)))
   t)
 
 ;;; Prompt construction helpers
@@ -886,9 +957,19 @@ Falls back to plain string prompt when registry is empty."
                    "Model: "))
          (choice (or model
                      (if collection
-                         ;; Prefill minibuffer with the current full identifier (def-full)
-                         (completing-read prompt collection nil t def-full nil def-full)
-                       (read-string prompt def-full)))))
+                         (let* ((initial (if (and (stringp carriage-mode-model)
+                                                  (string= carriage-mode-model "gptel-default"))
+                                             ""
+                                           def-full))
+                                (def (unless (and (stringp carriage-mode-model)
+                                                  (string= carriage-mode-model "gptel-default"))
+                                       def-full)))
+                           (completing-read prompt collection nil t initial nil def))
+                       (let ((initial (if (and (stringp carriage-mode-model)
+                                               (string= carriage-mode-model "gptel-default"))
+                                          ""
+                                        def-full)))
+                         (read-string prompt initial))))))
     ;; Apply selection:
     ;; When choice contains ':', treat first segment as backend and last segment as model;
     ;; otherwise treat it as plain model (keep backend unchanged).

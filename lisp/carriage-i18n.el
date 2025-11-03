@@ -51,6 +51,23 @@
     (:show-log           . ((ru . "Показать лог")              (en . "Show log")))
     (:show-traffic       . ((ru . "Показать трафик")           (en . "Show traffic")))
     (:quit               . ((ru . "Закрыть окно")              (en . "Quit window")))
+
+    ;; UI v1.3 — доп. ключи
+    (:suite              . ((ru . "Suite")                     (en . "Suite")))
+    (:engine             . ((ru . "Engine")                    (en . "Engine")))
+    (:suite-tooltip      . ((ru . "Выбрать Suite")             (en . "Select Suite")))
+    (:engine-tooltip     . ((ru . "Выбрать движок применения") (en . "Select Engine")))
+    (:commit             . ((ru . "Коммит")                    (en . "Commit")))
+    (:commit-tooltip     . ((ru . "Сделать коммит")            (en . "Make a commit")))
+    (:intent-ask         . ((ru . "Вопрос")                    (en . "Ask")))
+    (:intent-code        . ((ru . "Код")                       (en . "Code")))
+    (:intent-hybrid      . ((ru . "Гибрид")                    (en . "Hybrid")))
+    (:ctx-toggle         . ((ru . "Контекст gptel")            (en . "gptel context")))
+    (:files-toggle       . ((ru . "Файлы из документа")        (en . "Document files")))
+    (:ctx-tooltip        . ((ru . "Переключить gptel-контекст") (en . "Toggle gptel-context")))
+    (:files-tooltip      . ((ru . "Переключить файлы документа") (en . "Toggle document files")))
+    (:flash-enabled      . ((ru . "Мигание патчей по завершении") (en . "Flash patches on completion")))
+    (:audio-enabled      . ((ru . "Звуковое уведомление")      (en . "Audio notification")))
     )
   "Translation table: KEY → ((ru . STR) (en . STR)).")
 

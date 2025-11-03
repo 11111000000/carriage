@@ -233,4 +233,27 @@
 - Open-buffer (эфемерный проектный буфер):
   - Создаёт/находит уникальный для проекта буфер с включённым carriage-mode; default-directory — корень проекта.
   - При kill-emacs тест проверяет, что хук предлагает сохранить такие буферы (мокаем пользовательский ответ).
+
+* UI v1.3 — Дополнительные тесты (цвета/иконки/flash/звук/folding)
+- Mode-line — окраска состояний:
+  - Имитация состояний idle/sending/streaming/error → проверка, что сегмент состояния propertize с лицами:
+    - idle → carriage-ui-state-idle-face
+    - sending/streaming → carriage-ui-state-sending-face (спиннер наследует тот же face)
+    - error → carriage-ui-state-error-face
+- Иконки:
+  - Commit — при доступном all-the-icons сегмент содержит иконку "git-commit"; при carriage-mode-use-icons=nil — текст [Commit].
+  - Intent — Hybrid использует иконку, отличную от Code (merge_type vs code).
+  - [Ctx] — иконка "link" для gptel-context; [Files] — без изменений.
+  - Suite/Engine — при включённых carriage-mode-use-suite-icon/…-engine-icon показываются как ICON [value]; в текстовом режиме — "Suite: [udiff]" и "Engine: [git]".
+- Модель gptel-default:
+  - Активная модель "gptel-default" → вызов (carriage-select-model) открывает минибуфер с пустым initial-input; для прочих моделей — предзаполнен полным id.
+- Flash патчей:
+  - По завершении успешного запроса в исходном org-буфере все блоки «последней итерации» получают временную подсветку на ~carriage-mode-flash-duration секунд; проверка через overlays/pulse (overlays-at не пуст) и автоудаление.
+- Звуковое уведомление:
+  - При carriage-mode-audio-notify=t:
+    - Если carriage-mode-audio-sound — путь к файлу и файл существует → вызывается play-sound-file.
+    - Иначе → вызывается beep/play-sound.
+  - Заглушка через advice для перехвата вызова без фактического воспроизведения.
+- Reasoning folding:
+  - После вставки "#+end_reasoning" тело reasoning-блока невидимо (org-fold/invisible overlay); org-cycle раскрывает блок обратно.
 #+end_src
