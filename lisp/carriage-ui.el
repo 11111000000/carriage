@@ -604,10 +604,11 @@ Updates on any change of outline path, heading level, or heading title."
                                    :face fplist)))
         ('ctx
          (when (fboundp 'all-the-icons-material)
-           (all-the-icons-material "toc"
-                                   :height carriage-mode-icon-height
-                                   :v-adjust carriage-mode-icon-v-adjust
-                                   :face fplist)))
+           (ignore-errors
+             (all-the-icons-material "toc"
+                                     :height carriage-mode-icon-height
+                                     :v-adjust carriage-mode-icon-v-adjust
+                                     :face fplist))))
         ('files
          (when (fboundp 'all-the-icons-material)
            (all-the-icons-material "description"

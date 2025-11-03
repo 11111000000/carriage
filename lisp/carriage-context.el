@@ -122,18 +122,40 @@ Fallback: search whole buffer."
         (delete-dups (delq nil paths))))))
 
 (defun carriage-context--maybe-gptel-files ()
-  "Best-effort collection of files from gptel context.
-Returns list of absolute file paths, or nil if unavailable."
-  (cond
-   ;; gptel might expose a known list via gptel-context; be conservative.
-   ((boundp 'gptel-context-files)
-    (let ((lst (symbol-value 'gptel-context-files)))
-      (cl-remove-if-not #'file-exists-p lst)))
-   ;; Older naming attempt
-   ((boundp 'gptel--context-files)
-    (let ((lst (symbol-value 'gptel--context-files)))
-      (cl-remove-if-not #'file-exists-p lst)))
-   (t nil)))
+  "Collect absolute file paths from gptel context (best-effort).
+
+- Prefer =gptel-context--collect' (when available from gptel-context.el).
+- Fallback to =gptel-context' variable when the collector is unavailable.
+- For buffer entries include only buffers visiting a file (BUFFER_FILE_NAME).
+- Ignore non-existent/TRAMP/unknown sources here; higher-level filters apply."
+  (let ((files '()))
+    (condition-case _e
+        (progn
+          ;; Preferred path: use gptel-context--collect if present
+          (when (require 'gptel-context nil t)
+            (when (fboundp 'gptel-context--collect)
+              (dolist (entry (gptel-context--collect))
+                (pcase-let* ((`(,src . ,_props) (ensure-list entry)))
+                  (cond
+                   ((stringp src)
+                    (push src files))
+                   ((bufferp src)
+                    (with-current-buffer src
+                      (when buffer-file-name
+                        (push buffer-file-name files)))))))))
+          ;; Fallback: walk gptel-context alist if nothing was gathered
+          (when (and (null files) (boundp 'gptel-context))
+            (dolist (entry (symbol-value 'gptel-context))
+              (pcase-let* ((`(,src . ,_props) (ensure-list entry)))
+                (cond
+                 ((stringp src)
+                  (push src files))
+                 ((bufferp src)
+                  (with-current-buffer src
+                    (when buffer-file-name
+                      (push buffer-file-name files)))))))))
+      (error nil))
+    (delete-dups (cl-remove-if-not #'file-exists-p files))))
 
 (defun carriage-context-collect (&optional buffer root)
   "Collect context from sources into a plist:

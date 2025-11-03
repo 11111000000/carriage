@@ -98,6 +98,7 @@ On backend mismatch, logs and completes with error."
       (user-error "No transport adapter for backend: %s" backend))
     ;; Prepare environment for gptel
     (let* ((first-chunk t)
+           (any-text-seen nil)
            (prompt (or (plist-get args :prompt)
                        (carriage--gptel--prompt source buffer (intern (format "%s" mode)))))
            (system (plist-get args :system))
@@ -133,14 +134,27 @@ On backend mismatch, logs and completes with error."
                   (carriage-transport-streaming)))
               (with-current-buffer gptel-buffer
                 (carriage-insert-stream-chunk response 'text))
+              (setq any-text-seen t)
               (carriage-traffic-log 'in "%s" response))
              ;; Reasoning block: log (do not accumulate)
              ((and (consp response) (eq (car response) 'reasoning))
               (let ((chunk (cdr response)))
-                (when (stringp chunk)
+                (cond
+                 ;; Explicit end-of-reasoning marker
+                 ((eq chunk t)
                   (with-current-buffer gptel-buffer
-                    (carriage-insert-stream-chunk chunk 'reasoning))
-                  (carriage-traffic-log 'in "[reasoning] %s" chunk))))
+                    (ignore-errors (carriage-end-reasoning)))
+                  (carriage-traffic-log 'in "[reasoning] end"))
+                 ;; Reasoning text
+                 ((stringp chunk)
+                  (if any-text-seen
+                      ;; After content started: keep in traffic only (avoid noisy reinsertion)
+                      (carriage-traffic-log 'in "[reasoning] %s" chunk)
+                    ;; Before content: insert into reasoning block
+                    (with-current-buffer gptel-buffer
+                      (carriage-insert-stream-chunk chunk 'reasoning))
+                    (carriage-traffic-log 'in "[reasoning] %s" chunk))))))
+
              ;; Tool events: note and continue
              ((and (consp response) (memq (car response) '(tool-call tool-result)))
               (carriage-traffic-log 'in "[%s] ..." (car response)))
