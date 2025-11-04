@@ -10,6 +10,7 @@
 (require 'carriage-format-registry)
 (require 'carriage-intent-registry)
 (require 'carriage-suite)
+(require 'carriage-global-mode)
 
 ;; Ensure 'ops' and 'engines' directories are on load-path for requiring modules
 (let* ((this-dir (file-name-directory (or load-file-name buffer-file-name)))

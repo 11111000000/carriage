@@ -517,8 +517,6 @@ TYPE is either 'text (default) or 'reasoning.
 - 'reasoning: when carriage-mode-include-reasoning='block, ensure a #+begin_reasoning
   and append to the reasoning tail marker so that main text remains outside the block."
   (let ((s (or string "")))
-    (carriage-log "stream: chunk type=%s bytes=%d open=%s"
-                  (or type 'text) (string-bytes s) carriage--reasoning-open)
     (pcase type
       ((or 'reasoning :reasoning)
        (when (eq carriage-mode-include-reasoning 'block)
@@ -1431,7 +1429,7 @@ Creates an org-mode buffer with carriage-mode enabled and default-directory boun
   (interactive)
   (let* ((root (or (carriage-project-root) default-directory))
          (pname (carriage--project-name-from-root root))
-         (bname (format "*carriage:%s/" (or (and pname (not (string-empty-p pname)) pname) "-")))
+         (bname (format "*carriage:%s*" (or (and pname (not (string-empty-p pname)) pname) "-")))
          (existing (gethash root carriage--project-buffers))
          (buf (if (and (buffer-live-p existing)) existing (get-buffer-create bname))))
     (puthash root buf carriage--project-buffers)

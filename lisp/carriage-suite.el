@@ -6,6 +6,14 @@
 (require 'carriage-format-registry)
 (require 'carriage-intent-registry nil t)
 
+;; Ensure 'ops' directory on load-path and record absolute path for robust loads.
+(defvar carriage--ops-dir nil "Absolute path to Carriage ops directory, when available.")
+(let* ((this-dir (file-name-directory (or load-file-name buffer-file-name)))
+       (ops-dir (and this-dir (expand-file-name "ops" this-dir))))
+  (when (and ops-dir (file-directory-p ops-dir))
+    (setq carriage--ops-dir ops-dir)
+    (add-to-list 'load-path ops-dir)))
+
 ;; Fallback inline intent registry if the external file is not yet available in load-path (e.g., Nix packaging).
 (unless (featurep 'carriage-intent-registry)
   (defgroup carriage-intents nil
@@ -214,10 +222,26 @@ CTX may contain keys like :payload, :context-text, :context-target, :delim, :fil
               (_ (dolist (op ops)
                    (unless (carriage-format-get op "1")
                      (pcase op
-                       ('sre                 (load "ops/carriage-op-sre" t t))
-                       ('aibo                (load "ops/carriage-op-aibo" t t))
-                       ('patch               (load "ops/carriage-op-patch" t t))
-                       ((or 'create 'delete 'rename) (load "ops/carriage-op-file" t t))
+                       ('sre
+                        (or (and (boundp 'carriage--ops-dir) carriage--ops-dir
+                                 (load (expand-file-name "carriage-op-sre" carriage--ops-dir) t t))
+                            (load "ops/carriage-op-sre" t t)
+                            (require 'carriage-op-sre nil t)))
+                       ('aibo
+                        (or (and (boundp 'carriage--ops-dir) carriage--ops-dir
+                                 (load (expand-file-name "carriage-op-aibo" carriage--ops-dir) t t))
+                            (load "ops/carriage-op-aibo" t t)
+                            (require 'carriage-op-aibo nil t)))
+                       ('patch
+                        (or (and (boundp 'carriage--ops-dir) carriage--ops-dir
+                                 (load (expand-file-name "carriage-op-patch" carriage--ops-dir) t t))
+                            (load "ops/carriage-op-patch" t t)
+                            (require 'carriage-op-patch nil t)))
+                       ((or 'create 'delete 'rename)
+                        (or (and (boundp 'carriage--ops-dir) carriage--ops-dir
+                                 (load (expand-file-name "carriage-op-file" carriage--ops-dir) t t))
+                            (load "ops/carriage-op-file" t t)
+                            (require 'carriage-op-file nil t)))
                        (_ nil)))))
               (fragments
                (cl-loop for op in ops

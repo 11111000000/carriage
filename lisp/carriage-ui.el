@@ -304,24 +304,24 @@ Emits debug logs with the resulting face property/foreground."
              ('ask  (when (fboundp 'all-the-icons-material)
                       (all-the-icons-material "chat"
                                               :height carriage-mode-icon-height
-                                              :v-adjust carriage-mode-icon-v-adjust
+                                              :v-adjust (- carriage-mode-icon-v-adjust 0.1)
                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face)))))
              ('patch (when (fboundp 'all-the-icons-material)
                        (all-the-icons-material "code"
                                                :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
+                                               :v-adjust (- carriage-mode-icon-v-adjust 0.1)
                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
              ('hybrid (when (fboundp 'all-the-icons-material)
                         (all-the-icons-material "merge_type"
                                                 :height carriage-mode-icon-height
-                                                :v-adjust carriage-mode-icon-v-adjust
+                                                :v-adjust (- carriage-mode-icon-v-adjust 0.1)
                                                 :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
              ;; Model/backend (prefer Material; fallback to Octicon CPU)
              ('model (cond
                       ((fboundp 'all-the-icons-material)
                        (all-the-icons-material "memory"
                                                :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
+                                               :v-adjust (- carriage-mode-icon-v-adjust 0.1)
                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face))))
                       ((fboundp 'all-the-icons-octicon)
                        (all-the-icons-octicon "cpu"
@@ -851,7 +851,7 @@ reflects toggle state (muted when off, bright when on)."
          (t-all   (carriage-ui--toggle "[ConfirmAll]" 'carriage-mode-confirm-apply-all  #'carriage-toggle-confirm-apply-all "Toggle confirm apply-all" 'confirm))
          (t-icons (carriage-ui--toggle "[Icons]"      'carriage-mode-use-icons          #'carriage-toggle-use-icons         "Toggle icons in UI" 'icons)))
     (mapconcat #'identity
-               (list intent-btn suite-btn engine backend-model-btn  state
+               (list suite-btn engine backend-model-btn intent-btn state
                      dry apply all abort report diff ediff wip  commit reset
                      t-ctx t-files t-auto t-diffs t-all t-icons)
                " ")))
