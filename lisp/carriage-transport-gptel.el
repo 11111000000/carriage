@@ -68,6 +68,53 @@ If MODEL cannot be interned meaningfully, return it unchanged."
              (not (bound-and-true-p noninteractive)))
     (ignore-errors (carriage-show-traffic))))
 
+(defun carriage--gptel--classify (response)
+  "Normalize GPTel RESPONSE into a plist with :kind and payload.
+Kinds: 'text 'reasoning 'both 'reasoning-end 'tool 'done 'abort 'unknown.
+When both reasoning and text are present, returns :kind 'both with keys :thinking and :text."
+  (cond
+   ;; Plain text piece
+   ((stringp response)
+    (list :kind 'text :text response))
+   ;; End
+   ((eq response t)
+    (list :kind 'done))
+   ;; Abort/error
+   ((or (null response) (eq response 'abort))
+    (list :kind 'abort))
+   ;; Reasoning stream (classic pair: (reasoning . CHUNK|t))
+   ((and (consp response) (eq (car response) 'reasoning))
+    (let ((chunk (cdr response)))
+      (cond
+       ((eq chunk t) (list :kind 'reasoning-end))
+       ((stringp chunk) (list :kind 'reasoning :text chunk))
+       (t (list :kind 'unknown)))))
+   ;; Tool events
+   ((and (consp response) (memq (car response) '(tool-call tool-result)))
+    (list :kind 'tool))
+   ;; Plist/alist with :thinking and/or :content/:delta
+   ((listp response)
+    (let* ((th  (or (plist-get response :thinking)
+                    (and (fboundp 'alist-get) (alist-get :thinking response))))
+           (txt (or (plist-get response :content)
+                    (plist-get response :delta)
+                    (and (fboundp 'alist-get) (alist-get :content response))
+                    (and (fboundp 'alist-get) (alist-get :delta response)))))
+      (cond
+       ;; End of reasoning
+       ((eq th t) (list :kind 'reasoning-end))
+       ;; Both thinking and text present
+       ((and (stringp th) (stringp txt))
+        (list :kind 'both :thinking th :text txt))
+       ;; Only thinking
+       ((stringp th)
+        (list :kind 'reasoning :text th))
+       ;; Only text
+       ((stringp txt)
+        (list :kind 'text :text txt))
+       (t (list :kind 'unknown)))))
+   (t (list :kind 'unknown))))
+
 (defun carriage-transport-gptel-dispatch (&rest args)
   "Dispatch Carriage request via GPTel when backend is 'gptel.
 
@@ -89,7 +136,6 @@ On backend mismatch, logs and completes with error."
                   '(gptel))
       (carriage-log "Transport[gptel]: backend mismatch (%s), dropping" backend)
       (with-current-buffer buffer
-        ;; Сигнализируем LLM_E_BACKEND (см. spec/errors-v1.org), затем завершаем транспорт.
         (condition-case _
             (signal (carriage-error-symbol 'LLM_E_BACKEND)
                     (list (format "Unknown transport backend: %s" backend)))
@@ -97,27 +143,21 @@ On backend mismatch, logs and completes with error."
         (carriage-transport-complete t))
       (user-error "No transport adapter for backend: %s" backend))
     ;; Prepare environment for gptel
-    (let* ((first-chunk t)
+    (let* ((first-event t)         ;; first reasoning OR text event
            (any-text-seen nil)
            (prompt (or (plist-get args :prompt)
                        (carriage--gptel--prompt source buffer (intern (format "%s" mode)))))
            (system (plist-get args :system))
-           ;; Let-bind gptel variables locally to this request buffer
            (gptel-buffer buffer)
-           (abort-installed nil)
-           ;; Normalize model to a symbol; gptel will sanitize/fallback if needed
            (gptel-model (carriage--gptel--normalize-model model)))
       (with-current-buffer gptel-buffer
         (carriage--gptel--maybe-open-logs)
-        ;; Install abort via Carriage; =gptel-abort' expects a buffer.
         (carriage-register-abort-handler
          (lambda ()
            (condition-case e
                (gptel-abort gptel-buffer)
              (error (carriage-log "Transport[gptel]: abort error: %s"
                                   (error-message-string e))))))
-        (setq abort-installed t)
-        ;; Kick off request
         (carriage-traffic-log 'out "gptel request: model=%s source=%s bytes=%d"
                               gptel-model source (length prompt))
         (gptel-request prompt
@@ -125,53 +165,76 @@ On backend mismatch, logs and completes with error."
           :stream t
           :callback
           (lambda (response info)
-            (cond
-             ;; Streaming text chunk
-             ((stringp response)
-              (when first-chunk
-                (setq first-chunk nil)
-                (with-current-buffer gptel-buffer
-                  (carriage-transport-streaming)))
-              (with-current-buffer gptel-buffer
-                (carriage-insert-stream-chunk response 'text))
-              (setq any-text-seen t)
-              (carriage-traffic-log 'in "%s" response))
-             ;; Reasoning block: log (do not accumulate)
-             ((and (consp response) (eq (car response) 'reasoning))
-              (let ((chunk (cdr response)))
-                (cond
-                 ;; Explicit end-of-reasoning marker
-                 ((eq chunk t)
-                  (with-current-buffer gptel-buffer
-                    (ignore-errors (carriage-end-reasoning)))
-                  (carriage-traffic-log 'in "[reasoning] end"))
-                 ;; Reasoning text
-                 ((stringp chunk)
-                  (if any-text-seen
-                      ;; After content started: keep in traffic only (avoid noisy reinsertion)
-                      (carriage-traffic-log 'in "[reasoning] %s" chunk)
-                    ;; Before content: insert into reasoning block
-                    (with-current-buffer gptel-buffer
-                      (carriage-insert-stream-chunk chunk 'reasoning))
-                    (carriage-traffic-log 'in "[reasoning] %s" chunk))))))
-
-             ;; Tool events: note and continue
-             ((and (consp response) (memq (car response) '(tool-call tool-result)))
-              (carriage-traffic-log 'in "[%s] ..." (car response)))
-             ;; Completed successfully (t)
-             ((eq response t)
-              (carriage-traffic-log 'in "gptel: done")
-              (with-current-buffer gptel-buffer
-                (carriage-stream-finalize nil t)
-                (carriage-transport-complete nil)))
-             ;; Aborted or error (nil or 'abort)
-             ((or (null response) (eq response 'abort))
-              (let ((msg (or (plist-get info :status) "error/abort")))
-                (carriage-traffic-log 'in "gptel: %s" msg))
-              (with-current-buffer gptel-buffer
-                (carriage-stream-finalize t nil)
-                (carriage-transport-complete t))))))))))
-
+            (let* ((cls (carriage--gptel--classify response))
+                   (kind (plist-get cls :kind))
+                   (text (plist-get cls :text))
+                   (thinking (plist-get cls :thinking)))
+              (pcase kind
+                ;; Reasoning stream (before main text)
+                ('reasoning
+                 (when first-event
+                   (setq first-event nil)
+                   (with-current-buffer gptel-buffer
+                     (carriage-transport-streaming)))
+                 (if any-text-seen
+                     (carriage-traffic-log 'in "[reasoning] %s" (or text ""))
+                   (with-current-buffer gptel-buffer
+                     (carriage-insert-stream-chunk (or text "") 'reasoning))
+                   (carriage-traffic-log 'in "[reasoning] %s" (or text ""))))
+                ;; Mixed: thinking + text in one event
+                ('both
+                 (when first-event
+                   (setq first-event nil)
+                   (with-current-buffer gptel-buffer
+                     (carriage-transport-streaming)))
+                 ;; Print thinking only until we see first text
+                 (when (and (stringp thinking) (not any-text-seen))
+                   (with-current-buffer gptel-buffer
+                     (carriage-insert-stream-chunk thinking 'reasoning))
+                   (carriage-traffic-log 'in "[reasoning] %s" thinking))
+                 ;; Then print main text (auto-closes reasoning if needed)
+                 (when (stringp text)
+                   (with-current-buffer gptel-buffer
+                     (carriage-insert-stream-chunk text 'text))
+                   (setq any-text-seen t)
+                   (carriage-traffic-log 'in "%s" text)))
+                ;; Reasoning end marker
+                ('reasoning-end
+                 (with-current-buffer gptel-buffer
+                   (ignore-errors (carriage-end-reasoning)))
+                 (carriage-traffic-log 'in "[reasoning] end"))
+                ;; Main text tokens
+                ('text
+                 (when first-event
+                   (setq first-event nil)
+                   (with-current-buffer gptel-buffer
+                     (carriage-transport-streaming)))
+                 (when (stringp text)
+                   (with-current-buffer gptel-buffer
+                     ;; This will auto-close an open reasoning block
+                     (carriage-insert-stream-chunk text 'text)))
+                 (setq any-text-seen t)
+                 (when (stringp text)
+                   (carriage-traffic-log 'in "%s" text)))
+                ;; Tool telemetry
+                ('tool
+                 (carriage-traffic-log 'in "[tool] ..."))
+                ;; Done
+                ('done
+                 (carriage-traffic-log 'in "gptel: done")
+                 (with-current-buffer gptel-buffer
+                   (carriage-stream-finalize nil t)
+                   (carriage-transport-complete nil)))
+                ;; Abort or error
+                ('abort
+                 (let ((msg (or (plist-get info :status) "error/abort")))
+                   (carriage-traffic-log 'in "gptel: %s" msg))
+                 (with-current-buffer gptel-buffer
+                   (carriage-stream-finalize t nil)
+                   (carriage-transport-complete t)))
+                ;; Unknown chunk kinds
+                (_
+                 (carriage-traffic-log 'in "[unknown] %S" response))))))))))
 
 ;; Entry-point: carriage-transport-gptel-dispatch
 

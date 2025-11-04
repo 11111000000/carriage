@@ -21,6 +21,8 @@
      "<<" delim "\nFILE CONTENTS\n:" delim "\n"
      "#+end_patch\n"
      "- Requirements: :version \"1\"; :file (not :path); :delim — exactly 6 lowercase hex characters.\n"
+     "- Closing marker must be exactly ':DELIM' (a single colon immediately followed by the token) on its own line; no spaces before/after.\n"
+     "- Common mistakes: missing colon; ': DELIM' (with a space); '::DELIM'; trailing spaces after ':DELIM'.\n"
      "- Aliases like write/create_file/delete_file/rename_file are forbidden; use create/delete/rename/patch.\n")))
 
 (defun carriage-op-delete-prompt-fragment (_ctx)

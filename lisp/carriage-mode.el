@@ -376,6 +376,10 @@ Do not define bindings here; all key bindings are applied via keyspec and mode s
   "Buffer-local origin marker set at request time; first chunk will use it.")
 (defvar-local carriage--reasoning-open nil
   "Non-nil when a #+begin_reasoning block is currently open for streaming.")
+(defvar-local carriage--reasoning-tail-marker nil
+  "Marker pointing to the end of reasoning content (where #+end_reasoning should be inserted).")
+(defvar-local carriage--reasoning-beg-marker nil
+  "Marker pointing to the beginning line of the current #+begin_reasoning block.")
 
 (defun carriage-stream-reset (&optional origin-marker)
   "Reset streaming state for current buffer and set ORIGIN-MARKER if provided.
@@ -384,6 +388,8 @@ Does not modify buffer text; only clears markers/state so the next chunk opens a
   (setq carriage--stream-end-marker nil)
   (setq carriage--stream-origin-marker (and (markerp origin-marker) origin-marker))
   (setq carriage--reasoning-open nil)
+  (setq carriage--reasoning-tail-marker nil)
+  (setq carriage--reasoning-beg-marker nil)
   t)
 
 (defun carriage-stream-region ()
@@ -411,60 +417,86 @@ Does not modify buffer text; only clears markers/state so the next chunk opens a
       (setq carriage--stream-end-marker (copy-marker pos t)))))
 
 (defun carriage-begin-reasoning ()
-  "Open a #+begin_reasoning block at the end of streaming region if not open."
+  "Open a #+begin_reasoning block at the end of streaming region if not open.
+Records begin and tail markers so main text can be inserted after reasoning
+without auto-closing; the end marker is inserted later at tail."
   (when (eq carriage-mode-include-reasoning 'block)
     (carriage--ensure-stream-region)
+    (carriage-log "reasoning: begin-request open=%s" carriage--reasoning-open)
     (unless carriage--reasoning-open
-      (let ((inhibit-read-only t))
+      (let ((inhibit-read-only t)
+            (pos (marker-position carriage--stream-end-marker)))
         (save-excursion
-          (goto-char (marker-position carriage--stream-end-marker))
+          (goto-char pos)
           (insert "#+begin_reasoning\n")
+          ;; After inserting, the begin line starts at POS. Record markers:
+          (setq carriage--reasoning-beg-marker (copy-marker pos))
+          ;; Tail starts where we are now (immediately after begin line)
+          (setq carriage--reasoning-tail-marker (copy-marker (point) t))
+          ;; Stream end also advances to current point
           (set-marker carriage--stream-end-marker (point) (current-buffer)))
-        (setq carriage--reasoning-open t)))))
+        (setq carriage--reasoning-open t)
+        (carriage-log "reasoning: begin inserted beg=%s tail=%s end=%s"
+                      (and (markerp carriage--reasoning-beg-marker)
+                           (marker-position carriage--reasoning-beg-marker))
+                      (and (markerp carriage--reasoning-tail-marker)
+                           (marker-position carriage--reasoning-tail-marker))
+                      (and (markerp carriage--stream-end-marker)
+                           (marker-position carriage--stream-end-marker)))))))
 
 (defun carriage-end-reasoning ()
-  "Close the #+begin_reasoning block if it is open and fold its contents."
+  "Close the #+begin_reasoning block if it is open. Do not fold here; folding is done on finalize."
+  (carriage-log "reasoning: end-request open=%s" carriage--reasoning-open)
   (when carriage--reasoning-open
     (let ((inhibit-read-only t)
-          (end-pos nil) (beg-pos nil) (body-beg nil))
+          (end-pos nil) (beg-pos nil)
+          (skipped 'none)
+          (prev-line "")
+          (tailpos (or (and (markerp carriage--reasoning-tail-marker)
+                            (marker-position carriage--reasoning-tail-marker))
+                       (and (markerp carriage--stream-end-marker)
+                            (marker-position carriage--stream-end-marker)))))
       (save-excursion
-        (goto-char (marker-position carriage--stream-end-marker))
-        (insert "\n#+end_reasoning\n")
-        (setq end-pos (point))
-        (set-marker carriage--stream-end-marker end-pos (current-buffer))
+        (when (numberp tailpos) (goto-char tailpos))
+        ;; Capture previous line at TAIL for diagnostics
+        (setq prev-line (save-excursion
+                          (forward-line -1)
+                          (buffer-substring-no-properties
+                           (line-beginning-position) (line-end-position))))
+        ;; Locate matching begin for context and detect existing end marker between beg..end
         (when (re-search-backward "^[ \t]*#\\+begin_reasoning\\b" nil t)
           (setq beg-pos (match-beginning 0))
-          (setq body-beg (save-excursion
-                           (goto-char (match-end 0))
-                           (forward-line 1)
-                           (point)))))
-      ;; Fold body between body-beg and the line before end marker
-      (when (and beg-pos body-beg)
-        (condition-case _e
-            (progn
-              (require 'org)
-              (let ((body-end (save-excursion
-                                (goto-char (marker-position carriage--stream-end-marker))
-                                (forward-line -1)
-                                (line-end-position))))
-                (cond
-                 ;; Prefer specialized folding APIs when available
-                 ((fboundp 'org-fold-hide-drawer-or-block)
-                  (save-excursion
-                    (goto-char beg-pos)
-                    (org-fold-hide-drawer-or-block t)))
-                 ((fboundp 'org-hide-block-toggle)
-                  (save-excursion
-                    (goto-char beg-pos)
-                    (org-hide-block-toggle t)))
-                 ;; Fallbacks
-                 ((featurep 'org-fold)
-                  (org-fold-region body-beg body-end t))
-                 (t
-                  (let ((ov (make-overlay body-beg body-end)))
-                    (overlay-put ov 'invisible t)
-                    (overlay-put ov 'evaporate t)))))))
-        (error nil))))
+          (let* ((cur (marker-position carriage--stream-end-marker))
+                 (have-end (save-excursion
+                             (goto-char (1+ beg-pos))
+                             (re-search-forward "^[ \t]*#\\+end_reasoning\\b" cur t))))
+            (when have-end
+              (setq skipped 'already-present))))
+        ;; Quick guard: previous line already end marker
+        (when (and (eq skipped 'none)
+                   (string-match-p "^[ \t]*#\\+end_reasoning\\b" prev-line))
+          (setq skipped 'prev-line))
+        ;; Insert end marker at TAIL if not skipped
+        (when (and (eq skipped 'none) (numberp tailpos))
+          (goto-char tailpos)
+          (unless (bolp) (insert "\n"))
+          (insert "#+end_reasoning\n")
+          (setq end-pos (point))
+          ;; If stream-end was equal to tail, advance it; otherwise leave it (text already present beyond).
+          (when (and (markerp carriage--stream-end-marker)
+                     (= (marker-position carriage--stream-end-marker) tailpos))
+            (set-marker carriage--stream-end-marker end-pos (current-buffer)))
+          ;; Advance tail as well to the new end
+          (when (markerp carriage--reasoning-tail-marker)
+            (set-marker carriage--reasoning-tail-marker end-pos (current-buffer)))))
+      (carriage-log "reasoning: end %s (end-pos=%s beg-pos=%s prev='%s')"
+                    (pcase skipped
+                      ('none "inserted")
+                      ('prev-line "skipped-duplicate")
+                      ('already-present "skipped-already-present")
+                      (_ skipped))
+                    (or end-pos -1) (or beg-pos -1)
+                    (condition-case _ (substring prev-line 0 (min 80 (length prev-line))) (error prev-line)))))
   (setq carriage--reasoning-open nil)
   t)
 
@@ -481,30 +513,71 @@ Does not modify buffer text; only clears markers/state so the next chunk opens a
 (defun carriage-insert-stream-chunk (string &optional type)
   "Insert STRING chunk into the current buffer streaming region.
 TYPE is either 'text (default) or 'reasoning.
-- 'text: append to the region as-is.
-- 'reasoning: if carriage-mode-include-reasoning='block, ensure an open
-  #+begin_reasoning and append inside; otherwise ignore (only traffic/logs)."
+- 'text: append to the region as-is (even if reasoning is open).
+- 'reasoning: when carriage-mode-include-reasoning='block, ensure a #+begin_reasoning
+  and append to the reasoning tail marker so that main text remains outside the block."
   (let ((s (or string "")))
+    (carriage-log "stream: chunk type=%s bytes=%d open=%s"
+                  (or type 'text) (string-bytes s) carriage--reasoning-open)
     (pcase type
       ((or 'reasoning :reasoning)
        (when (eq carriage-mode-include-reasoning 'block)
          (carriage-begin-reasoning)
-         (carriage--stream-insert-at-end s)))
+         (let ((inhibit-read-only t))
+           (save-excursion
+             (let* ((tail (or carriage--reasoning-tail-marker carriage--stream-end-marker))
+                    (tailpos (marker-position tail)))
+               (goto-char tailpos)
+               (insert s)
+               (let ((newpos (point)))
+                 ;; Advance tail; if end==tail, advance end as well
+                 (when (markerp carriage--reasoning-tail-marker)
+                   (set-marker carriage--reasoning-tail-marker newpos (current-buffer)))
+                 (when (and (markerp carriage--stream-end-marker)
+                            (= (marker-position carriage--stream-end-marker) tailpos))
+                   (set-marker carriage--stream-end-marker newpos (current-buffer)))))))))
       (_
-       ;; Close reasoning if model unexpectedly sends text after reasoning end
-       ;; without (reasoning . t). This keeps blocks well-formed.
-       (when carriage--reasoning-open
-         (carriage-end-reasoning))
+       ;; Do not auto-close reasoning here; text is appended after all prior content.
        (carriage--stream-insert-at-end s))))
   (point))
 
 ;;;###autoload
 (defun carriage-stream-finalize (&optional errorp mark-last-iteration)
   "Finalize the current streaming session.
-- Close an open reasoning block, if any.
+- Ensure any open reasoning block is closed.
+- Fold the reasoning block after the full answer is printed.
 - When MARK-LAST-ITERATION and not ERRORP: mark the inserted region as last iteration.
 - Trigger UI effects (flash/audio) on success."
+  ;; Close reasoning if still open (end marker inserted at tail)
   (ignore-errors (carriage-end-reasoning))
+  ;; Fold reasoning now (after the whole response), using recorded begin marker if available.
+  (when (and (not errorp)
+             (markerp carriage--reasoning-beg-marker))
+    (condition-case _e
+        (progn
+          (require 'org)
+          (let ((beg (marker-position carriage--reasoning-beg-marker)))
+            (cond
+             ((fboundp 'org-fold-hide-drawer-or-block)
+              (save-excursion
+                (goto-char beg)
+                (org-fold-hide-drawer-or-block t)))
+             ((fboundp 'org-hide-block-toggle)
+              (save-excursion
+                (goto-char beg)
+                (org-hide-block-toggle t)))
+             ((featurep 'org-fold)
+              (save-excursion
+                (goto-char beg)
+                ;; Best effort: fold the block body region
+                (let ((body-beg (progn (forward-line 1) (point)))
+                      (body-end (save-excursion
+                                  (when (re-search-forward "^[ \t]*#\\+end_reasoning\\b" nil t)
+                                    (forward-line -1))
+                                  (line-end-position))))
+                  (org-fold-region body-beg body-end t))))
+             (t nil))))
+      (error nil)))
   (when (and (not errorp) mark-last-iteration)
     (let ((r (carriage-stream-region)))
       (when (and (consp r)

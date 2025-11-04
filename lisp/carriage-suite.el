@@ -111,7 +111,9 @@ FRAG is STRING or function (lambda (ctx) STRING)."
                  "- Use EXACT operation names. Aliases like write/create_file/delete_file/rename_file are forbidden."
                  "- Header must include :version \"1\" and only keys defined by the selected operation."
                  "- Paths must be relative to repo root. Use :file (not :path) where applicable."
-                 "- For create: require :delim (exactly 6 lower hex). Body marker lines: <<DELIM and :DELIM."
+                 "- For create: require :delim (exactly 6 lower hex). Body marker lines: <<DELIM and :DELIM (colon required)."
+                 "- Closing marker must start with a single ':' immediately followed by DELIM, with no spaces or extra characters, and be on its own line."
+                 "- Common mistakes to avoid for create: writing 'DELIM' without ':', writing ': DELIM' (with a space), writing '::DELIM', or adding trailing spaces after ':DELIM'."
                  "- No base64 payloads; the tool will handle fallbacks itself.")))
     ;; Include patch-specific guardrails only when 'patch is allowed in this suite.
     (when (memq 'patch ops)

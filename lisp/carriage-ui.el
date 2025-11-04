@@ -453,17 +453,81 @@ Emits debug logs with the resulting face property/foreground."
         (carriage-ui--log-face-of-string (format "icon:%s" key) res))
       res)))
 
+;; Header-line helpers (split from carriage-ui--header-line)
+
+(defun carriage-ui--hl-sep ()
+  "Separator used between header-line segments."
+  " › ")
+
+(defun carriage-ui--left-pad (&optional pixels)
+  "Return a left padding spacer of PIXELS (default 3) using a display property."
+  (let ((px (or pixels 3)))
+    (propertize " " 'display (list 'space :width (cons 'pixels px)))))
+
+(defun carriage-ui--hl-build-seg (label icon)
+  "Build a segment from LABEL and optional ICON, preserving icon face."
+  (if icon (concat icon " " label) label))
+
+(defun carriage-ui--hl-mute-tail (s)
+  "Apply muted face to the text portion after the first space. If no space, mute whole string.
+Keeps icon color intact when icon is at the head of S."
+  (if (not (stringp s)) s
+    (let ((idx (string-match " " s)))
+      (cond
+       ((and idx (< idx (length s)))
+        (let ((cp (copy-sequence s)))
+          (add-text-properties (1+ idx) (length cp)
+                               '(face carriage-ui-muted-face) cp)
+          cp))
+       (t (propertize s 'face 'carriage-ui-muted-face))))))
+
+(defun carriage-ui--hl-clickable-outline (s)
+  "Make outline string S clickable to jump to the heading."
+  (let* ((omap (let ((m (make-sparse-keymap)))
+                 (define-key m [header-line mouse-1] #'carriage-ui-goto-outline)
+                 m)))
+    (propertize (or s "")
+                'mouse-face 'mode-line-highlight
+                'help-echo "Перейти к заголовку (mouse-1)"
+                'local-map omap)))
+
+(defun carriage-ui--hl-show-outline-p (tty outline avail)
+  "Return non-nil when OUTLINE should be shown given TTY flag and AVAIL width."
+  (and (not tty) outline (> avail 30)))
+
+(defun carriage-ui--hl-fit (pseg bseg oseg show-outline avail sep)
+  "Truncate segments to fit AVAIL width. Returns list (P B O).
+Truncation order: outline → buffer → project."
+  (let* ((base (concat pseg sep bseg))
+         (full (if show-outline (concat base sep oseg) base)))
+    (when (> (length full) avail)
+      (when show-outline
+        (let* ((ol-max (max 10 (- avail (length base) (length sep)))))
+          (setq oseg (carriage-ui--truncate-middle oseg ol-max))
+          (setq full (concat base sep oseg))))
+      (when (> (length full) avail)
+        (let* ((buf-max (max 10 (- avail (length pseg) (length sep)))))
+          (setq bseg (carriage-ui--truncate-middle bseg buf-max))
+          (setq base (concat pseg sep bseg))
+          (setq full (if show-outline (concat base sep oseg) base))))
+      (when (> (length full) avail)
+        (setq pseg (carriage-ui--truncate-middle pseg (max 5 (- avail (length sep) (length bseg)))))
+        (setq base (concat pseg sep bseg))
+        (setq full (if show-outline (concat base sep oseg) base))))
+    (list pseg bseg oseg)))
+
 (defun carriage-ui--header-line ()
   "Build header-line: [icon] project › [icon] buffer › org-outline-path (no icon for heading).
 - Graceful degradation in TTY and narrow windows (hide outline).
-- Outline segment is clickable in org-mode to jump to the heading."
+- Outline segment is clickable in org-mode to jump to the heading.
+- Visuals: all text sections except the last are muted gray; icons keep their colors."
   (let* ((project (carriage-ui--project-name))
          (bufname (buffer-name))
          (outline (carriage-ui--org-outline-path))
          (use-icons (carriage-ui--icons-available-p))
          (p-icon (and use-icons (carriage-ui--icon 'project)))
          (f-icon (and use-icons (carriage-ui--icon 'file)))
-         (sep " › ")
+         (sep (carriage-ui--hl-sep))
          ;; Window width and policy
          (w (or (ignore-errors (window-total-width)) 80))
          (maxw (or (and (boundp 'carriage-mode-headerline-max-width)
@@ -472,41 +536,23 @@ Emits debug logs with the resulting face property/foreground."
          (reserve 10)
          (avail (max 0 (- maxw reserve)))
          (tty (not (display-graphic-p)))
-         (show-outline (and (not tty) outline (> avail 30)))
-         (pseg (if p-icon (concat p-icon " " project) project))
-         (bseg (if f-icon (concat f-icon " " bufname) bufname))
-         (oseg-text (or outline ""))
-         (oseg0 oseg-text)
-         (base (concat pseg sep bseg))
-         (full (if show-outline
-                   (concat base sep oseg0)
-                 base)))
-    ;; If exceeds, start truncating from outline, then buffer, then project
-    (when (> (length full) avail)
-      (when show-outline
-        (let* ((ol-max (max 10 (- avail (length base) (length sep)))))
-          (setq oseg0 (carriage-ui--truncate-middle oseg0 ol-max))
-          (setq full (concat base sep oseg0))))
-      (when (> (length full) avail)
-        (let* ((buf-max (max 10 (- avail (length pseg) (length sep)))))
-          (setq bseg (carriage-ui--truncate-middle bseg buf-max))
-          (setq base (concat pseg sep bseg))
-          (setq full (if show-outline (concat base sep oseg0) base))))
-      (when (> (length full) avail)
-        (setq pseg (carriage-ui--truncate-middle pseg (max 5 (- avail (length sep) (length bseg)))))
-        (setq base (concat pseg sep bseg))
-        (setq full (if show-outline (concat base sep oseg0) base))))
-    ;; Clickable outline (optional)
-    (if show-outline
-        (let* ((omap (let ((m (make-sparse-keymap)))
-                       (define-key m [header-line mouse-1] #'carriage-ui-goto-outline)
-                       m))
-               (oprop (propertize oseg0
-                                  'mouse-face 'mode-line-highlight
-                                  'help-echo "Перейти к заголовку (mouse-1)"
-                                  'local-map omap)))
-          (concat base sep oprop))
-      full)))
+         (show-outline (carriage-ui--hl-show-outline-p tty outline avail))
+         (pseg (concat (carriage-ui--left-pad) (carriage-ui--hl-build-seg project p-icon)))
+         (bseg (carriage-ui--hl-build-seg bufname f-icon))
+         (oseg (or outline "")))
+    (cl-destructuring-bind (p1 b1 o1)
+        (carriage-ui--hl-fit pseg bseg oseg show-outline avail sep)
+      ;; Apply muted face to all but the last section
+      (let* ((p2 p1) (b2 b1))
+        (if show-outline
+            (progn
+              (setq p2 (carriage-ui--hl-mute-tail p2))
+              (setq b2 (carriage-ui--hl-mute-tail b2)))
+          (setq p2 (carriage-ui--hl-mute-tail p2)))
+        (let ((base (concat p2 sep b2)))
+          (if show-outline
+              (concat base sep (carriage-ui--hl-clickable-outline o1))
+            base))))))
 
 ;; Cache and refresh outline segment on cursor move to ensure timely header updates.
 (defvar-local carriage-ui--last-outline-path-str nil
