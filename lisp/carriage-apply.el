@@ -258,6 +258,7 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
       (list :plan plan
             :engine eng
             :branch-policy bp
+            :branch-name (and (eq eng 'git) (carriage-git-current-branch repo-root))
             :summary (list :ok ok :fail fail :skipped skip)
             :items (nreverse items)
             :messages (nreverse msgs)))))
