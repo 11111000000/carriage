@@ -198,6 +198,20 @@ TOKEN keys: :engine 'git, :process, :pid, :timer, :stdout-buf, :stderr-buf, :arg
    (lambda (r) (funcall (or on-done #'ignore) r))
    (lambda (r) (funcall (or on-fail #'ignore) r))))
 
+(defun carriage-git-branches-diff-empty-async (root base other on-done on-fail)
+  "Async check if diff between BASE and OTHER branches in ROOT is empty.
+Calls ON-DONE with plist (:empty t|nil :exit N :stdout :stderr), or ON-FAIL on git error."
+  (let ((argv (list "diff" "--name-only" (format "%s...%s" base other))))
+    (carriage-git--run-async
+     root argv
+     (lambda (res)
+       (let* ((out (string-trim (or (plist-get res :stdout) "")))
+              (empty (string-empty-p out)))
+         (funcall (or on-done #'ignore)
+                  (append res (list :empty empty)))))
+     (lambda (err)
+       (funcall (or on-fail #'ignore) err)))))
+
 (defun carriage-git-checkout-wip-async (root &optional branch on-done on-fail)
   "Async ensure WIP BRANCH exists and is checked out; unborn HEAD → empty commit."
   (let* ((b (or branch carriage-mode-wip-branch "carriage/WIP")))

@@ -588,12 +588,52 @@ Registers the handler with the mode when available."
       (carriage--preflight--ensure-repo-async state plan repo-root callback token policy))))
 
 (defun carriage--epilog--delete-ephemeral-if-needed-async (state plan repo-root callback cur ok)
-  "Delete ephemeral branch CUR when OK=0 and policy=ephemeral with auto-delete enabled, then finish."
-  (let ((auto-del (and (boundp 'carriage-git-auto-delete-empty-branch)
-                       carriage-git-auto-delete-empty-branch)))
-    (if (and auto-del
-             (numberp ok) (= ok 0)
-             (stringp cur) (not (string-empty-p cur)))
+  "Delete ephemeral CUR when policy=ephemeral and auto-delete is enabled.
+Deletion happens only when there are no applied items (OK=0) and branch appears empty.
+If :orig-branch is known, verify emptiness by comparing diffs with ORIG. Respect
+carriage-git-ephemeral-keep-on-fail: if any step failed and KEEP-ON-FAIL is t, do not delete."
+  (let* ((auto-del (and (boundp 'carriage-git-auto-delete-empty-branch)
+                        carriage-git-auto-delete-empty-branch))
+         (keep-on-fail (and (boundp 'carriage-git-ephemeral-keep-on-fail)
+                            carriage-git-ephemeral-keep-on-fail))
+         (fail (plist-get state :fail))
+         (orig (plist-get state :orig-branch)))
+    (cond
+     ;; Do not delete when failures occurred and policy says to keep the branch
+     ((and keep-on-fail (numberp fail) (> fail 0))
+      (carriage--apply-finish plan state callback))
+     ;; Consider auto-delete only when OK==0 and branch name is sane
+     ((and auto-del
+           (numberp ok) (= ok 0)
+           (stringp cur) (not (string-empty-p cur)))
+      (if (and (stringp orig) (not (string-empty-p orig)) (not (string= orig cur))
+               (fboundp 'carriage-git-branches-diff-empty-async))
+          ;; Verify that ephemeral branch is effectively empty w.r.t. ORIG
+          (carriage-git-branches-diff-empty-async
+           repo-root orig cur
+           (lambda (r)
+             (if (plist-get r :empty)
+                 (carriage-git-delete-branch-async
+                  repo-root cur
+                  (lambda (_okdel)
+                    (carriage--apply-acc-msg
+                     state (list :code 'GIT_INFO :severity 'info
+                                 :details (format "Ephemeral branch %s deleted" (or cur ""))))
+                    (carriage--apply-finish plan state callback))
+                  (lambda (err)
+                    (let* ((stderr (string-trim (or (plist-get err :stderr) "")))
+                           (stdout (string-trim (or (plist-get err :stdout) ""))))
+                      (carriage--apply-acc-msg
+                       state (list :code 'GIT_E_APPLY :severity 'warn
+                                   :details (or (and (not (string-empty-p stderr)) stderr)
+                                                (and (not (string-empty-p stdout)) stdout)
+                                                "Ephemeral branch delete failed")))
+                      (carriage--apply-finish plan state callback))))
+               ;; Not empty — keep branch
+               (carriage--apply-finish plan state callback)))
+           ;; If diff check failed, conservatively keep the branch
+           (lambda (_err) (carriage--apply-finish plan state callback)))
+        ;; No ORIG available — fallback to simple ok==0 heuristic
         (carriage-git-delete-branch-async
          repo-root cur
          (lambda (_okdel)
@@ -609,8 +649,9 @@ Registers the handler with the mode when available."
                           :details (or (and (not (string-empty-p stderr)) stderr)
                                        (and (not (string-empty-p stdout)) stdout)
                                        "Ephemeral branch delete failed")))
-             (carriage--apply-finish plan state callback))))
-      (carriage--apply-finish plan state callback))))
+             (carriage--apply-finish plan state callback))))))
+     (t
+      (carriage--apply-finish plan state callback)))))
 
 (defun carriage--epilog--after-switch (state plan repo-root callback)
   "After switching back (if needed), possibly delete ephemeral branch and finish."

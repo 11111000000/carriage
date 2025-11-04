@@ -17,6 +17,8 @@
   (let* ((tmp (make-temp-file "carriage-sre-apply-" t))
          (default-directory (file-name-as-directory tmp))
          (file (expand-file-name "a.txt" tmp))
+         ;; Async preflight: avoid git branch steps by using in-place policy for SRE without repo
+         (carriage-git-branch-policy 'in-place)
          (carriage-apply-require-wip-branch nil)
          (done nil)
          (report nil))

@@ -32,7 +32,9 @@
 
 (ert-deftest carriage-report-apply-at-point-sre-applies ()
   "Render report with a single SRE item and apply it via [Apply] at point."
-  (let* ((dir (make-temp-file "carriage-rpt-apply-" t)))
+  (let* ((dir (make-temp-file "carriage-rpt-apply-" t))
+         ;; Sync path: enable legacy WIP switch for test expectation
+         (carriage-apply-require-wip-branch t))
     (unwind-protect
         (progn
           ;; init repo
