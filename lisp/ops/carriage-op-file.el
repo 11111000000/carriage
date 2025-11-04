@@ -156,7 +156,9 @@
                  (not (eq (aref payload (1- (length payload))) ?\n)))
         (setq payload (concat payload "\n")))
       (carriage-write-file-string abs payload mkdir))
-    (when (eq stage 'index)
+    (when (and (eq stage 'index)
+               (fboundp 'carriage-apply-engine)
+               (eq (carriage-apply-engine) 'git))
       (carriage-git-add repo-root file))
     (list :op 'create :status 'ok :file file :details "Created")))
 
@@ -166,7 +168,9 @@
          (stage (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy))
          (abs (carriage-normalize-path repo-root file)))
     (cond
-     ((eq stage 'index)
+     ((and (eq stage 'index)
+           (fboundp 'carriage-apply-engine)
+           (eq (carriage-apply-engine) 'git))
       (carriage-git-rm repo-root file)
       (list :op 'delete :status 'ok :file file :details "Deleted (staged)"))
      (t
@@ -185,7 +189,9 @@
          (stage (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy)))
     (when (and to-dir (not (file-directory-p to-dir)))
       (make-directory to-dir t))
-    (if (eq stage 'index)
+    (if (and (eq stage 'index)
+             (fboundp 'carriage-apply-engine)
+             (eq (carriage-apply-engine) 'git))
         (let ((mvres (carriage-git-mv repo-root from to)))
           (if (and (plist-get mvres :exit) (zerop (plist-get mvres :exit)))
               (list :op 'rename :status 'ok :file (format "%s -> %s" from to) :details "Renamed (staged)")

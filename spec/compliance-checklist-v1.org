@@ -35,6 +35,7 @@
 - Синхронные обёртки (опционально): допускаются как тонкие адаптеры над движком для одиночных кейсов; UI не должен «замораживаться» дольше коротких ожиданий.
 - Синхронные обёртки: отчёты включают :pid и :elapsed-ms (паритет с async).
 - Движки: реализован выбор и реестр движков; по умолчанию используется 'git; ключ :apply в заголовке игнорируется.
+- Совместимость Suite↔Engine: Suite='udiff требует 'git; Suite='sre допускает 'emacs|'git; при несовместимости → MODE_E_DISPATCH и мягкое предупреждение UI.
 - Коммиты: apply не выполняет commit; коммит — отдельные команды (carriage-commit-changes, carriage-commit-last-iteration); см. ./git-integration-v1.org.
 - NOOP-политика: см. ./apply-pipeline-v1.org и ./api-v1.org (carriage-mode-sre-noop-on-zero-matches).
 

@@ -57,6 +57,7 @@
     (:engine             . ((ru . "Engine")                    (en . "Engine")))
     (:suite-tooltip      . ((ru . "Выбрать Suite")             (en . "Select Suite")))
     (:engine-tooltip     . ((ru . "Выбрать движок применения") (en . "Select Engine")))
+    (:engine-tooltip-branch . ((ru . "Движок: %s (ветки: %s)") (en . "Engine: %s (branches: %s)")))
     (:commit             . ((ru . "Коммит")                    (en . "Commit")))
     (:commit-tooltip     . ((ru . "Сделать коммит")            (en . "Make a commit")))
     (:intent-ask         . ((ru . "Вопрос")                    (en . "Ask")))

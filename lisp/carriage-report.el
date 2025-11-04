@@ -39,9 +39,16 @@
          (ok      (plist-get summary :ok))
          (fail    (plist-get summary :fail))
          (skipped (plist-get summary :skipped))
-         (engine  (plist-get report :engine)))
+         (engine  (plist-get report :engine))
+         (policy  (plist-get report :branch-policy))
+         (branch  (plist-get report :branch-name))
+         (engine-part (if engine (format " (engine=%s%s%s)"
+                                         engine
+                                         (if policy (format ", policy=%s" policy) "")
+                                         (if branch (format ", branch=%s" branch) ""))
+                        "")))
     (format "Carriage report%s  ok:%s  fail:%s  skipped:%s\n\n"
-            (if engine (format " (engine=%s)" engine) "")
+            engine-part
             (or ok 0) (or fail 0) (or skipped 0))))
 
 (defun carriage--report-row-face (status)

@@ -127,33 +127,43 @@ Callbacks are invoked on the main thread via run-at-time 0. Returns the engine t
                 ((or 'dry-run :dry-run) (plist-get rec :dry-run))
                 ((or 'apply   :apply)   (plist-get rec :apply))
                 (_ nil))))
-    (if (functionp cb)
-        (condition-case e
-            (let ((ret
-                   (funcall cb op plan-item repo-root
-                            (lambda (result)
-                              (run-at-time 0 nil
-                                           (lambda ()
-                                             (when (functionp on-done)
-                                               (funcall on-done result)))))
-                            (lambda (err)
-                              (run-at-time 0 nil
-                                           (lambda ()
-                                             (when (functionp on-fail)
-                                               (funcall on-fail err))))))))
-              ret)
-          (error
-           (carriage-log "Engine dispatch error (%s): %s" eng (error-message-string e))
-           (when (functionp on-fail)
-             (run-at-time 0 nil (lambda () (funcall on-fail e))))
-           nil))
-      (progn
-        (carriage-log "No %s callback for engine %s (op=%s)" kind eng op)
-        (when (functionp on-fail)
-          (run-at-time 0 nil
-                       (lambda ()
-                         (funcall on-fail (list :error 'no-callback :engine eng :kind kind)))))
-        nil))))
+    ;; Suite↔Engine guard (spec v1): patch требует git-движок
+    (if (and (eq op 'patch) (not (eq eng 'git)))
+        (progn
+          (carriage-log "Engine dispatch refused: op=patch requires git engine (current=%s)" eng)
+          (when (functionp on-fail)
+            (run-at-time 0 nil
+                         (lambda ()
+                           (funcall on-fail (list :engine eng :exit 125 :code 'MODE_E_DISPATCH
+                                                  :stderr "patch op requires git engine")))))
+          nil)
+      (if (functionp cb)
+          (condition-case e
+              (let ((ret
+                     (funcall cb op plan-item repo-root
+                              (lambda (result)
+                                (run-at-time 0 nil
+                                             (lambda ()
+                                               (when (functionp on-done)
+                                                 (funcall on-done result)))))
+                              (lambda (err)
+                                (run-at-time 0 nil
+                                             (lambda ()
+                                               (when (functionp on-fail)
+                                                 (funcall on-fail err))))))))
+                ret)
+            (error
+             (carriage-log "Engine dispatch error (%s): %s" eng (error-message-string e))
+             (when (functionp on-fail)
+               (run-at-time 0 nil (lambda () (funcall on-fail e))))
+             nil))
+        (progn
+          (carriage-log "No %s callback for engine %s (op=%s)" kind eng op)
+          (when (functionp on-fail)
+            (run-at-time 0 nil
+                         (lambda ()
+                           (funcall on-fail (list :error 'no-callback :engine eng :kind kind)))))
+          nil)))))
 
 (provide 'carriage-apply-engine)
 ;;; carriage-apply-engine.el ends here

@@ -38,6 +38,7 @@
 - UI (ui-v1.org):
   - Все видимые подписанные элементы (кнопки, help-echo, заголовки) разрешаются через i18n-ключи.
   - Tooltip [MODEL] — шаблон из i18n, например: (:model-tooltip . "Модель: %s").
+  - Tooltip [ENGINE] — шаблон из i18n; для 'git использовать форму "Движок: %s (ветки: %s)" с ключом :engine-tooltip-branch и подстановкой политики ('in-place|'wip|'ephemeral); общий случай — :engine-tooltip.
 - which-key:
   - Реплейсеры строятся через i18n-ключи: (:carriage-menu . "Carriage Menu"), (:carriage-toggles . "Carriage Toggles").
 - keyspec/transient:
@@ -72,6 +73,7 @@
   - :engine — метка "Engine".
   - :suite-tooltip — всплывающая подсказка для выбора Suite.
   - :engine-tooltip — всплывающая подсказка для выбора Engine.
+  - :engine-tooltip-branch — шаблон тултипа для git (например, "Движок: %s (ветки: %s)").
   - :commit — метка кнопки Commit.
   - :commit-tooltip — подсказка для Commit.
   - :intent-ask — метка Intent Ask.

@@ -5,18 +5,22 @@
 
 * Назначение
 - Установить норматив «end-to-end неблокирующий» apply-процесс:
-  - Пролог (обнаружение репо и переход на WIP-ветку) выполняется асинхронно.
+  - Пролог (обнаружение репо и исполнение веточной политики Git-движка: 'in-place|'wip|'ephemeral) выполняется асинхронно и только на стадии apply; dry-run никогда не создаёт/не переключает ветки.
   - Шаги пайплайна (dry-run/apply) и пролог имеют единые правила Abort/таймаутов/логов.
   - UI/буфер не блокируются ни на одном этапе.
 
 * Область
-- Пролог apply-пайплайна: git rev-parse --git-dir, rev-parse/checkout/-b WIP, init empty commit при unborn HEAD.
+- Пролог apply-пайплайна: ensure repo; для 'git — выполнить веточную политику: 'in-place (ничего), 'wip (ensure/checkout carriage/WIP; при unborn HEAD — пустой коммит), 'ephemeral (создать и переключиться на временную ветку).
 - Абстракция Git-хелперов уровня utils/git: обязательна async-first; sync-обёртки допустимы только вне интерактивного/async пути.
 
 * Норматив (обязательный)
 ** Асинхронный пролог
 - В carriage-apply-plan-async:
-  - Если carriage-apply-require-wip-branch=t — сначала «ensure repo → checkout/create WIP → (unborn HEAD) → пустой коммит».
+  - Если активный движок='git — выполнить веточную политику согласно carriage-git-branch-policy:
+    - 'in-place — без переключений веток.
+    - 'wip — ensure/checkout carriage/WIP; при unborn HEAD — создать пустой коммит для инициализации.
+    - 'ephemeral — создать и переключиться на временную ветку carriage/tmp/<YYYYmmdd-HHMMSS>-<id>.
+    Пролог выполняется только перед apply; для dry-run ветки не создаются и не переключаются.
   - Все операции пролога — через make-process + sentinel + run-at-time таймаут; запрещено вызывать accept-process-output на UI-пути.
   - Только по успешном завершении пролога запускается цепочка шагов apply (carriage--apply-next).
 

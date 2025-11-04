@@ -828,49 +828,77 @@ May include :context-text and :context-target per v1.1."
                         (carriage-parse-block-at-point root)
                       (error
                        (carriage-ui-set-state 'error)
-                       (user-error "Carriage parse error: %s" (error-message-string e)))))
-         (report (carriage-dry-run-plan (list plan-item) root)))
-    (when (and carriage-mode-auto-open-report (not noninteractive))
-      (carriage-report-open report))
-    (carriage-ui-set-state 'idle)))
+                       (user-error "Carriage parse error: %s" (error-message-string e))))))
+    ;; Early Suite↔Engine guard for patch
+    (let ((op (or (and (listp plan-item) (plist-get plan-item :op))
+                  (alist-get :op plan-item))))
+      (when (and (eq op 'patch)
+                 (not (eq (carriage-apply-engine) 'git)))
+        (carriage-ui-set-state 'error)
+        (user-error "Patch requires 'git engine; current engine is %s" (carriage-apply-engine))))
+    (let ((report (carriage-dry-run-plan (list plan-item) root)))
+      (when (and carriage-mode-auto-open-report (not noninteractive))
+        (carriage-report-open report))
+      (carriage-ui-set-state 'idle))))
+
+(defun carriage--parse-plan-item-or-error (root)
+  "Parse block at point under ROOT or signal user-error with UI state update."
+  (condition-case e
+      (carriage-parse-block-at-point root)
+    (error
+     (carriage-ui-set-state 'error)
+     (user-error "Carriage parse error: %s" (error-message-string e)))))
+
+(defun carriage--guard-patch-engine-for-item (plan-item)
+  "Ensure that applying PLAN-ITEM is allowed for current engine; user-error otherwise."
+  (let ((op (or (and (listp plan-item) (plist-get plan-item :op))
+                (alist-get :op plan-item))))
+    (when (and (eq op 'patch)
+               (not (eq (carriage-apply-engine) 'git)))
+      (carriage-ui-set-state 'error)
+      (user-error "Patch requires 'git engine; current engine is %s" (carriage-apply-engine)))))
+
+(defun carriage--dry-run-single-item (plan-item root)
+  "Run dry-run for a single PLAN-ITEM under ROOT, setting UI state appropriately."
+  (carriage-ui-set-state 'dry-run)
+  (carriage-dry-run-plan (list plan-item) root))
+
+(defun carriage--apply-single-item-dispatch (plan-item root)
+  "Apply single PLAN-ITEM under ROOT, async when configured; update UI/report."
+  (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
+      (progn
+        (carriage-log "apply-at-point: async apply scheduled")
+        (carriage-apply-plan-async
+         (list plan-item) root
+         (lambda (rep)
+           (when (not noninteractive)
+             (carriage-report-open rep))
+           (carriage-ui-set-state 'idle))))
+    (let ((ap (carriage-apply-plan (list plan-item) root)))
+      (when (not noninteractive)
+        (carriage-report-open ap))
+      (carriage-ui-set-state 'idle))))
 
 ;;;###autoload
 (defun carriage-apply-at-point ()
   "Dry-run → confirm → apply for the patch block at point (async by default)."
   (interactive)
   (let* ((root (or (carriage-project-root) default-directory))
-         (plan-item (condition-case e
-                        (carriage-parse-block-at-point root)
-                      (error
-                       (carriage-ui-set-state 'error)
-                       (user-error "Carriage parse error: %s" (error-message-string e)))))
-         (dry (progn
-                (carriage-ui-set-state 'dry-run)
-                (carriage-dry-run-plan (list plan-item) root))))
-    (when (and carriage-mode-auto-open-report (not noninteractive))
-      (carriage-report-open dry))
-    (let* ((sum (plist-get dry :summary))
-           (fails (or (plist-get sum :fail) 0)))
-      (if (> fails 0)
-          (progn
-            (carriage-ui-set-state 'error)
-            (user-error "Dry-run failed; see report for details"))
-        (when (or (not carriage-mode-show-diffs)
-                  (y-or-n-p "Apply this block? "))
-          (carriage-ui-set-state 'apply)
-          (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
-              (progn
-                (carriage-log "apply-at-point: async apply scheduled")
-                (carriage-apply-plan-async
-                 (list plan-item) root
-                 (lambda (rep)
-                   (when (not noninteractive)
-                     (carriage-report-open rep))
-                   (carriage-ui-set-state 'idle))))
-            (let ((ap (carriage-apply-plan (list plan-item) root)))
-              (when (not noninteractive)
-                (carriage-report-open ap))
-              (carriage-ui-set-state 'idle))))))))
+         (plan-item (carriage--parse-plan-item-or-error root)))
+    (carriage--guard-patch-engine-for-item plan-item)
+    (let ((dry (carriage--dry-run-single-item plan-item root)))
+      (when (and carriage-mode-auto-open-report (not noninteractive))
+        (carriage-report-open dry))
+      (let* ((sum (plist-get dry :summary))
+             (fails (or (plist-get sum :fail) 0)))
+        (if (> fails 0)
+            (progn
+              (carriage-ui-set-state 'error)
+              (user-error "Dry-run failed; see report for details"))
+          (when (or (not carriage-mode-show-diffs)
+                    (y-or-n-p "Apply this block? "))
+            (carriage-ui-set-state 'apply)
+            (carriage--apply-single-item-dispatch plan-item root)))))))
 
 ;;;###autoload
 (defun carriage-apply-last-iteration ()
@@ -883,6 +911,14 @@ May include :context-text and :context-target per v1.1."
     (when (and carriage-mode-confirm-apply-all
                (not (y-or-n-p (format "Применить все блоки (%d)? " (length plan)))))
       (user-error "Отменено"))
+    ;; Early Suite↔Engine guard: if any 'patch present but engine != 'git
+    (let ((has-patch nil))
+      (dolist (it plan)
+        (when (eq (or (alist-get :op it) (and (listp it) (plist-get it :op))) 'patch)
+          (setq has-patch t)))
+      (when (and has-patch (not (eq (carriage-apply-engine) 'git)))
+        (carriage-ui-set-state 'error)
+        (user-error "Patch requires 'git engine; current engine is %s" (carriage-apply-engine))))
     ;; Dry-run
     (carriage-ui-set-state 'dry-run)
     (let* ((dry (carriage-dry-run-plan plan root)))

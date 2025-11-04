@@ -44,7 +44,9 @@
   - Команды carriage-commit-changes и carriage-commit-last-iteration создают один коммит; проверить набор файлов и шаблон сообщения.
 - Движки:
   - Выбор движка (carriage-select-apply-engine) меняет реализацию шагов; заголовочный :apply игнорируется.
-  - Для движка 'git: dry-run вызывает git apply --check; apply — git apply [--index].
+  - Для движка 'git: dry-run вызывает git apply --check; apply — git apply [--index]; ветки по policy ('in-place|'wip|'ephemeral); dry-run не создаёт/не переключает ветки; switch-back и auto-delete пустых ephemeral.
+  - Для движка 'emacs: :op 'patch отклоняется (MODE_E_DISPATCH); sre/aibo/create/delete/rename работают без индексации; отказ при несохранённых буферах (policy=t); запись атомарна; порционная обработка для больших файлов.
+  - При Suite↔Engine несовместимости: отказ (MODE_E_DISPATCH) и отображение предупреждения в UI (мокаем сообщение).
 - gptel-mock: имитация ответа LLM с блоками:
   - Стрим: несколько чанков STRING → t; проверка:
     - UI переходит sending→streaming→idle; спиннер останавливается.

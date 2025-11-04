@@ -9,6 +9,8 @@
 (require 'carriage-utils)
 (require 'carriage-git)
 (require 'carriage-format-registry)
+;; Engine selector (used to gate staging for non-git engines)
+(declare-function carriage-apply-engine "carriage-apply-engine" ())
 
 (defvar carriage-mode-sre-preview-max 3
   "Default maximum number of SRE preview chunks when Customize is not loaded.")
@@ -600,7 +602,9 @@ Implements NOOP→'skip when after==before and reports :matches and :changed-byt
         ;; Write and optionally stage
         (progn
           (carriage-write-file-string abs after t)
-          (when (eq stage 'index)
+          (when (and (eq stage 'index)
+                     (fboundp 'carriage-apply-engine)
+                     (eq (carriage-apply-engine) 'git))
             (carriage-git-add repo-root file))
           (list :op 'sre :status 'ok :file file
                 :matches matches :changed-bytes changed-bytes

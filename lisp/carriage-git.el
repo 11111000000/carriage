@@ -23,6 +23,31 @@ Use to avoid interactive or environment-specific stalls and to relax whitespace 
 Applies to both index and working-tree apply operations."
   :type '(repeat string) :group 'carriage)
 
+(defcustom carriage-git-branch-policy 'wip
+  "Branch policy for Git engine: 'in-place | 'wip | 'ephemeral."
+  :type '(choice (const in-place) (const wip) (const ephemeral))
+  :group 'carriage)
+
+(defcustom carriage-git-ephemeral-prefix "carriage/tmp"
+  "Prefix for ephemeral branches created by the Git engine."
+  :type 'string
+  :group 'carriage)
+
+(defcustom carriage-git-auto-delete-empty-branch t
+  "When t and policy='ephemeral, delete ephemeral branch if no items were applied (ok=0)."
+  :type 'boolean
+  :group 'carriage)
+
+(defcustom carriage-git-ephemeral-keep-on-fail t
+  "When t and policy='ephemeral, keep ephemeral branch if any step failed."
+  :type 'boolean
+  :group 'carriage)
+
+(defcustom carriage-git-switch-back-on-complete t
+  "When t and policy∈{'wip 'ephemeral}, switch back to original branch after apply completes."
+  :type 'boolean
+  :group 'carriage)
+
 (defun carriage-git--run (root &rest args)
   "Run git ARGS in ROOT. Return plist (:exit :stdout :stderr)."
   (apply #'carriage--call-git root args))
@@ -109,6 +134,69 @@ TOKEN keys: :engine 'git, :process, :pid, :timer, :stdout-buf, :stderr-buf, :arg
    root '("rev-parse" "--git-dir")
    (lambda (res) (funcall on-done res))
    (lambda (res) (funcall on-fail res))))
+
+;; (dedup) helpers moved below into the unified branch-policy section
+
+;; Helpers for branch policy (ephemeral, switch-back, delete)
+
+(defun carriage-git--timestamp ()
+  "Return timestamp string YYYYmmdd-HHMMSS."
+  (format-time-string "%Y%m%d-%H%M%S" (current-time)))
+
+(defun carriage-git--shortid ()
+  "Return short random id (6 hex)."
+  (substring (md5 (format "%s-%s" (system-name) (float-time))) 0 6))
+
+(defun carriage-git--ephemeral-name ()
+  "Return full ephemeral branch name using prefix/timestamp/shortid."
+  (let ((prefix (or (and (boundp 'carriage-git-ephemeral-prefix)
+                         carriage-git-ephemeral-prefix)
+                    "carriage/tmp")))
+    (format "%s/%s-%s" prefix (carriage-git--timestamp) (carriage-git--shortid))))
+
+(defun carriage-git-current-branch (root)
+  "Return current branch name for repo at ROOT, or nil on error."
+  (condition-case _
+      (let ((default-directory (file-name-as-directory (expand-file-name root))))
+        (string-trim (with-temp-buffer
+                       (call-process "git" nil t nil "rev-parse" "--abbrev-ref" "HEAD")
+                       (buffer-string))))
+    (error nil)))
+
+(defun carriage-git-switch-branch-async (root branch on-done on-fail)
+  "Async switch to BRANCH in ROOT."
+  (carriage-git--run-async
+   root (list "checkout" branch)
+   (lambda (r) (funcall (or on-done #'ignore) r))
+   (lambda (e) (funcall (or on-fail #'ignore) e))))
+
+;; (dedup) delete-branch-async is defined later in the unified helpers
+
+(defun carriage-git-create-ephemeral-branch-async (root on-done on-fail)
+  "Create and checkout a unique ephemeral branch in ROOT. ON-DONE called with plist including :branch."
+  (let* ((name (carriage-git--ephemeral-name)))
+    ;; try create; on collision append -N
+    (carriage-git--run-async
+     root (list "checkout" "-b" name)
+     (lambda (r)
+       (let ((res (append r (list :branch name))))
+         (funcall (or on-done #'ignore) res)))
+     (lambda (_r)
+       ;; try suffix -1 once
+       (let* ((name2 (concat name "-1")))
+         (carriage-git--run-async
+          root (list "checkout" "-b" name2)
+          (lambda (r2)
+            (let ((res2 (append r2 (list :branch name2))))
+              (funcall (or on-done #'ignore) res2)))
+          (lambda (r2) (funcall (or on-fail #'ignore) r2))))))))
+
+(defun carriage-git-delete-branch-async (root branch on-done on-fail)
+  "Async delete BRANCH in ROOT (forced)."
+  (carriage-git--run-async
+   root (list "branch" "-D" branch)
+   (lambda (r) (funcall (or on-done #'ignore) r))
+   (lambda (r) (funcall (or on-fail #'ignore) r))))
 
 (defun carriage-git-checkout-wip-async (root &optional branch on-done on-fail)
   "Async ensure WIP BRANCH exists and is checked out; unborn HEAD → empty commit."

@@ -475,11 +475,19 @@ Keeps icon color intact when icon is at the head of S."
     (let ((idx (string-match " " s)))
       (cond
        ((and idx (< idx (length s)))
-        (let ((cp (copy-sequence s)))
-          (add-text-properties (1+ idx) (length cp)
-                               '(face carriage-ui-muted-face) cp)
+        (let ((cp (copy-sequence s))
+              (start (1+ idx)))
+          ;; Apply muted face only to characters that do not already have a face
+          (dotimes (i (- (length cp) start))
+            (let ((pos (+ start i)))
+              (unless (get-text-property pos 'face cp)
+                (put-text-property pos (1+ pos) 'face 'carriage-ui-muted-face cp))))
           cp))
-       (t (propertize s 'face 'carriage-ui-muted-face))))))
+       (t (let ((cp (copy-sequence s)))
+            (dotimes (i (length cp))
+              (unless (get-text-property i 'face cp)
+                (put-text-property i (1+ i) 'face 'carriage-ui-muted-face cp)))
+            cp))))))
 
 (defun carriage-ui--hl-clickable-outline (s)
   "Make outline string S clickable to jump to the heading."
@@ -590,15 +598,18 @@ Updates on any change of outline path, heading level, or heading title."
   "Return a clickable LABEL that invokes FN, preserving LABEL's text properties."
   (let ((map (make-sparse-keymap)))
     (define-key map [mode-line mouse-1] fn)
-    (let* ((s (copy-sequence (or label "")))
-           (pre (and (stringp label) (> (length label) 0)
-                     (get-text-property 0 'face label))))
-      (add-text-properties 0 (length s)
-                           (list 'mouse-face 'mode-line-highlight
-                                 'help-echo help
-                                 'local-map map)
-                           s)
-
+    (let* ((s (copy-sequence (or label ""))))
+      ;; Ensure mouse/keymap/help properties cover every visible character.
+      ;; Some icon/display properties can cause add-text-properties to not
+      ;; behave as expected for the full visual span; putting properties
+      ;; per-character is robust and preserves existing face fragments.
+      (let ((len (length s))
+            (i 0))
+        (while (< i len)
+          (put-text-property i (1+ i) 'mouse-face 'mode-line-highlight s)
+          (put-text-property i (1+ i) 'help-echo help s)
+          (put-text-property i (1+ i) 'local-map map s)
+          (setq i (1+ i))))
       s)))
 
 (defun carriage-ui--toggle-icon (key onp)
@@ -808,9 +819,18 @@ reflects toggle state (muted when off, bright when on)."
                 (format "%s: [%s]" name engine-str)))))
          (engine
           (let* ((_ (require 'carriage-i18n nil t))
-                 (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                           (carriage-i18n :engine-tooltip)
-                         "Select apply engine")))
+                 (eng (and (boundp 'carriage-apply-engine) carriage-apply-engine))
+                 (policy (and (eq eng 'git)
+                              (boundp 'carriage-git-branch-policy)
+                              (symbol-name carriage-git-branch-policy)))
+                 (help (cond
+                        ((and (eq eng 'git)
+                              (featurep 'carriage-i18n) (fboundp 'carriage-i18n)
+                              (stringp policy))
+                         (carriage-i18n :engine-tooltip-branch engine-str policy))
+                        ((and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                         (carriage-i18n :engine-tooltip))
+                        (t "Select apply engine"))))
             (carriage-ui--ml-button engine-label #'carriage-select-apply-engine help)))
          (dry    (carriage-ui--ml-button dry-label    #'carriage-dry-run-at-point      "Dry-run at point"))
          (apply  (carriage-ui--ml-button apply-label  #'carriage-apply-at-point        "Apply at point"))

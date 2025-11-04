@@ -29,7 +29,7 @@
 - Операции create/delete/rename: ./file-ops-v1.org.
 - Формат SRE: ./sre-v1.org.
 - UI/состояния/таблицы: ./ui-v1.org.
-- Git/WIP: ./git-integration-v1.org.
+- Git: ./git-integration-v1.org.
 - Коды ошибок: ./errors-v1.org.
 - Структуры данных: ./data-structures-v1.org.
 - Реестр и имплементация парсеров: ./parser-registry-v1.org, ./parser-impl-v1.org.

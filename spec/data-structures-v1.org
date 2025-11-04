@@ -70,6 +70,8 @@
 - Структура:
   - (:plan PLAN
      :engine SYMBOL                ; активный движок ('git и т.п.)
+     :branch-policy SYMBOL?        ; для 'git: 'in-place | 'wip | 'ephemeral
+     :branch-name STRING?          ; для 'git: имя активной ветки применения (если отличается от исходной)
      :summary (:ok N :fail M :skipped K)
      :items ((:op OP :file "path" :status 'ok|'fail|'skip
               :details STRING
@@ -82,6 +84,7 @@
 - Требования:
   - Каждый элемент items соответствует блоку плана (в порядке применения).
   - messages — единый список диагностики.
+  - Для :op 'patch используется ключ :path; для остальных операций — :file.
 
 * Диагностическое сообщение (Diagnostic)
 - (:code SYMBOL :severity 'info|'warn|'error

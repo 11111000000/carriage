@@ -1,76 +1,187 @@
-#+title: Apply Engines v1 — Абстракция движков применения
+#+title: Apply Engines v1
 #+author: Carriage Team
 #+language: ru
 #+options: toc:2 num:t
 
 - Назначение
-- Ввести слой «движков применения» (apply engines) с единым контрактом и возможностью переключения.
-- Обеспечить полностью асинхронное, событийное выполнение шагов пайплайна без блокировки UI.
+- Ввести слой «движков применения» (Apply Engines) с единым контрактом и возможностью переключения.
+- Обеспечить полностью асинхронное выполнение dry-run и apply без блокировки UI.
+- Дать два реализованных движка в v1: 'emacs и 'git. Движок 'unix отложен.
+
+- Область и границы
+- Поддерживаемые форматы v1: sre, aibo, patch (unified diff), create, delete, rename.
+- В v1 движок 'emacs не применяет patch (unified diff); для patch обязателен 'git.
+- Default-движок: 'git.
 
 - Термины
-- Движок применения (Engine) — реализация набора операций применения план-элементов (patch, sre, file-ops) с dry-run и apply.
+- Движок применения (Engine) — реализация набора операций применения план-элементов (patch/sre/aibo/file-ops) с dry-run и apply.
 - Реестр движков — таблица (symbol → impl), выбираемая переменной настроек.
-- Default-движок v1: 'git — для patch использует git apply; для file-ops — FS+git add/mv/rm по политике стадирования; для SRE — прямое переписывание файла.
+- План-элемент (plan-item) — нормализованная запись операции (см. ./data-structures-v1.org).
 
-- Контракты (интерфейсы, Elisp-уровень)
+- Общие инварианты (для всех движков)
+- Чистый dry-run: никакие файлы/ветки/индекс не изменяются.
+- Асинхронность: каждый шаг запускается неблокирующе; on-done/on-fail вызываются ровно один раз (в main thread).
+- Отмена и таймауты: текущий шаг можно прервать; при истечении таймаута шаг завершается ошибкой (см. ./async-workflow-v1.org).
+- Порядок типов операций в группе: delete → rename → create → patch → sre (см. ./apply-pipeline-v1.org).
+- NOOP-политика: если after==before — статус 'skip с :matches и :changed-bytes=0 (см. ./index.org FREEZE).
+- Безопасность путей: только относительные внутри корня проекта; запрет абсолютов, «..», TRAMP/remote (см. ./security-v1.org).
+- Метрики: отчёты dry-run/apply включают :pid (если есть процесс) и :elapsed-ms для паритета с async (см. ./code-style-v1.org).
+
+- Контракты (интерфейсы, Elisp)
 - Регистрация:
-  - carriage-register-apply-engine (symbol name plist-impl) → t
-    - plist-impl содержит функции-коллбеки:
-      :dry-run (op plan-item repo on-done on-fail)
-      :apply   (op plan-item repo on-done on-fail)
-      :capabilities (op → plist) ; опционально
-    - Функции обязаны работать асинхронно: сразу возвращать и вызывать on-done/on-fail позже (в main thread через run-at-time 0).
+  - carriage-register-apply-engine (SYMBOL NAME PLIST-IMPL) → t
+  - PLIST-IMPL:
+    - :dry-run (op plan-item repo on-done on-fail)
+    - :apply   (op plan-item repo on-done on-fail)
+    - :capabilities (op → plist) ; опционально
+  - Все коллбеки должны немедленно возвращать управление и вызвать on-done/on-fail позже (через run-at-time 0).
 - Диспетчер:
   - carriage-apply-engine () → SYMBOL ; активный движок
-  - carriage-select-apply-engine (interactive) — выбрать движок из реестра.
-- Событийная модель:
-  - Вызов :dry-run/:apply должен:
-    - Стартовать неблокирующий процесс/операцию (make-process/start-file-process, либо run-at-time 0).
-    - Логировать «begin/exec/pid/wait/exit» события (минимум: dir, cmd, pid, exit).
-    - Гарантировать, что on-done/on-fail вызываются ровно один раз.
-
-- Поведение по умолчанию (движок 'git)
-- patch:
-  - dry-run: git apply --check --verbose --directory=<root> [-p strip] [доп.флаги].
-  - apply: git apply [--index при policy='index] --directory=<root> [-p strip].
-- sre:
-  - dry-run: симуляция замен; сбор мини-диффа.
-  - apply: запись в рабочее дерево; опциональная индексация по policy; NOOP-политика — если after==before, вернуть 'skip и указать :matches и :changed-bytes=0.
-- aibo:
-  - dry-run: симуляция замен (literal-only); сбор мини-диффа.
-  - apply: запись в рабочее дерево; опциональная индексация по policy; NOOP-политика аналогична sre (after==before → 'skip).
-- file-ops:
-  - create: mkdir -p (если :mkdir t), запись, ensure-final-newline, индексация по policy.
-  - delete: git rm (или удаление + индексирование) по policy.
-  - rename: git mv.
-- Все шаги — асинхронны, через процессы и sentinels; без accept-process-output-петель.
-
-- Асинхронность (норматив)
-- apply-пайплайн формируется как цепочка шагов: шаг N завершился → запускаем шаг N+1 (через sentinel/колбэк).
-- UI не блокируется: никаких длительных ожиданий в основном потоке.
-- Отмена:
-  - carriage-apply-abort: попытка kill-process активного шага; текущий шаг завершает on-fail с кодом aborted; пайплайн закрывается.
-- Таймауты:
-  - На каждый процесс задаётся таймаут (см. FREEZE: git timeout); при истечении — kill-process → on-fail (timeout).
+  - carriage-select-apply-engine (interactive) — выбрать движок из реестра (см. ./ui-v1.org).
+- Логирование:
+  - Каждый вызов шагов обязан логировать begin/exec/pid/exit/timeout/aborted (минимум: dir, cmd, pid, exit) (см. ./apply-pipeline-v1.org).
 - Синхронные обёртки:
-  - Допускаются в прикладном слое как тонкие адаптеры над асинхронным движком (accept-process-output малыми интервалами), без изменения контракта движка. Рекомендуется async-first.
-- Должны включать наблюдаемые метрики в отчёт (:pid, :elapsed-ms) для паритета с async.
+  - Допускаются в прикладном слое как тонкие адаптеры к async-движку; обязаны сохранять метрики (:pid, :elapsed-ms).
+
+- Совместимость Suite ↔ Engine
+- Suite='sre → Engine ∈ {'emacs 'git}.
+- Suite='udiff → Engine='git (движок 'emacs отклоняет patch).
+- При несовместимости запуск dry-run/apply отклоняется кодом MODE_E_DISPATCH с подсказкой сменить движок (UI показывает предупреждение; см. ./ui-v1.org).
+
+- Движок 'emacs — локальные правки без внешних команд
+- Назначение: детерминированный SRE/AIBO и операции с файлами внутри Emacs; без Git и без unified diff.
+- Поддерживает: sre, aibo, create, delete, rename.
+- Не поддерживает: patch (unified diff) — попытка приводит к MODE_E_DISPATCH.
+- Политики файлов/буферов:
+  - Источник правды — файл на диске. Если буфер посещает файл и содержит несохранённые изменения — по умолчанию отказ с подсказкой сохранить (IO_E_PATH). Допускается авто-сохранение по настройке.
+  - Допускается автопосещение целевых файлов невидимыми буферами.
+  - Запись атомарна: temp-файл → rename, с сохранением прав. Для create может применяться :ensure-final-newline=t.
+- Dry-run:
+  - sre/aibo: симуляция замен в памяти Emacs с учётом :occur, :match (sre), :range, :expect; сбор мини-диффа, :matches, :changed-bytes; NOOP → 'skip.
+  - file-ops: проверка предусловий (существование/конфликты/возможность mkdir).
+- Apply:
+  - sre/aibo: последовательные замены и сохранение файла (без индексации).
+  - create: mkdir -p при :mkdir t; запись; ensure-final-newline при t.
+  - delete: удаление файла; закрытие посещающего буфера.
+  - rename: rename-file с обновлением посещающего пути.
+- Асинхронность/Abort:
+  - Крупные операции выполняются порционно (yield через run-at-time 0) с проверкой Abort; UI не блокируется.
+- Отчёт:
+  - :engine 'emacs; :pid nil; :elapsed-ms заполняется.
+- Настройки (defcustom, рекомендации):
+  - carriage-emacs-open-files-automatically (t)
+  - carriage-emacs-refuse-unsaved-buffers (t)
+  - carriage-emacs-save-after-apply (t)
+  - carriage-emacs-chunk-size-lines (integer, default 2000)
+
+- Движок 'git — unified diff, индексация и ветки
+- Назначение: применение patch через git apply, стадирование по политике, управление ветками для изоляции.
+- Поддерживает: patch, sre, aibo, create, delete, rename.
+- Стадирование:
+  - carriage-apply-stage-policy: 'none | 'index (по умолчанию 'none). При 'index изменения добавляются в индекс; коммит — отдельной командой пользователя (см. ./git-integration-v1.org).
+- Политики веток (carriage-git-branch-policy):
+  - 'in-place — применить в текущей ветке; минимум механики.
+  - 'wip (по умолчанию) — ensure и checkout carriage/WIP перед apply.
+  - 'ephemeral — создать временную ветку carriage/tmp/<YYYYmmdd-HHMMSS>-<shortid>, применить изменения и затем вернуться назад; пустую ветку после отсутствия изменений — удалить.
+- Правила для веток:
+  - Dry-run никогда не создаёт и не переключает ветки.
+  - Создание/переключение ветки выполняется только в apply, после успешного dry-run и явного подтверждения.
+  - Эфемерные имена проверяются на коллизии; при совпадении добавляется суффикс -N или короткий случайный хвост.
+  - По завершении пайплайна для 'wip/'ephemeral движок может автоматически вернуться на исходную ветку (carriage-git-switch-back-on-complete=t).
+  - При отсутствии применённых изменений в 'ephemeral — автоудаление ветки (carriage-git-auto-delete-empty-branch=t). При частичных изменениях/ошибке — ветка сохраняется (carriage-git-ephemeral-keep-on-fail=t).
+- Dry-run:
+  - patch: git apply --check --directory=<root> [-p strip] с доп. флагами из carriage-apply-engine-extra-args[:check]; никаких веток/индекса.
+  - sre/aibo: симуляция замен в памяти (аналогично 'emacs), исходные данные — рабочее дерево; NOOP → 'skip.
+  - file-ops: проверка предусловий (существование/конфликты).
+- Apply:
+  - Пролог (асинхронно): ensure repo → веточная политика (кроме 'in-place). Подчиняется единым правилам Abort/таймаута (см. ./async-workflow-v1.org).
+  - patch: git apply --directory=<root> [-p strip] [--index при policy='index].
+  - sre/aibo: переписывание файла; при policy='index — git add PATH.
+  - create: mkdir -p при :mkdir t; запись; ensure-final-newline при t; индексировать при policy='index.
+  - delete: git rm (или FS + git add -A при особых состояниях); индексировать при policy='index.
+  - rename: git mv.
+- Асинхронность/Abort/таймаут:
+  - Все git-команды запускаются процессами (make-process/start-file-process), имеют таймаут (см. FREEZE); Abort убивает активный процесс; on-fail включает :reason 'timeout|'aborted.
+- Отчёт:
+  - :engine 'git; :pid процесса; :elapsed-ms; для 'wip/'ephemeral — :branch-policy и :branch-name.
+- Настройки (defcustom, рекомендации):
+  - carriage-git-branch-policy ('wip|'in-place|'ephemeral) — default 'wip
+  - carriage-git-ephemeral-prefix ("carriage/tmp")
+  - carriage-git-auto-delete-empty-branch (t)
+  - carriage-git-ephemeral-keep-on-fail (t)
+  - carriage-git-switch-back-on-complete (t)
+  - carriage-apply-stage-policy ('none|'index)
+  - carriage-apply-engine-extra-args — alist вида (:apply ("--reject") :check ("--verbose"))
 
 - Политика :apply в заголовке блока patch
-- В v1 :apply в заголовке допускается, но носит сугубо информационный/исторический характер и игнорируется.
-- Фактический движок задаётся конфигурацией пользователя (переменная/команда выбора движка).
-- Для совместимости парсер не должен падать при наличии :apply; он не влияет на выбор движка.
+- Ключ :apply допускается, но игнорируется в v1. Фактический движок выбирается конфигурацией (переменная/команда выбора движка).
+- Парсер не должен падать при наличии :apply.
 
-- Диагностика и логирование
-- Каждый шаг формирует записи:
-  - begin (op, path, engine, bytes?, strip?)
-  - exec (dir, cmd-string)
-  - pid (number)
-  - exit (code, stdout-bytes, stderr-bytes)
-  - timeout/aborted (если применимо)
-- Логи не должны приводить к блокировке (быстрая фильтрация, усечение по лимиту).
+- Диагностика и ошибки
+- Неподдерживаемая операция для движка → MODE_E_DISPATCH.
+- Git:
+  - git apply --check отказал → PATCH_E_GIT_CHECK (stderr/stdout в details).
+  - Ошибки процессов → GIT_E_APPLY и/или соответствующие коды (см. ./errors-v1.org).
+- Emacs:
+  - Несохранённые буферы при policy refuse → IO_E_PATH.
+  - Недостаточно прав/недоступен путь → OPS_E_PERM/OPS_E_PATH.
+- Все шаги обязаны логировать begin/exec/pid/exit/timeout/aborted.
+
+- Безопасность
+- Строгое соблюдение ./security-v1.org: относительные пути, запрет «..», TRAMP/remote — отказ.
+- Для 'git запрещено использование --unsafe-paths; бинарные патчи — не поддерживаются (см. ./patch-unified-diff-v1.org).
+- EOL/Unicode не нормализуются в v1; при create и :ensure-final-newline=t добавляется завершающая новая строка.
+
+- UX и интеграция с UI
+- Кнопка [Engine] (C-c b e) — выбор движка; для 'git tooltip отображает веточную политику. Все подписи — через i18n (см. ./i18n-v1.org).
+- При несовместимости Suite↔Engine — мягкое предупреждение и предложение переключить движок/сьют.
+- Буфер отчёта добавляет метаданные :engine; для 'git — :branch-policy/:branch-name, :pid/:elapsed-ms (см. ./data-structures-v1.org).
 
 - Тесты и соответствие
-- См. ./testing-v1.org: не блокировать UI, корректные переходы состояния, устойчивость к ошибкам, единичные вызовы колбэков, выбор движка.
-- См. ./compliance-checklist-v1.org: переключение движка, поведение по умолчанию ('git), асинхронность выполнения.
-- См. ./code-style-v1.org: async-first, безопасные синхронные обёртки и требование метрик (:pid, :elapsed-ms) в отчётах.
+- Выбор движка (carriage-select-apply-engine) меняет реализацию шагов; заголовочный :apply игнорируется (см. ./testing-v1.org).
+- Emacs:
+  - sre/aibo dry-run/apply на больших файлах не блокируют UI (порционная обработка).
+  - Несохранённые буферы при refuse=t → отказ; запись атомарна.
+  - create/delete/rename обновляют посещающие буферы корректно.
+- Git:
+  - Dry-run patch не создаёт/не переключает ветки.
+  - 'wip: apply переключает на carriage/WIP и, при настройке, возвращается назад.
+  - 'ephemeral: уникальные имена, автоудаление пустых веток; сохранение ветки при частичных изменениях/ошибке.
+  - stage='index: после apply git diff --cached не пуст; коммитов в пайплайне нет.
+  - Abort и таймаут корректно завершает активный шаг; лог содержит pid/exit/timeout.
+- Общие:
+  - Dry-run ничего не меняет; отчёты содержат :pid/:elapsed-ms (где применимо); порядок типов операций соблюдён.
+
+- Переменные Customize (минимум v1)
+- carriage-apply-engine (symbol) — 'git (по умолчанию).
+- carriage-apply-stage-policy (symbol) — 'none | 'index.
+- carriage-apply-engine-extra-args (alist) — доп. аргументы движка: (:apply ...) (:check ...).
+- carriage-apply-timeout-seconds (number) — таймаут шага (см. ./index.org FREEZE).
+- Emacs-движок:
+  - carriage-emacs-open-files-automatically (boolean, default t)
+  - carriage-emacs-refuse-unsaved-buffers (boolean, default t)
+  - carriage-emacs-save-after-apply (boolean, default t)
+  - carriage-emacs-chunk-size-lines (integer, default 2000)
+- Git-движок:
+  - carriage-git-branch-policy (symbol, default 'wip)
+  - carriage-git-ephemeral-prefix (string, default "carriage/tmp")
+  - carriage-git-auto-delete-empty-branch (boolean, default t)
+  - carriage-git-ephemeral-keep-on-fail (boolean, default t)
+  - carriage-git-switch-back-on-complete (boolean, default t)
+
+- Эволюция (v1 → v1.1)
+- Возможные расширения без ломки:
+  - 'git: применение в отдельной worktree, расширенная политика stash/warn/abort для незакоммиченных изменений.
+  - 'emacs: экспериментальная поддержка ограниченного «внутреннего patch» для простых хунков.
+  - Общие capabilities: публичный возврат поддерживаемых оп для адаптивного UI.
+
+- Ссылки и якоря
+- Пайплайн применения: ./apply-pipeline-v1.org
+- Unified diff: ./patch-unified-diff-v1.org
+- SRE/AIBO: ./sre-v1.org, ./aibo-v1.org
+- Безопасность: ./security-v1.org
+- Git: ./git-integration-v1.org
+- Отчёты/структуры: ./data-structures-v1.org
+- Тесты: ./testing-v1.org
+- Ошибки: ./errors-v1.org
+- Асинхронность: ./async-workflow-v1.org

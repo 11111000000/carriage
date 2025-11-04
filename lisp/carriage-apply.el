@@ -18,12 +18,15 @@
 (require 'carriage-apply-engine)
 ;; Load default Git apply engine so it registers itself in the engine registry.
 (require 'carriage-engine-git)
+;; Also load the 'emacs engine to expose it in the registry (patch unsupported in v1).
+(ignore-errors (require 'carriage-engine-emacs))
 
 ;; Register abort handler provided by async apply pipeline (declared in carriage-mode).
 (declare-function carriage-register-abort-handler "carriage-mode" (fn))
 
-(defcustom carriage-apply-require-wip-branch t
-  "If non-nil, ensure and checkout WIP branch before applying a plan."
+(defcustom carriage-apply-require-wip-branch nil
+  "DEPRECATED (v1.1). Legacy sync-only WIP switch. Async path uses carriage-git-branch-policy.
+When non-nil, ensure and checkout WIP branch before applying a plan (sync apply only)."
   :type 'boolean :group 'carriage)
 
 (defcustom carriage-apply-stage-policy 'none
@@ -148,6 +151,46 @@ for other ops → delegate to format registry."
           (carriage--report-fail (or op 'unknown) :details "Unknown op"))))))
 
 
+(defun carriage--dry-run-item-result (item repo-root virt)
+  "Return dry-run ROW for ITEM using virtual FS VIRT when needed.
+Handles SRE simulation on virtual content; otherwise dispatches normally."
+  (let* ((op (carriage--plan-get item :op))
+         (file (carriage--plan-get item :file)))
+    (cond
+     ;; If SRE targets a file that will be created in this plan, simulate on that content.
+     ((and (eq op 'sre)
+           file
+           (not (let* ((abs (ignore-errors (carriage-normalize-path repo-root file))))
+                  (and abs (file-exists-p abs))))
+           (assoc-string file virt t))
+      (if (fboundp 'carriage-sre-dry-run-on-text)
+          (carriage-sre-dry-run-on-text item (cdr (assoc-string file virt t)))
+        (carriage--report-fail op :file file :details "SRE simulation not available")))
+     (t
+      (carriage--dry-run-dispatch item repo-root)))))
+
+(defun carriage--virt-apply-create (virt item)
+  "Return updated VIRT if ITEM is a create op; otherwise, return VIRT unchanged."
+  (let ((op (carriage--plan-get item :op))
+        (file (carriage--plan-get item :file)))
+    (if (and (eq op 'create) file)
+        (let ((content (or (carriage--plan-get item :content) "")))
+          (cons (cons file content) (assq-delete-all file virt)))
+      virt)))
+
+(defun carriage--dry-run-build-report (plan ok fail skip items msgs)
+  "Build final dry-run REPORT plist from components."
+  (let* ((eng (carriage-apply-engine))
+         (bp  (and (eq eng 'git)
+                   (boundp 'carriage-git-branch-policy)
+                   carriage-git-branch-policy)))
+    (list :plan plan
+          :engine eng
+          :branch-policy bp
+          :summary (list :ok ok :fail fail :skipped skip)
+          :items (nreverse items)
+          :messages (nreverse msgs))))
+
 (defun carriage-dry-run-plan (plan repo-root)
   "Dry-run PLAN (list of plan items) under REPO-ROOT.
 Return report alist:
@@ -161,49 +204,28 @@ Return report alist:
          (virt '())  ; virtual created files: (\"path\" . content)
          (msgs '()))
     (dolist (it sorted)
-      (let* ((op (carriage--plan-get it :op))
-             (file (carriage--plan-get it :file))
-             (res
-              (cond
-               ;; If SRE/SRE-BATCH targets a file that will be created in this plan, simulate on that content.
-               ((and (eq op 'sre)
-                     file
-                     (not (let* ((abs (ignore-errors (carriage-normalize-path repo-root file))))
-                            (and abs (file-exists-p abs))))
-                     (assoc-string file virt t))
-
-                (if (fboundp 'carriage-sre-dry-run-on-text)
-                    (carriage-sre-dry-run-on-text it (cdr (assoc-string file virt t)))
-                  (carriage--report-fail op :file file :details "SRE simulation not available")))
-               (t
-                (carriage--dry-run-dispatch it repo-root)))))
-        ;; Stash original plan item and repo root into report item for UI actions (e.g., Ediff).
-        (let* ((res (append res (list :_plan it :_root repo-root)))
-               (status (plist-get res :status)))
-          (push res items)
-          ;; Aggregate per-item diagnostics into top-level :messages if present.
-          (let ((im (plist-get res :_messages)))
-            (when im
-              (dolist (d im)
-                (push d msgs))))
-          (pcase status
-            ('ok   (setq ok (1+ ok)))
-            ('fail (setq fail (1+ fail)))
-            (_     (setq skip (1+ skip)))))
-        ;; Update virtual FS for subsequent SRE checks
-        (when (and (eq op 'create) file)
-          (let ((content (or (carriage--plan-get it :content) "")))
-            (setq virt (cons (cons file content) (assq-delete-all file virt)))))))
-    (list :plan plan
-          :engine (carriage-apply-engine)
-          :summary (list :ok ok :fail fail :skipped skip)
-          :items (nreverse items)
-          :messages (nreverse msgs))))
+      (let* ((res0 (carriage--dry-run-item-result it repo-root virt))
+             ;; Stash original plan item and repo root into report item for UI actions (e.g., Ediff).
+             (res (append res0 (list :_plan it :_root repo-root)))
+             (status (plist-get res :status)))
+        (push res items)
+        ;; Aggregate per-item diagnostics into top-level :messages if present.
+        (let ((im (plist-get res :_messages)))
+          (when im
+            (dolist (d im)
+              (push d msgs))))
+        (pcase status
+          ('ok   (setq ok (1+ ok)))
+          ('fail (setq fail (1+ fail)))
+          (_     (setq skip (1+ skip)))))
+      ;; Update virtual FS for subsequent SRE checks
+      (setq virt (carriage--virt-apply-create virt it)))
+    (carriage--dry-run-build-report plan ok fail skip items msgs)))
 
 (defun carriage-apply-plan (plan repo-root)
   "Apply PLAN (list of plan items) under REPO-ROOT sequentially.
 Stops on first failure. Returns report alist as in carriage-dry-run-plan."
-  ;; Ensure WIP branch if policy enabled
+  ;; Ensure WIP branch if policy enabled (legacy; branch-policy orchestration evolves in async path)
   (when carriage-apply-require-wip-branch
     (carriage-git-ensure-repo repo-root)
     (carriage-git-checkout-wip repo-root))
@@ -229,11 +251,16 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
             ('fail (setq fail (1+ fail))
                    (setq stop t))
             (_     (setq skip (1+ skip)))))))
-    (list :plan plan
-          :engine (carriage-apply-engine)
-          :summary (list :ok ok :fail fail :skipped skip)
-          :items (nreverse items)
-          :messages (nreverse msgs))))
+    (let* ((eng (carriage-apply-engine))
+           (bp  (and (eq eng 'git)
+                     (boundp 'carriage-git-branch-policy)
+                     carriage-git-branch-policy)))
+      (list :plan plan
+            :engine eng
+            :branch-policy bp
+            :summary (list :ok ok :fail fail :skipped skip)
+            :items (nreverse items)
+            :messages (nreverse msgs)))))
 
 (defun carriage--make-apply-state (queue repo-root)
   "Create initial async apply STATE plist."
@@ -254,11 +281,17 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
 
 (defun carriage--apply-finish (plan state callback)
   "Finish async apply: build REPORT from PLAN and STATE, invoke CALLBACK if any."
-  (let ((report (list :plan plan
-                      :engine (carriage-apply-engine)
-                      :summary (carriage--apply-summary state)
-                      :items (nreverse (plist-get state :items))
-                      :messages (nreverse (plist-get state :messages)))))
+  (let* ((eng (carriage-apply-engine))
+         (bp  (and (eq eng 'git)
+                   (boundp 'carriage-git-branch-policy)
+                   carriage-git-branch-policy))
+         (report (list :plan plan
+                       :engine eng
+                       :branch-policy bp
+                       :branch-name (plist-get state :branch-name)
+                       :summary (carriage--apply-summary state)
+                       :items (nreverse (plist-get state :items))
+                       :messages (nreverse (plist-get state :messages)))))
     (when (functionp callback)
       (run-at-time 0 nil (lambda () (funcall callback report))))
     report))
@@ -364,7 +397,8 @@ Registers the handler with the mode when available."
         (lambda (t0 res) (carriage--apply-done-patch state t0 res plan repo-root callback token))
         token))
       ('delete
-       (if (eq carriage-apply-stage-policy 'index)
+       (if (and (eq carriage-apply-stage-policy 'index)
+                (eq (carriage-apply-engine) 'git))
            (carriage--apply-run-engine
             state :apply 'delete item repo-root
             (lambda (t0 res)
@@ -389,7 +423,8 @@ Registers the handler with the mode when available."
               (carriage--apply-next state plan repo-root callback token)))
           token plan)))
       ('rename
-       (if (eq carriage-apply-stage-policy 'index)
+       (if (and (eq carriage-apply-stage-policy 'index)
+                (eq (carriage-apply-engine) 'git))
            (carriage--apply-run-engine
             state :apply 'rename item repo-root
             (lambda (t0 res)
@@ -418,7 +453,8 @@ Registers the handler with the mode when available."
         state
         (lambda ()
           (let ((row0 (carriage-apply-create item repo-root)))
-            (if (eq carriage-apply-stage-policy 'index)
+            (if (and (eq carriage-apply-stage-policy 'index)
+                     (eq (carriage-apply-engine) 'git))
                 (let* ((file (carriage--plan-get item :file)))
                   (carriage--apply-run-engine
                    state :apply 'create (list (cons :file file)) repo-root
@@ -464,32 +500,68 @@ Registers the handler with the mode when available."
       (carriage--apply-finish plan state callback)
     (let ((q (plist-get state :queue)))
       (if (null q)
-          (carriage--apply-finish plan state callback)
+          (carriage--apply-complete state plan repo-root callback token)
         (let ((item (car q)))
           (plist-put state :queue (cdr q))
           (carriage--apply-run-item state item repo-root plan callback token))))))
 
-(defun carriage--apply-preflight-wip-async (state plan repo-root callback token)
-  "Async preflight: ensure repo and checkout/create WIP, then continue pipeline.
-On failure, finish with error message without blocking UI."
+(defun carriage--preflight--record-orig-branch (state repo-root)
+  "Best-effort record of current branch into STATE for epilog."
+  (ignore-errors
+    (plist-put state :orig-branch (carriage-git-current-branch repo-root))))
+
+(defun carriage--preflight--wip-async (state plan repo-root callback token)
+  "Checkout WIP branch and proceed to next step; record :branch-name or report error."
+  (carriage-git-checkout-wip-async
+   repo-root nil
+   (lambda (_ok)
+     (plist-put state :branch-name (or (and (boundp 'carriage-mode-wip-branch)
+                                            carriage-mode-wip-branch)
+                                       "carriage/WIP"))
+     (carriage--apply-next state plan repo-root callback token))
+   (lambda (err2)
+     (let* ((stderr (string-trim (or (plist-get err2 :stderr) "")))
+            (stdout (string-trim (or (plist-get err2 :stdout) "")))
+            (msg (list :code 'GIT_E_APPLY :severity 'error
+                       :details (or (and (not (string-empty-p stderr)) stderr)
+                                    (and (not (string-empty-p stdout)) stdout)
+                                    "WIP checkout failed"))))
+       (carriage--apply-acc-msg state msg)
+       (carriage--apply-finish plan state callback)))))
+
+(defun carriage--preflight--ephemeral-async (state plan repo-root callback token)
+  "Create an ephemeral branch and proceed; on error report and finish."
+  (carriage-git-create-ephemeral-branch-async
+   repo-root
+   (lambda (r-ephem)
+     (let ((br (or (plist-get r-ephem :branch) "")))
+       (plist-put state :branch-name br))
+     (carriage--apply-next state plan repo-root callback token))
+   (lambda (err2)
+     (let* ((stderr (string-trim (or (plist-get err2 :stderr) "")))
+            (stdout (string-trim (or (plist-get err2 :stdout) "")))
+            (msg (list :code 'GIT_E_APPLY :severity 'error
+                       :details (or (and (not (string-empty-p stderr)) stderr)
+                                    (and (not (string-empty-p stdout)) stdout)
+                                    "Ephemeral branch create failed"))))
+       (carriage--apply-acc-msg state msg)
+       (carriage--apply-finish plan state callback)))))
+
+(defun carriage--preflight--ensure-repo-async (state plan repo-root callback token policy)
+  "Ensure REPO exists, record orig branch, then branch per POLICY."
   (carriage-git-ensure-repo-async
    repo-root
    (lambda (_r1)
-     ;; proceed to WIP checkout/create
-     (carriage-git-checkout-wip-async
-      repo-root nil
-      (lambda (_r2)
-        ;; preflight ok → start pipeline
+     (carriage--preflight--record-orig-branch state repo-root)
+     (pcase policy
+       ('in-place
         (carriage--apply-next state plan repo-root callback token))
-      (lambda (err2)
-        (let* ((stderr (string-trim (or (plist-get err2 :stderr) "")))
-               (stdout (string-trim (or (plist-get err2 :stdout) "")))
-               (msg (list :code 'GIT_E_APPLY :severity 'error
-                          :details (or (and (not (string-empty-p stderr)) stderr)
-                                       (and (not (string-empty-p stdout)) stdout)
-                                       "WIP checkout failed"))))
-          (carriage--apply-acc-msg state msg)
-          (carriage--apply-finish plan state callback)))))
+       ('wip
+        (carriage--preflight--wip-async state plan repo-root callback token))
+       ('ephemeral
+        (carriage--preflight--ephemeral-async state plan repo-root callback token))
+       (_
+        (carriage--preflight--wip-async state plan repo-root callback token))))
    (lambda (err1)
      (let* ((stderr (string-trim (or (plist-get err1 :stderr) "")))
             (stdout (string-trim (or (plist-get err1 :stdout) "")))
@@ -499,6 +571,100 @@ On failure, finish with error message without blocking UI."
                                     "Git repo not detected"))))
        (carriage--apply-acc-msg state msg)
        (carriage--apply-finish plan state callback)))))
+
+(defun carriage--apply-preflight-branch-async (state plan repo-root callback token)
+  "Async preflight per =carriage-git-branch-policy'.
+- in-place: no switching.
+- wip: ensure/checkout carriage/WIP.
+- ephemeral: create and checkout a unique ephemeral branch."
+  (let* ((eng (carriage-apply-engine))
+         (policy (and (eq eng 'git)
+                      (boundp 'carriage-git-branch-policy)
+                      carriage-git-branch-policy)))
+    (plist-put state :branch-policy policy)
+    (if (not (eq eng 'git))
+        (carriage--apply-next state plan repo-root callback token)
+      (carriage--preflight--ensure-repo-async state plan repo-root callback token policy))))
+
+(defun carriage--epilog--delete-ephemeral-if-needed-async (state plan repo-root callback cur ok)
+  "Delete ephemeral branch CUR when OK=0 and policy=ephemeral with auto-delete enabled, then finish."
+  (let ((auto-del (and (boundp 'carriage-git-auto-delete-empty-branch)
+                       carriage-git-auto-delete-empty-branch)))
+    (if (and auto-del
+             (numberp ok) (= ok 0)
+             (stringp cur) (not (string-empty-p cur)))
+        (carriage-git-delete-branch-async
+         repo-root cur
+         (lambda (_okdel)
+           (carriage--apply-acc-msg
+            state (list :code 'GIT_INFO :severity 'info
+                        :details (format "Ephemeral branch %s deleted" (or cur ""))))
+           (carriage--apply-finish plan state callback))
+         (lambda (err)
+           (let* ((stderr (string-trim (or (plist-get err :stderr) "")))
+                  (stdout (string-trim (or (plist-get err :stdout) ""))))
+             (carriage--apply-acc-msg
+              state (list :code 'GIT_E_APPLY :severity 'warn
+                          :details (or (and (not (string-empty-p stderr)) stderr)
+                                       (and (not (string-empty-p stdout)) stdout)
+                                       "Ephemeral branch delete failed")))
+             (carriage--apply-finish plan state callback))))
+      (carriage--apply-finish plan state callback))))
+
+(defun carriage--epilog--after-switch (state plan repo-root callback)
+  "After switching back (if needed), possibly delete ephemeral branch and finish."
+  (let* ((policy (plist-get state :branch-policy))
+         (ok (plist-get state :ok))
+         (cur (plist-get state :branch-name)))
+    (if (eq policy 'ephemeral)
+        (carriage--epilog--delete-ephemeral-if-needed-async state plan repo-root callback cur ok)
+      (carriage--apply-finish plan state callback))))
+
+(defun carriage--epilog--maybe-switch-back (state plan repo-root callback)
+  "Switch back to original branch when recorded and different; otherwise finish."
+  (let* ((orig (plist-get state :orig-branch))
+         (cur  (plist-get state :branch-name)))
+    (if (and (stringp orig) (not (string-empty-p orig)) (not (string= orig cur)))
+        (carriage-git-switch-branch-async
+         repo-root orig
+         (lambda (_oksw)
+           (carriage--apply-acc-msg
+            state (list :code 'GIT_INFO :severity 'info
+                        :details (format "Switched back to %s" (or orig ""))))
+           (carriage--epilog--after-switch state plan repo-root callback))
+         (lambda (err)
+           (let* ((stderr (string-trim (or (plist-get err :stderr) "")))
+                  (stdout (string-trim (or (plist-get err :stdout) ""))))
+             (carriage--apply-acc-msg
+              state (list :code 'GIT_E_APPLY :severity 'warn
+                          :details (or (and (not (string-empty-p stderr)) stderr)
+                                       (and (not (string-empty-p stdout)) stdout)
+                                       "Switch back failed")))
+             (carriage--epilog--after-switch state plan repo-root callback))))
+      (carriage--epilog--after-switch state plan repo-root callback))))
+
+(defun carriage--apply-epilog-branch-async (state plan repo-root callback token)
+  "Epilog for Git branch policy: switch back and optionally delete ephemeral branch.
+Runs only when engine='git and policy∈{'wip 'ephemeral} and switch-back is enabled."
+  (let* ((eng (carriage-apply-engine))
+         (policy (plist-get state :branch-policy))
+         (switch-back (and (boundp 'carriage-git-switch-back-on-complete)
+                           carriage-git-switch-back-on-complete)))
+    (if (or (not (eq eng 'git))
+            (not (memq policy '(wip ephemeral)))
+            (not switch-back))
+        (carriage--apply-finish plan state callback)
+      (carriage--epilog--maybe-switch-back state plan repo-root callback))))
+
+(defun carriage--apply-complete (state plan repo-root callback token)
+  "Decide whether to run branch epilog or finish immediately."
+  (let* ((eng (carriage-apply-engine))
+         (policy (plist-get state :branch-policy))
+         (need-epilog (and (eq eng 'git)
+                           (memq policy '(wip ephemeral)))))
+    (if need-epilog
+        (carriage--apply-epilog-branch-async state plan repo-root callback token)
+      (carriage--apply-finish plan state callback))))
 
 (defun carriage-apply-plan-async (plan repo-root &optional callback)
   "Apply PLAN under REPO-ROOT asynchronously (event-driven FSM).
@@ -510,9 +676,17 @@ CALLBACK, when non-nil, is invoked with the final REPORT on the main thread."
     (run-at-time
      0 nil
      (lambda ()
-       (if carriage-apply-require-wip-branch
-           (carriage--apply-preflight-wip-async state plan repo-root callback token)
-         (carriage--apply-next state plan repo-root callback token))))
+       (let* ((eng (carriage-apply-engine))
+              (policy (and (eq eng 'git)
+                           (boundp 'carriage-git-branch-policy)
+                           carriage-git-branch-policy)))
+         (if (and (eq eng 'git) (not (eq policy 'in-place)))
+             (carriage--apply-preflight-branch-async state plan repo-root callback token)
+           (progn
+             (when (eq eng 'git)
+               (plist-put state :branch-policy policy))
+             (carriage--apply-next state plan repo-root callback token))))))
+
     ;; Register abort handler early; will be updated per step
     (carriage--apply-update-abort state token)
     token))
