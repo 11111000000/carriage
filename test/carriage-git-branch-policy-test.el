@@ -65,7 +65,7 @@
                 (it (car (plist-get rep :items))))
            (should (eq (plist-get it :status) 'ok))))
        (let ((after (carriage-bp--current-branch root)))
-         (should (string= before after))))))
+         (should (string= before after)))))))
 
-  (provide 'carriage-git-branch-policy-test)
+(provide 'carriage-git-branch-policy-test)
 ;;; carriage-git-branch-policy-test.el ends here
