@@ -46,15 +46,29 @@
     (when (and (stringp tmp) (file-exists-p tmp))
       (ignore-errors (delete-file tmp)))
     (when (timerp tmr)
-      (ignore-errors (cancel-timer tmr)))))
+      (ignore-errors (cancel-timer tmr)))
+    ;; Mark timer cleared to avoid racy callbacks acting on stale token
+    (plist-put token :timer nil)))
 
 (defun carriage-engine-git-abort (token)
   "Attempt to abort the running process associated with TOKEN."
   (let ((proc (plist-get token :process)))
     (when (process-live-p proc)
-      (plist-put token :aborted t)
-      (ignore-errors (interrupt-process proc))
-      (ignore-errors (kill-process proc))
+      (carriage-log "engine[git] abort: pid=%s timed-out=%s"
+                    (condition-case _ (process-id proc) (error nil))
+                    (plist-get token :timed-out))
+      (unless (plist-get token :timed-out)
+        (plist-put token :aborted t)
+        (ignore-errors (set-process-query-on-exit-flag proc nil))
+        (ignore-errors (interrupt-process proc))
+        (ignore-errors (kill-process proc)))
+      ;; Cancel any pending timer defensively
+      (let ((tm (plist-get token :timer)))
+        (when (timerp tm)
+          (ignore-errors (cancel-timer tm))
+          (plist-put token :timer nil)))
+      (carriage-log "engine[git] abort: finalized (timer cleared=%s)"
+                    (null (plist-get token :timer)))
       t)))
 
 (defun carriage-engine-git--start (root argv token on-done on-fail)
@@ -127,6 +141,8 @@
                  (error
                   (carriage-log "engine[git] sentinel error: %s" (error-message-string e))
                   (funcall finalize nil 128 'sentinel-error))))))
+           ;; Do not query about process on Emacs exit (defensive)
+           (ignore-errors (set-process-query-on-exit-flag proc nil))
            (pid (process-id proc))
            (timeout (or (and (boundp 'carriage-apply-timeout-seconds)
                              (numberp carriage-apply-timeout-seconds)
@@ -137,9 +153,13 @@
            (timer
             (run-at-time timeout nil
                          (lambda ()
-                           (when (process-live-p proc)
+                           (when (and (process-live-p proc)
+                                      (eq (process-status proc) 'run)
+                                      (not (plist-get token :timed-out))
+                                      (not (plist-get token :aborted)))
                              (plist-put token :timed-out t)
                              (carriage-log "engine[git] timeout: pid=%s after %ss" pid timeout)
+                             (ignore-errors (set-process-query-on-exit-flag proc nil))
                              (ignore-errors (interrupt-process proc))
                              (ignore-errors (kill-process proc)))))))
       (plist-put token :process proc)

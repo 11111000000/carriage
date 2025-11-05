@@ -63,24 +63,65 @@ Strict v1 behavior:
   "Return (BEG . END) bounds of the current #+begin_patch ... #+end_patch block.
 Move point is not changed. Return nil if not found."
   (save-excursion
-    (let* ((beg (save-excursion
-                  (when (re-search-backward "^[ \t]*#\\+begin_patch\\b" nil t)
-                    (point))))
-           (end (save-excursion
-                  (when (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
-                    (line-beginning-position)))))
-      (when (and beg end (> end beg))
+    (let ((beg nil) (end nil))
+      ;; Find begin (scan backward by literal search, verify bol whitespace)
+      (save-excursion
+        (while (and (not beg)
+                    (search-backward "#+begin_patch" nil t))
+          (let* ((p (point))
+                 (bol (line-beginning-position))
+                 (ok (save-excursion
+                       (goto-char bol)
+                       (skip-chars-forward " \t")
+                       (let* ((here (point)))
+                         (and (<= here p)
+                              (string-prefix-p "#+begin_patch"
+                                               (buffer-substring-no-properties here (min (+ here 13) (line-end-position)))))))))
+            (when ok (setq beg bol)))))
+      ;; Find end (scan forward, verify bol whitespace)
+      (save-excursion
+        (while (and (not end)
+                    (search-forward "#+end_patch" nil t))
+          (let* ((p (- (point) (length "#+end_patch")))
+                 (bol (save-excursion (goto-char p) (line-beginning-position)))
+                 (ok (save-excursion
+                       (goto-char bol)
+                       (skip-chars-forward " \t")
+                       (let* ((here (point)))
+                         (and (<= here p)
+                              (string-prefix-p "#+end_patch"
+                                               (buffer-substring-no-properties here (min (+ here 11) (line-end-position)))))))))
+            (when ok (setq end bol)))))
+      (when (and (number-or-marker-p beg) (number-or-marker-p end) (> end beg))
         (cons beg end)))))
+
 
 (defun carriage--read-patch-header-at (pos)
   "Parse patch header plist at line around POS. Return plist or signal error."
   (save-excursion
     (goto-char pos)
-    (let* ((line (buffer-substring-no-properties (line-beginning-position)
-                                                 (line-end-position))))
-      (unless (string-match "#\\+begin_patch\\s-+\\((.*)\\)\\s-*$" line)
-        (signal (carriage-error-symbol 'MODE_E_DISPATCH) (list "Invalid begin_patch header")))
-      (car (read-from-string (match-string 1 line))))))
+    (let* ((beg (line-beginning-position))
+           (end (line-end-position))
+           (line (buffer-substring-no-properties beg end)))
+      (require 'cl-lib)
+      (let* ((kw "#+begin_patch")
+             (i (cl-search kw line :test #'char-equal)))
+        (unless (and i)
+          (signal (carriage-error-symbol 'MODE_E_DISPATCH) (list "Invalid begin_patch header")))
+        (let* ((j (+ i (length kw))))
+          ;; skip spaces/tabs
+          (while (and (< j (length line))
+                      (memq (aref line j) '(?\s ?\t)))
+            (setq j (1+ j)))
+          (unless (and (< j (length line)) (eq (aref line j) ?\())
+            (signal (carriage-error-symbol 'MODE_E_DISPATCH) (list "Missing header plist")))
+          ;; find matching closing ')': use last ')' on line
+          (let* ((k (cl-position ?\) line :from-end t)))
+            (unless (and k (>= k j))
+              (signal (carriage-error-symbol 'MODE_E_DISPATCH) (list "Unclosed header plist")))
+            (let* ((hdr-str (substring line j (1+ k)))
+                   (parsed (car (read-from-string hdr-str))))
+              parsed)))))))
 
 (defun carriage-parse-block-at-point (repo-root)
   "Parse current org patch block at point into a plan item under REPO-ROOT."
@@ -108,46 +149,65 @@ Move point is not changed. Return nil if not found."
 Return a list of plan items in buffer order."
   (save-excursion
     (goto-char beg)
-    (let* ((plan '()))
+    (let ((plan '()))
       (while (and (< (point) end)
-                  (re-search-forward "^[ \t]*#\\+begin_patch\\b" end t))
-        (let* ((start (match-beginning 0))
-               ;; Compute BODY-BEG from START to avoid clobbered match-data in nested calls.
-               (body-beg (save-excursion
-                           (goto-char start)
-                           (forward-line 1)
-                           (point)))
-               (header-plist (carriage--read-patch-header-at start))
-               (block-end (save-excursion
-                            (goto-char body-beg)
-                            (unless (re-search-forward "^[ \t]*#\\+end_patch\\b" end t)
-                              (signal (carriage-error-symbol 'SRE_E_UNCLOSED_BLOCK)
-                                      (list "Unclosed #+begin_patch block")))
-                            (line-beginning-position)))
-               (body (buffer-substring-no-properties body-beg block-end))
-               (op (plist-get header-plist :op)))
-          ;; Diagnostics: count open markers in BODY to validate group extraction
-          (ignore-errors
-            (carriage-log "group-parse: op=%s file=%s opens=%d preview=%s"
-                          op
-                          (plist-get header-plist :file)
-                          (cl-loop for ln in (split-string body "\n" nil nil)
-                                   count (string-match-p "\\=#\\+begin_\\(from\\|to\\)\\b" (string-trim ln)))
-                          (let* ((s (substring body 0 (min 200 (length body)))))
-                            (replace-regexp-in-string "\n" "\\n" s))))
-          (let* ((item (carriage-parse op header-plist body repo-root)))
-            (push item plan))
-          (goto-char block-end)
-          (forward-line 1)))
+                  (search-forward "#+begin_patch" end t))
+        ;; Verify marker at BOL with optional spaces
+        (let* ((p (- (point) (length "#+begin_patch")))
+               (line-beg (save-excursion (goto-char p) (line-beginning-position)))
+               (ok (save-excursion
+                     (goto-char line-beg)
+                     (skip-chars-forward " \t")
+                     (let ((here (point)))
+                       (and (<= here p)
+                            (string-prefix-p "#+begin_patch"
+                                             (buffer-substring-no-properties here (min (+ here 13) (line-end-position)))))))))
+          (unless ok
+            (forward-line 1)
+            (cl-return-from carriage-parse-blocks-in-region
+              (append (carriage-parse-blocks-in-region (point) end repo-root) plan)))
+          (let* ((start line-beg)
+                 (body-beg (save-excursion (goto-char start) (forward-line 1) (point)))
+                 (header-plist (carriage--read-patch-header-at start))
+                 (block-end
+                  (save-excursion
+                    (goto-char body-beg)
+                    (let ((found nil))
+                      (while (and (not found)
+                                  (search-forward "#+end_patch" end t))
+                        (let* ((q (- (point) (length "#+end_patch")))
+                               (bol (save-excursion (goto-char q) (line-beginning-position)))
+                               (ok2 (save-excursion
+                                      (goto-char bol)
+                                      (skip-chars-forward " \t")
+                                      (let ((here (point)))
+                                        (and (<= here q)
+                                             (string-prefix-p "#+end_patch"
+                                                              (buffer-substring-no-properties here (min (+ here 11) (line-end-position)))))))))
+                          (when ok2 (setq found (line-beginning-position)))))
+                      (unless found
+                        (signal (carriage-error-symbol 'SRE_E_UNCLOSED_BLOCK)
+                                (list "Unclosed #+begin_patch block")))
+                      found)))
+                 (body (buffer-substring-no-properties body-beg block-end))
+                 (op (plist-get header-plist :op)))
+            ;; Diagnostics (best-effort, simplified to avoid read-time issues)
+            (ignore-errors
+              (carriage-log "group-parse: op=%s file=%s"
+                            op
+                            (plist-get header-plist :file)))
+            (push (carriage-parse op header-plist body repo-root) plan)
+            (goto-char block-end)
+            (forward-line 1))))
       (nreverse plan))))
 
 (defun carriage-collect-last-iteration-blocks (&optional repo-root)
   "Collect blocks of the last iteration in current buffer and parse to a PLAN.
-If the buffer-local variable `carriage--last-iteration-id' is set, collect only blocks
-annotated with that id (text property `carriage-iteration-id' on the #+begin_patch line).
+If the buffer-local variable =carriage--last-iteration-id' is set, collect only blocks
+annotated with that id (text property =carriage-iteration-id' on the #+begin_patch line).
 Otherwise, return all patch blocks in the buffer.
 
-If REPO-ROOT is nil, detect via `carriage-project-root' or use `default-directory'."
+If REPO-ROOT is nil, detect via =carriage-project-root' or use =default-directory'."
   (let* ((root (or repo-root (carriage-project-root) default-directory))
          (id   (or (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)
                    (ignore-errors (carriage-iteration-read-org-id)))))
@@ -158,48 +218,122 @@ If REPO-ROOT is nil, detect via `carriage-project-root' or use `default-director
         (carriage-parse-blocks-in-region (point-min) (point-max) root)
       (save-excursion
         (goto-char (point-min))
-        (let* ((plan '()))
-          (while (re-search-forward "^[ \t]*#\\+begin_patch\\b" nil t)
-            (let* ((start (match-beginning 0))
-                   (prop  (get-text-property start 'carriage-iteration-id))
-                   (body-beg (save-excursion
-                               (goto-char start)
-                               (forward-line 1)
-                               (point)))
-                   (header-plist (carriage--read-patch-header-at start))
-                   (block-end (save-excursion
-                                (goto-char body-beg)
-                                (unless (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
-                                  (signal (carriage-error-symbol 'SRE_E_UNCLOSED_BLOCK)
-                                          (list "Unclosed #+begin_patch block")))
-                                (line-beginning-position)))
-                   (after (save-excursion
-                            (goto-char block-end)
-                            (forward-line 1)
-                            (point))))
-              (carriage-log "iter-collect: begin@%d prop=%s id=%s match=%s"
-                            start prop id (if (equal prop id) "yes" "no"))
-              (message "Carriage: iter-collect begin@%d prop=%s id=%s match=%s"
-                       start prop (and id (substring id 0 (min 8 (length id))))
-                       (if (equal prop id) "yes" "no"))
-              (when (equal prop id)
-                (let* ((body (buffer-substring-no-properties body-beg block-end))
-                       (op (plist-get header-plist :op)))
-                  (push (carriage-parse op header-plist body root) plan)
-                  (carriage-log "iter-collect: pushed op=%s file=%s"
-                                op (plist-get header-plist :file))
-                  (message "Carriage: iter-collect pushed op=%s file=%s"
-                           op (plist-get header-plist :file))))
-              ;; Always advance to the first position after this exact block.
-              (goto-char after)
-              (carriage-log "iter-collect: advanced to %d (after end_patch)" (point))
-              (message "Carriage: iter-collect advanced to %d" (point))))
+        (let ((plan '()))
+          (while (search-forward "#+begin_patch" nil t)
+            (let* ((p (- (point) (length "#+begin_patch")))
+                   (line-beg (save-excursion (goto-char p) (line-beginning-position)))
+                   (ok (save-excursion
+                         (goto-char line-beg)
+                         (skip-chars-forward " \t")
+                         (let ((here (point)))
+                           (and (<= here p)
+                                (string-prefix-p "#+begin_patch"
+                                                 (buffer-substring-no-properties here (min (+ here 13) (line-end-position))))))))
+                   (prop (and ok (get-text-property line-beg 'carriage-iteration-id))))
+              (when ok
+                (let* ((body-beg (save-excursion (goto-char line-beg) (forward-line 1) (point)))
+                       (header-plist (carriage--read-patch-header-at line-beg))
+                       (block-end
+                        (save-excursion
+                          (goto-char body-beg)
+                          (let ((found nil))
+                            (while (and (not found)
+                                        (search-forward "#+end_patch" nil t))
+                              (let* ((q (- (point) (length "#+end_patch")))
+                                     (bol (save-excursion (goto-char q) (line-beginning-position)))
+                                     (ok2 (save-excursion
+                                            (goto-char bol)
+                                            (skip-chars-forward " \t")
+                                            (let ((here (point)))
+                                              (and (<= here q)
+                                                   (string-prefix-p "#+end_patch"
+                                                                    (buffer-substring-no-properties here (min (+ here 11) (line-end-position)))))))))
+                                (when ok2 (setq found (line-beginning-position)))))
+                            (unless found
+                              (signal (carriage-error-symbol 'SRE_E_UNCLOSED_BLOCK)
+                                      (list "Unclosed #+begin_patch block")))
+                            found)))
+                       (after (save-excursion (goto-char block-end) (forward-line 1) (point))))
+                  (carriage-log "iter-collect: begin@%d prop=%s id=%s match=%s"
+                                line-beg prop id (if (equal prop id) "yes" "no"))
+                  (message "Carriage: iter-collect begin@%d prop=%s id=%s match=%s"
+                           line-beg prop (and id (substring id 0 (min 8 (length id))))
+                           (if (equal prop id) "yes" "no"))
+                  (when (equal prop id)
+                    (let* ((body (buffer-substring-no-properties body-beg block-end))
+                           (op (plist-get header-plist :op)))
+                      (push (carriage-parse op header-plist body root) plan)
+                      (carriage-log "iter-collect: pushed op=%s file=%s"
+                                    op (plist-get header-plist :file))
+                      (message "Carriage: iter-collect pushed op=%s file=%s"
+                               op (plist-get header-plist :file))))
+                  (goto-char after)
+                  (carriage-log "iter-collect: advanced to %d (after end_patch)" (point))
+                  (message "Carriage: iter-collect advanced to %d" (point))))))
           (setq plan (nreverse plan))
           (message "Carriage: iter-collect done matched=%d" (length plan))
           (if plan
               plan
-            ;; Fallback: if id set but no blocks matched, parse all.
             (carriage-parse-blocks-in-region (point-min) (point-max) root)))))))
+
+
+(defun carriage-collect-last-iteration-blocks-strict (&optional repo-root)
+  "Collect blocks of the last iteration strictly; return nil when no id is present.
+Unlike =carriage-collect-last-iteration-blocks', this function NEVER falls back to
+collecting all blocks in the buffer when the last-iteration id is missing."
+  (let* ((root (or repo-root (carriage-project-root) default-directory))
+         (id   (or (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)
+                   (ignore-errors (carriage-iteration-read-org-id)))))
+    (message "Carriage: collect-last-iteration STRICT root=%s id=%s"
+             (or root "<nil>")
+             (and id (substring id 0 (min 8 (length id)))))
+    (unless id
+      (message "Carriage: no last-iteration id; strict collector returns nil")
+      (cl-return-from carriage-collect-last-iteration-blocks-strict nil))
+    (save-excursion
+      (goto-char (point-min))
+      (let ((plan '()))
+        (while (search-forward "#+begin_patch" nil t)
+          (let* ((p (- (point) (length "#+begin_patch")))
+                 (line-beg (save-excursion (goto-char p) (line-beginning-position)))
+                 (ok (save-excursion
+                       (goto-char line-beg)
+                       (skip-chars-forward " \t")
+                       (let ((here (point)))
+                         (and (<= here p)
+                              (string-prefix-p "#+begin_patch"
+                                               (buffer-substring-no-properties here (min (+ here 13) (line-end-position))))))))
+                 (prop (and ok (get-text-property line-beg 'carriage-iteration-id))))
+            (when ok
+              (let* ((body-beg (save-excursion (goto-char line-beg) (forward-line 1) (point)))
+                     (header-plist (carriage--read-patch-header-at line-beg))
+                     (block-end
+                      (save-excursion
+                        (goto-char body-beg)
+                        (let ((found nil))
+                          (while (and (not found)
+                                      (search-forward "#+end_patch" nil t))
+                            (let* ((q (- (point) (length "#+end_patch")))
+                                   (bol (save-excursion (goto-char q) (line-beginning-position)))
+                                   (ok2 (save-excursion
+                                          (goto-char bol)
+                                          (skip-chars-forward " \t")
+                                          (let ((here (point)))
+                                            (and (<= here q)
+                                                 (string-prefix-p "#+end_patch"
+                                                                  (buffer-substring-no-properties here (min (+ here 11) (line-end-position)))))))))
+                              (when ok2 (setq found (line-beginning-position)))))
+                          (unless found
+                            (signal (carriage-error-symbol 'SRE_E_UNCLOSED_BLOCK)
+                                    (list "Unclosed #+begin_patch block")))
+                          found)))
+                     (after (save-excursion (goto-char block-end) (forward-line 1) (point))))
+                (when (equal prop id)
+                  (let* ((body (buffer-substring-no-properties body-beg block-end))
+                         (op (plist-get header-plist :op)))
+                    (push (carriage-parse op header-plist body root) plan)))
+                (goto-char after)))))
+        (nreverse plan)))))
 
 (provide 'carriage-parser)
 ;;; carriage-parser.el ends here

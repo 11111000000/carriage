@@ -14,10 +14,10 @@
   - Отправить весь документ в LLM с активным Intent (Ask|Code|Hybrid).
 - carriage-send-subtree (C-c RET)
   - Отправить текущее поддерево org.
-- carriage-apply-at-point (C-c C-c)
-  - Dry-run → подтверждение → применить блок =patch= под точкой.
-- carriage-apply-last-iteration (C-c !)
-  - Применить все блоки последнего ответа.
+- carriage-apply-at-point-or-region (C-c e a)
+  - Dry-run → подтверждение → применить блок =patch= под точкой; при активном регионе — применить все patch-блоки в регионе как группу.
+- carriage-apply-last-iteration (C-c e A)
+  - Применить все блоки последнего ответа. Строго: без метки — отказ.
 - carriage-dry-run-at-point (C-c ?)
   - Только dry-run блока под точкой (или всей итерации с C-u).
 - carriage-wip-checkout (C-c b c)

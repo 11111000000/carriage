@@ -29,6 +29,12 @@
 When non-nil, ensure and checkout WIP branch before applying a plan (sync apply only)."
   :type 'boolean :group 'carriage)
 
+(defcustom carriage-allow-apply-on-wip nil
+  "When non-nil, allow applying patches while on WIP/ephemeral branches.
+By default (nil) Carriage will refuse to apply on branches named like
+=carriage-mode-wip-branch' or starting with =carriage-git-ephemeral-prefix'."
+  :type 'boolean :group 'carriage)
+
 (defcustom carriage-apply-stage-policy 'none
   "Policy for staging changes during apply:
 - 'none  — modify working tree only (default), do not stage.
@@ -715,6 +721,21 @@ CALLBACK, when non-nil, is invoked with the final REPORT on the main thread."
   (let* ((queue (carriage--plan-sort plan))
          (state (carriage--make-apply-state queue repo-root))
          (token (list :abort-fn nil)))
+    ;; Guard: forbid applying when current branch is WIP/ephemeral (any engine)
+    (let ((allow-wip (and (boundp 'carriage-allow-apply-on-wip) carriage-allow-apply-on-wip)))
+      (unless allow-wip
+        (condition-case _e
+            (let* ((default-directory (file-name-as-directory (expand-file-name repo-root)))
+                   (br (string-trim (or (with-temp-buffer
+                                          (if (zerop (call-process "git" nil t nil "rev-parse" "--abbrev-ref" "HEAD"))
+                                              (buffer-string) ""))
+                                        "")))
+                   (wip (or (and (boundp 'carriage-mode-wip-branch) carriage-mode-wip-branch) "carriage/WIP"))
+                   (epfx (or (and (boundp 'carriage-git-ephemeral-prefix) carriage-git-ephemeral-prefix) "carriage/tmp")))
+              (when (and (not (string-empty-p br))
+                         (or (string= br wip) (string-prefix-p epfx br)))
+                (user-error "Вы на ветке %s (WIP/ephemeral). Применение отменено." br)))
+          (error nil))))
     (run-at-time
      0 nil
      (lambda ()

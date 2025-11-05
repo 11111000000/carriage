@@ -153,7 +153,7 @@
   - Dry-run ничего не меняет; отчёты содержат :pid/:elapsed-ms (где применимо); порядок типов операций соблюдён.
 
 - Переменные Customize (минимум v1)
-- carriage-apply-engine (symbol) — 'git (по умолчанию).
+- carriage-apply-engine (symbol) — 'emacs (по умолчанию).
 - carriage-apply-stage-policy (symbol) — 'none | 'index.
 - carriage-apply-engine-extra-args (alist) — доп. аргументы движка: (:apply ...) (:check ...).
 - carriage-apply-timeout-seconds (number) — таймаут шага (см. ./index.org FREEZE).
@@ -163,7 +163,7 @@
   - carriage-emacs-save-after-apply (boolean, default t)
   - carriage-emacs-chunk-size-lines (integer, default 2000)
 - Git-движок:
-  - carriage-git-branch-policy (symbol, default 'wip)
+  - carriage-git-branch-policy (symbol, default 'in-place)
   - carriage-git-ephemeral-prefix (string, default "carriage/tmp")
   - carriage-git-auto-delete-empty-branch (boolean, default t)
   - carriage-git-ephemeral-keep-on-fail (boolean, default t)

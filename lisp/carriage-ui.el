@@ -803,6 +803,10 @@ reflects toggle state (muted when off, bright when on)."
          ;; Engine indicator and selector
          (engine-str (let ((e (and (boundp 'carriage-apply-engine) carriage-apply-engine)))
                        (cond
+                        ((eq e 'git)
+                         (let ((pol (and (boundp 'carriage-git-branch-policy)
+                                         carriage-git-branch-policy)))
+                           (format "git:%s" (if (symbolp pol) (symbol-name pol) ""))))
                         ((symbolp e) (symbol-name e))
                         ((stringp e) e)
                         (t "git"))))
@@ -833,7 +837,7 @@ reflects toggle state (muted when off, bright when on)."
                         (t "Select apply engine"))))
             (carriage-ui--ml-button engine-label #'carriage-select-apply-engine help)))
          (dry    (carriage-ui--ml-button dry-label    #'carriage-dry-run-at-point      "Dry-run at point"))
-         (apply  (carriage-ui--ml-button apply-label  #'carriage-apply-at-point        "Apply at point"))
+         (apply  (carriage-ui--ml-button apply-label  #'carriage-apply-at-point-or-region "Apply at point or region"))
          (all    (carriage-ui--ml-button all-label    #'carriage-apply-last-iteration  "Apply last iteration"))
          (abort  (carriage-ui--ml-button abort-label  #'carriage-abort-current         "Abort current request"))
          (report (carriage-ui--ml-button report-label #'carriage-report-open           "Open report buffer"))

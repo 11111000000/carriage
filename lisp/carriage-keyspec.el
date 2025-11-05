@@ -34,7 +34,7 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
     (:id menu         :cmd carriage-keys-open-menu               :keys ("e")   :contexts (carriage) :section tools :desc-key :menu)
     ;; Actions
     (:id dry-run      :cmd carriage-dry-run-at-point        :keys ("d")     :contexts (carriage) :section act :desc-key :dry-run)
-    (:id apply        :cmd carriage-apply-at-point          :keys ("a")     :contexts (carriage) :section act :desc-key :apply)
+    (:id apply        :cmd carriage-apply-at-point-or-region :keys ("a")     :contexts (carriage) :section act :desc-key :apply)
     (:id apply-all    :cmd carriage-apply-last-iteration    :keys ("A")     :contexts (carriage) :section act :desc-key :apply-all)
     (:id abort        :cmd carriage-abort-current           :keys ("x")     :contexts (carriage) :section act :desc-key :abort)
     (:id send-buffer  :cmd carriage-send-buffer             :keys ("RET")   :contexts (carriage) :section act :desc-key :send-buffer)

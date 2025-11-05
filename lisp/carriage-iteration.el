@@ -49,17 +49,19 @@ are considered by `carriage-collect-last-iteration-blocks'.")
         (string-trim (match-string 1))))))
 
 ;;;###autoload
-(defun carriage-mark-last-iteration (beg end)
+(defun carriage-mark-last-iteration (beg end &optional id)
   "Mark all #+begin_patch blocks between BEG and END as the “last iteration”.
 
 If called interactively without an active region, mark the whole buffer.
-Sets (or regenerates) `carriage--last-iteration-id', writes it as text
-property `carriage-iteration-id' on begin lines, and syncs Org property
-#+PROPERTY: CARRIAGE_ITERATION_ID."
+Sets (or regenerates) =carriage--last-iteration-id', writes it as text
+property =carriage-iteration-id' on begin lines, and syncs Org property
+#+PROPERTY: CARRIAGE_ITERATION_ID.
+
+When optional ID is non-nil, reuse it instead of generating a new one."
   (interactive (if (use-region-p)
                    (list (region-beginning) (region-end))
                  (list (point-min) (point-max))))
-  (let* ((id (carriage-iteration--generate-id))
+  (let* ((id (or id (carriage-iteration--generate-id)))
          (cnt 0))
     (setq carriage--last-iteration-id id)
     (carriage-log "mark-last-iteration: region %d..%d id=%s"
@@ -94,6 +96,15 @@ property `carriage-iteration-id' on begin lines, and syncs Org property
     (when (called-interactively-p 'any)
       (message (if id "Last iteration id: %s" "No last iteration id set")
                (or id "")))
+    id))
+
+;;;###autoload
+(defun carriage-begin-iteration ()
+  "Generate and set iteration id before streaming; write Org property line."
+  (interactive)
+  (let ((id (carriage-iteration--generate-id)))
+    (setq carriage--last-iteration-id id)
+    (ignore-errors (carriage-iteration--write-org-id id))
     id))
 
 (provide 'carriage-iteration)

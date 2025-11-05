@@ -33,9 +33,9 @@
   :type '(choice (const Ask) (const Code) (const Hybrid))
   :group 'carriage)
 
-(defcustom carriage-mode-default-suite 'udiff
-  "Default Suite: one of 'sre or 'udiff."
-  :type '(choice (const sre) (const udiff))
+(defcustom carriage-mode-default-suite 'aibo
+  "Default Suite: one of 'sre, 'aibo or 'udiff."
+  :type '(choice (const sre) (const aibo) (const udiff))
   :group 'carriage)
 
 (defcustom carriage-mode-default-model "gptel-default"
@@ -54,8 +54,30 @@
   :group 'carriage)
 
 (defcustom carriage-mode-auto-open-report t
-  "Open report buffer automatically after dry-run."
+  "DEPRECATED: kept for UI toggle state only. Use =carriage-mode-report-open-policy'.
+When non-nil, the [AutoRpt] toggle appears ON (meaning 'always)."
   :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-report-open-policy 'on-error
+  "Report auto-open policy:
+- 'on-error — open only when there are failures (default),
+- 'always   — always open after dry-run/apply,
+- 'never    — never open automatically."
+  :type '(choice (const on-error) (const always) (const never))
+  :group 'carriage)
+
+(defun carriage--report-open-maybe (report)
+  "Open report according to =carriage-mode-report-open-policy'."
+  (let ((pol (and (boundp 'carriage-mode-report-open-policy)
+                  carriage-mode-report-open-policy)))
+    (pcase pol
+      ('always (carriage-report-open report))
+      ('never  nil)
+      (_
+       (let* ((sum (plist-get report :summary))
+              (fails (or (plist-get sum :fail) 0)))
+         (when (> fails 0)
+           (carriage-report-open report)))))))
 
 (defcustom carriage-mode-show-diffs t
   "Require showing diffs before apply."
@@ -69,8 +91,17 @@
   "When non-nil, open *carriage-traffic* automatically when sending."
   :type 'boolean :group 'carriage)
 
-(defcustom carriage-mode-confirm-apply-all t
-  "Ask for confirmation before applying all blocks (C-c !)."
+(defcustom carriage-mode-confirm-apply-all nil
+  "Ask for confirmation before applying all blocks (C-c e A)."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-confirm-apply nil
+  "Ask for confirmation before applying a single block or a region/group."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-apply-all-require-last-iteration t
+  "Deprecated (v1.1): C-c e A is always strict now and refuses without last-iteration id.
+This toggle has no effect."
   :type 'boolean :group 'carriage)
 
 (defcustom carriage-mode-use-icons t
@@ -335,6 +366,12 @@ Do not define bindings here; all key bindings are applied via keyspec and mode s
                         (if (member carriage--emulation-map-alist lst)
                             lst
                           (cons carriage--emulation-map-alist lst)))))))
+    ;; Legacy bindings:
+    ;; - C-c C-c → apply at point/region ONLY on patch blocks; otherwise delegate to Org
+    ;; - C-c !   → apply last iteration (override org-time-stamp in carriage-mode buffers)
+    (define-key carriage-mode-map (kbd "C-c !") #'carriage-apply-last-iteration)
+    (when (and (boundp 'carriage-enable-legacy-bindings) carriage-enable-legacy-bindings)
+      (define-key carriage-mode-map (kbd "C-c C-c") #'carriage-ctrl-c-ctrl-c))
     (when (and carriage-mode-auto-open-log (fboundp 'carriage-show-log))
       (ignore-errors (carriage-show-log)))
     (when (and carriage-mode-auto-open-traffic (fboundp 'carriage-show-traffic))
@@ -774,6 +811,10 @@ May include :context-text and :context-target per v1.1."
       (ignore-errors (carriage-show-log)))
     (when (and carriage-mode-auto-open-traffic (not (bound-and-true-p noninteractive)))
       (ignore-errors (carriage-show-traffic)))
+    ;; Begin new iteration before streaming: write Org property and set buffer-local id
+    (ignore-errors (carriage-begin-iteration))
+    ;; Begin new iteration before streaming: write Org property and set buffer-local id
+    (ignore-errors (carriage-begin-iteration))
     (carriage--ensure-transport)
     (carriage-stream-reset origin-marker)
     (let* ((unreg (carriage-transport-begin)))
@@ -820,6 +861,10 @@ May include :context-text and :context-target per v1.1."
       (ignore-errors (carriage-show-log)))
     (when (and carriage-mode-auto-open-traffic (not (bound-and-true-p noninteractive)))
       (ignore-errors (carriage-show-traffic)))
+    ;; Begin new iteration before streaming: write Org property and set buffer-local id
+    (ignore-errors (carriage-begin-iteration))
+    ;; Begin new iteration before streaming: write Org property and set buffer-local id
+    (ignore-errors (carriage-begin-iteration))
     (carriage--ensure-transport)
     (let* ((unreg (carriage-transport-begin)))
       (carriage-traffic-log 'out "request begin: source=subtree backend=%s model=%s"
@@ -858,8 +903,8 @@ May include :context-text and :context-target per v1.1."
         (carriage-ui-set-state 'error)
         (user-error "Patch requires 'git engine; current engine is %s" (carriage-apply-engine))))
     (let ((report (carriage-dry-run-plan (list plan-item) root)))
-      (when (and carriage-mode-auto-open-report (not noninteractive))
-        (carriage-report-open report))
+      (when (not noninteractive)
+        (carriage--report-open-maybe report))
       (carriage-ui-set-state 'idle))))
 
 (defun carriage--parse-plan-item-or-error (root)
@@ -893,11 +938,11 @@ May include :context-text and :context-target per v1.1."
          (list plan-item) root
          (lambda (rep)
            (when (not noninteractive)
-             (carriage-report-open rep))
+             (carriage--report-open-maybe rep))
            (carriage-ui-set-state 'idle))))
     (let ((ap (carriage-apply-plan (list plan-item) root)))
       (when (not noninteractive)
-        (carriage-report-open ap))
+        (carriage--report-open-maybe ap))
       (carriage-ui-set-state 'idle))))
 
 ;;;###autoload
@@ -907,28 +952,95 @@ May include :context-text and :context-target per v1.1."
   (let* ((root (or (carriage-project-root) default-directory))
          (plan-item (carriage--parse-plan-item-or-error root)))
     (carriage--guard-patch-engine-for-item plan-item)
+    ;; Guard: forbid applying on WIP/ephemeral branches unless explicitly allowed
+    (let* ((cur-br (ignore-errors (and (fboundp 'carriage-git-current-branch)
+                                       (carriage-git-current-branch root))))
+           (epref (or (and (boundp 'carriage-git-ephemeral-prefix)
+                           carriage-git-ephemeral-prefix)
+                      "carriage/tmp"))
+           (wip (string= cur-br "carriage/WIP"))
+           (eph (and (stringp cur-br) (string-prefix-p epref cur-br))))
+      (when (and (or wip eph)
+                 (not (and (boundp 'carriage-allow-apply-on-wip) carriage-allow-apply-on-wip)))
+        (carriage-ui-set-state 'error)
+        (user-error "Нельзя применять патчи на ветке %s (не слита с основной)" (or cur-br ""))))
     (let ((dry (carriage--dry-run-single-item plan-item root)))
-      (when (and carriage-mode-auto-open-report (not noninteractive))
-        (carriage-report-open dry))
+      (when (not noninteractive)
+        (carriage--report-open-maybe dry))
       (let* ((sum (plist-get dry :summary))
              (fails (or (plist-get sum :fail) 0)))
         (if (> fails 0)
             (progn
               (carriage-ui-set-state 'error)
               (user-error "Dry-run failed; see report for details"))
-          (when (or (not carriage-mode-show-diffs)
+          (when (or (not carriage-mode-confirm-apply)
                     (y-or-n-p "Apply this block? "))
             (carriage-ui-set-state 'apply)
             (carriage--apply-single-item-dispatch plan-item root)))))))
 
 ;;;###autoload
+(defun carriage-apply-at-point-or-region ()
+  "Dry-run → confirm → apply the block at point; when region is active, apply all patch blocks in region as a group."
+  (interactive)
+  (if (use-region-p)
+      (let* ((root (or (carriage-project-root) default-directory))
+             (beg (region-beginning))
+             (end (region-end))
+             (plan (carriage-parse-blocks-in-region beg end root)))
+        (when (or (null plan) (zerop (length plan)))
+          (carriage-ui-set-state 'error)
+          (user-error "Нет patch-блоков в регионе"))
+        ;; Early guard: 'patch requires git engine
+        (let ((has-patch (cl-some (lambda (it)
+                                    (eq (or (alist-get :op it)
+                                            (and (listp it) (plist-get it :op)))
+                                        'patch))
+                                  plan)))
+          (when (and has-patch (not (eq (carriage-apply-engine) 'git)))
+            (carriage-ui-set-state 'error)
+            (user-error "Patch requires 'git engine; current engine is %s" (carriage-apply-engine))))
+        ;; Guard: forbid applying on WIP/ephemeral branches unless explicitly allowed
+        (let* ((cur-br (ignore-errors (and (fboundp 'carriage-git-current-branch)
+                                           (carriage-git-current-branch root))))
+               (epref (or (and (boundp 'carriage-git-ephemeral-prefix)
+                               carriage-git-ephemeral-prefix)
+                          "carriage/tmp"))
+               (wip (string= cur-br "carriage/WIP"))
+               (eph (and (stringp cur-br) (string-prefix-p epref cur-br))))
+          (when (and (or wip eph)
+                     (not (and (boundp 'carriage-allow-apply-on-wip) carriage-allow-apply-on-wip)))
+            (carriage-ui-set-state 'error)
+            (user-error "Нельзя применять патчи на ветке %s (не слита с основной)" (or cur-br ""))))
+        ;; Dry-run group
+        (carriage-ui-set-state 'dry-run)
+        (let* ((dry (carriage-dry-run-plan plan root)))
+          (when (not noninteractive)
+            (carriage--report-open-maybe dry))
+          (let* ((sum (plist-get dry :summary))
+                 (fails (or (plist-get sum :fail) 0)))
+            (if (> fails 0)
+                (progn
+                  (carriage-ui-set-state 'error)
+                  (user-error "Dry-run провалился для части блоков; смотрите отчёт"))
+              (when (or (not carriage-mode-confirm-apply)
+                        (y-or-n-p "Применить группу блоков? "))
+                (carriage-ui-set-state 'apply)
+                ;; Force sync for grouped apply
+                (let ((carriage-apply-async nil))
+                  (let ((ap (carriage-apply-plan plan root)))
+                    (when (not noninteractive)
+                      (carriage--report-open-maybe ap))
+                    (carriage-ui-set-state 'idle))))))))
+    (call-interactively #'carriage-apply-at-point)))
+
+;;;###autoload
 (defun carriage-apply-last-iteration ()
-  "Dry-run → подтверждение → применение всех блоков «последней итерации» (async по умолчанию)."
+  "Dry-run → подтверждение → применение всех блоков «последней итерации» (strict; без метки — отказ)."
   (interactive)
   (let* ((root (or (carriage-project-root) default-directory))
-         (plan (carriage-collect-last-iteration-blocks root)))
-    (when (null plan)
-      (user-error "Нет patch-блоков в текущем буфере"))
+         (plan (carriage-collect-last-iteration-blocks-strict root)))
+    (when (or (null plan) (zerop (length plan)))
+      (user-error "Нет последней итерации (CARRIAGE_ITERATION_ID)"))
     (when (and carriage-mode-confirm-apply-all
                (not (y-or-n-p (format "Применить все блоки (%d)? " (length plan)))))
       (user-error "Отменено"))
@@ -940,11 +1052,23 @@ May include :context-text and :context-target per v1.1."
       (when (and has-patch (not (eq (carriage-apply-engine) 'git)))
         (carriage-ui-set-state 'error)
         (user-error "Patch requires 'git engine; current engine is %s" (carriage-apply-engine))))
+    ;; Guard: forbid applying on WIP/ephemeral branches unless explicitly allowed
+    (let* ((cur-br (ignore-errors (and (fboundp 'carriage-git-current-branch)
+                                       (carriage-git-current-branch root))))
+           (epref (or (and (boundp 'carriage-git-ephemeral-prefix)
+                           carriage-git-ephemeral-prefix)
+                      "carriage/tmp"))
+           (wip (string= cur-br "carriage/WIP"))
+           (eph (and (stringp cur-br) (string-prefix-p epref cur-br))))
+      (when (and (or wip eph)
+                 (not (and (boundp 'carriage-allow-apply-on-wip) carriage-allow-apply-on-wip)))
+        (carriage-ui-set-state 'error)
+        (user-error "Нельзя применять патчи на ветке %s (не слита с основной)" (or cur-br ""))))
     ;; Dry-run
     (carriage-ui-set-state 'dry-run)
     (let* ((dry (carriage-dry-run-plan plan root)))
-      (when (and carriage-mode-auto-open-report (not noninteractive))
-        (carriage-report-open dry))
+      (when (not noninteractive)
+        (carriage--report-open-maybe dry))
       (let* ((sum (plist-get dry :summary))
              (fails (or (plist-get sum :fail) 0)))
         (if (> fails 0)
@@ -952,22 +1076,24 @@ May include :context-text and :context-target per v1.1."
               (carriage-ui-set-state 'error)
               (user-error "Dry-run провалился для части блоков; смотрите отчёт"))
           ;; Apply
-          (when (or (not carriage-mode-show-diffs)
+          (when (or (not carriage-mode-confirm-apply-all)
                     (y-or-n-p "Применить группу блоков? "))
             (carriage-ui-set-state 'apply)
-            (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
-                (progn
-                  (carriage-log "apply-all: async apply scheduled (%d items)" (length plan))
-                  (carriage-apply-plan-async
-                   plan root
-                   (lambda (rep)
-                     (when (not noninteractive)
-                       (carriage-report-open rep))
-                     (carriage-ui-set-state 'idle))))
-              (let ((ap (carriage-apply-plan plan root)))
-                (when (not noninteractive)
-                  (carriage-report-open ap))
-                (carriage-ui-set-state 'idle)))))))))
+            ;; Safety belt: force synchronous apply for apply-all to avoid process/timer races
+            (let ((carriage-apply-async nil))
+              (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
+                  (progn
+                    (carriage-log "apply-all: async apply scheduled (%d items)" (length plan))
+                    (carriage-apply-plan-async
+                     plan root
+                     (lambda (rep)
+                       (when (not noninteractive)
+                         (carriage--report-open-maybe rep))
+                       (carriage-ui-set-state 'idle))))
+                (let ((ap (carriage-apply-plan plan root)))
+                  (when (not noninteractive)
+                    (carriage--report-open-maybe ap))
+                  (carriage-ui-set-state 'idle))))))))))
 
 ;;;###autoload
 (defun carriage-wip-checkout ()
@@ -1076,7 +1202,7 @@ Stages as needed depending on staging policy; with 'none, runs git add -A then r
             (error '("sre" "aibo" "udiff"))))
          (default (if (symbolp carriage-mode-suite)
                       (symbol-name carriage-mode-suite)
-                    (or carriage-mode-suite "udiff")))
+                    (or carriage-mode-suite "aibo")))
          (sel (or suite (completing-read "Suite: " choices nil t default))))
     (setq carriage-mode-suite (intern sel))
     (message "Carriage suite: %s" carriage-mode-suite)
@@ -1406,7 +1532,7 @@ FN must be a zero-argument function that cancels the ongoing activity."
 
 ;;;###autoload
 (defun carriage-toggle-confirm-apply-all ()
-  "Toggle confirmation before applying all blocks (C-c !)."
+  "Toggle confirmation before applying all blocks (C-c e A)."
   (interactive)
   (setq carriage-mode-confirm-apply-all (not carriage-mode-confirm-apply-all))
   (message "Confirm apply-all: %s" (if carriage-mode-confirm-apply-all "on" "off"))

@@ -11,8 +11,9 @@
 
 - C-c M-RET — отправить весь документ (поведение зависит от Intent: Ask|Code|Hybrid).
 - C-c RET — отправить текущее поддерево.
-- C-c C-c — dry-run → подтверждение → применить блок =patch= под точкой.
-- C-c ! — применить все блоки из «последней итерации».
+- C-c C-c — dry-run → подтверждение → применить блок =patch= под точкой; при активном регионе — применить все patch-блоки в регионе.
+- C-c ! — применить последнюю серию патчей (последняя итерация) — аналог C-c e A.
+- C-c e A — применить все блоки из «последней итерации» (строго: без метки — отказ).
 - C-c ? — только dry-run текущего блока (или всей «последней итерации» при префикс-аргументе).
 - M-n / M-p — навигация по блокам =patch=.
 - C-c b c — создать/перейти на ветку carriage/WIP.
@@ -37,8 +38,8 @@
   - Состояние: [idle|sending|streaming|dry-run|apply|error] + индикатор-спиннер для sending/streaming.
   - Управление циклом:
     - [Dry] — запустить dry-run под точкой (C-c ?).
-    - [Apply] — dry-run → подтверждение → применить под точкой (C-c C-c).
-    - [All] — применить все блоки «последней итерации» (C-c !).
+    - [Apply] — dry-run → подтверждение → применить под точкой; при активном регионе — применить все patch-блоки в регионе (группа) (C-c C-c).
+    - [All] — применить все блоки «последней итерации» (C-c e A).
     - [Abort] — отменить текущий запрос/применение (отмена запроса к LLM/пайплайна).
     - [Report] — открыть буфер отчёта (C-c b l).
   - Просмотр:
@@ -46,14 +47,14 @@
     - [Ediff] — открыть ediff для текущего файла/патча.
   - Git/WIP/Engine:
     - [WIP] — создать/переключиться на ветку carriage/WIP (C-c b c).
-    - [Engine] — выбрать текущий движок применения (C-c b e).
+    - [Engine] — выбрать текущий движок применения; для 'git — git:in-place|git:wip|git:ephemeral (C-c b e).
     - [Commit] — выполнить коммит (C-c b m — все изменения; C-c b i — только «последняя итерация»).
     - [Reset] — soft reset последнего коммита (C-c b r).
 
 - Переключатели (тумблеры в модлайне):
-  - [AutoRpt] — carriage-mode-auto-open-report (t/nil) — автооткрытие отчёта после dry-run.
+  - [AutoRpt] — carriage-mode-report-open-policy ('on-error|'always|'never) — политика автооткрытия отчёта (по умолчанию 'on-error).
   - [ShowDiffs] — carriage-mode-show-diffs (t/nil) — требовать предпросмотр диффов перед применением.
-  - [ConfirmAll] — carriage-mode-confirm-apply-all (t/nil) — подтверждение перед C-c !.
+  - [ConfirmAll] — carriage-mode-confirm-apply-all (t/nil) — подтверждение перед C-c e A.
   - [Icons] — carriage-mode-use-icons (t/nil) — использовать иконки.
   - [Ctx] — carriage-mode-use-context (t/nil) — включать контекст запроса (релевантные фрагменты; см. ./context-integration-v1.org).
   - [Files] — carriage-mode-context-attach-files (t/nil) — прикладывать список/содержимое файлов в запрос (лимиты см. ./index.org).
@@ -119,11 +120,11 @@
 - В отчёте навигация по кнопкам клавишами [TAB]/[RET].
 
 * Поведение по умолчанию (Customize)
-- Открывать отчёт: carriage-mode-auto-open-report (t).
+- Открывать отчёт: carriage-mode-report-open-policy ('on-error).
 - Открывать лог: carriage-mode-auto-open-log (nil).
 - Открывать трафик: carriage-mode-auto-open-traffic (nil).
 - Показывать диффы перед применением: carriage-mode-show-diffs (t).
-- Требовать подтверждение перед C-c !: carriage-mode-confirm-apply-all (t).
+- Требовать подтверждение перед C-c e A: carriage-mode-confirm-apply-all (t).
 - Боковое окно для логов/трафика: carriage-mode-aux-window-side (left|right|top|bottom; по умолчанию right).
 - Размер бокового окна: carriage-mode-aux-window-size (доля ширины/высоты, по умолчанию 0.33).
 - Переиспользовать уже открытое окно: carriage-mode-aux-window-reuse (t); при повторном показе окно не выбирается (фокус остаётся в исходном буфере).
@@ -250,7 +251,7 @@
   - Intent=Hybrid: отдельная иконка material "merge_type" (или octicon "git-merge"); Intent=Code — material "code"; Intent=Ask — material "chat".
   - Тумблер gptel-context [Ctx]: заменить иконку на material "link"; [Files] оставить текущую (например, material "description").
   - Suite/Engine как лейблы:
-    - Формат отображения: ICON [value] при carriage-mode-use-icons=t и включённых переключателях; в текстовом фоллбэке — "Suite: [udiff]" и "Engine: [git]".
+      - Формат отображения: ICON [value] при carriage-mode-use-icons=t и включённых переключателях; в текстовом фоллбэке — "Suite: [udiff]" и "Engine: [git:in-place]".
     - Новые переключатели:
       - carriage-mode-use-suite-icon (boolean, default t) — заменять слово "Suite" на иконку.
       - carriage-mode-use-engine-icon (boolean, default t) — заменять слово "Engine" на иконку.

@@ -20,6 +20,9 @@ Returns an unregister lambda that clears the handler when called."
   (when (functionp abort-fn)
     (carriage-register-abort-handler abort-fn))
   (carriage-log "Transport: begin (abort=%s)" (if (functionp abort-fn) "installed" "none"))
+  ;; Generate iteration id before any streaming/reasoning to group upcoming patches
+  (when (fboundp 'carriage-begin-iteration)
+    (ignore-errors (carriage-begin-iteration)))
   (carriage-ui-set-state 'sending)
   ;; Return unregister lambda
   (lambda ()

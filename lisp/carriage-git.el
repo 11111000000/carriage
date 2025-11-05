@@ -23,7 +23,7 @@ Use to avoid interactive or environment-specific stalls and to relax whitespace 
 Applies to both index and working-tree apply operations."
   :type '(repeat string) :group 'carriage)
 
-(defcustom carriage-git-branch-policy 'wip
+(defcustom carriage-git-branch-policy 'in-place
   "Branch policy for Git engine: 'in-place | 'wip | 'ephemeral."
   :type '(choice (const in-place) (const wip) (const ephemeral))
   :group 'carriage)

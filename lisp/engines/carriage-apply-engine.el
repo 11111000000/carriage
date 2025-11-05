@@ -8,8 +8,8 @@
   "Apply engines for Carriage (registry and selection)."
   :group 'carriage)
 
-(defcustom carriage-apply-engine 'git
-  "Active apply engine symbol. Default is 'git."
+(defcustom carriage-apply-engine 'emacs
+  "Active apply engine symbol. Default is 'emacs."
   :type '(choice symbol)
   :group 'carriage-engines)
 
@@ -80,15 +80,26 @@ Returns an unregister lambda."
   (cdr (assoc (carriage-apply-engine--norm sym) carriage-apply-engine--registry)))
 
 (defun carriage-available-apply-engines ()
-  "Return list of available engines as strings for completion."
-  (mapcar (lambda (cell)
-            (let* ((s (car cell))
-                   (pl (cdr cell))
-                   (nm (or (plist-get pl :name) (symbol-name s))))
-              (format "%s%s" (symbol-name s)
-                      (if (and nm (not (string= nm (symbol-name s))))
-                          (format " — %s" nm) ""))))
-          (reverse carriage-apply-engine--registry)))
+  "Return list of available engines as strings for completion.
+For 'git engine also provide policy-specific combos:
+  git:in-place — <name> (in-place)
+  git:wip      — <name> (wip)
+  git:ephemeral— <name> (ephemeral)"
+  (let* ((base (mapcar (lambda (cell)
+                         (let* ((s (car cell))
+                                (pl (cdr cell))
+                                (nm (or (plist-get pl :name) (symbol-name s))))
+                           (format "%s%s" (symbol-name s)
+                                   (if (and nm (not (string= nm (symbol-name s))))
+                                       (format " — %s" nm) ""))))
+                       (reverse carriage-apply-engine--registry)))
+         (git-cell (assoc 'git carriage-apply-engine--registry))
+         (git-name (and git-cell (or (plist-get (cdr git-cell) :name) "git")))
+         (combos (when git-cell
+                   (list (format "git:in-place — %s (in-place)" git-name)
+                         (format "git:wip — %s (wip)" git-name)
+                         (format "git:ephemeral — %s (ephemeral)" git-name)))))
+    (append combos base)))
 
 (defun carriage-apply-engine--parse-choice (choice)
   "Extract engine symbol from CHOICE string produced by carriage-available-apply-engines."
@@ -98,7 +109,8 @@ Returns an unregister lambda."
 
 ;;;###autoload
 (defun carriage-select-apply-engine (&optional engine)
-  "Interactively select active apply ENGINE from the registry."
+  "Interactively select active apply ENGINE from the registry.
+Supports git policy combos: git:in-place|git:wip|git:ephemeral."
   (interactive)
   (let* ((choices (carriage-available-apply-engines))
          (current (symbol-name (carriage-apply-engine)))
@@ -108,14 +120,27 @@ Returns an unregister lambda."
                  ((and choices (completing-read
                                 (format "Apply engine [%s]: " current)
                                 choices nil t nil nil current)))
-                 (t current)))
-         (sym (or (and sel-s (carriage-apply-engine--parse-choice sel-s))
-                  (carriage-apply-engine--norm sel-s))))
-    (setq carriage-apply-engine sym)
-    (carriage-log "Apply engine selected: %s" sym)
-    (message "Apply engine: %s" sym)
-    (force-mode-line-update t)
-    sym))
+                 (t current))))
+    ;; Handle git:POLICY combos
+    (cond
+     ((and (stringp sel-s)
+           (string-match "\\`git:\\([^  —]+\\)" sel-s))
+      (let* ((pol (intern (match-string 1 sel-s))))
+        (setq carriage-apply-engine 'git)
+        (when (boundp 'carriage-git-branch-policy)
+          (setq carriage-git-branch-policy pol))
+        (carriage-log "Apply engine selected: git (policy=%s)" pol)
+        (message "Apply engine: git (policy=%s)" pol)
+        (force-mode-line-update t)
+        'git))
+     (t
+      (let* ((sym (or (and sel-s (carriage-apply-engine--parse-choice sel-s))
+                      (carriage-apply-engine--norm sel-s))))
+        (setq carriage-apply-engine sym)
+        (carriage-log "Apply engine selected: %s" sym)
+        (message "Apply engine: %s" sym)
+        (force-mode-line-update t)
+        sym)))))
 
 (defun carriage-apply-engine-dispatch (kind op plan-item repo-root on-done on-fail)
   "Dispatch KIND ('dry-run|'apply) for OP via active engine with callbacks.
