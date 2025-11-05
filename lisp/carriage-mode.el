@@ -13,6 +13,9 @@
 (require 'carriage-ui)
 (require 'carriage-suite)
 (require 'carriage-sre-core)
+;; Autoload stub ensures calling carriage-global-mode works even if file isn't loaded yet.
+(autoload 'carriage-global-mode "carriage-global-mode" "Global Carriage prefix/menu." t)
+(require 'carriage-global-mode)
 ;; Defer transport to avoid circular require; call via autoloaded functions.
 (declare-function carriage-transport-begin "carriage-transport" (&optional abort-fn))
 (declare-function carriage-transport-streaming "carriage-transport" ())
@@ -295,8 +298,23 @@ Do not define bindings here; all key bindings are applied via keyspec and mode s
       (add-hook 'window-scroll-functions #'carriage-ui--headerline-window-scroll nil t))
     (when carriage-mode-show-mode-line-ui
       (setq carriage--mode-modeline-construct '(:eval (carriage-ui--modeline)))
-      (setq-local mode-line-format
-                  (append mode-line-format (list carriage--mode-modeline-construct)))))
+      (let* ((ml (if (listp mode-line-format) (copy-sequence mode-line-format) (list mode-line-format)))
+             (pos (cl-position 'mode-line-end-spaces ml)))
+        (setq-local mode-line-format
+                    (if pos
+                        (append (cl-subseq ml 0 pos)
+                                (list carriage--mode-modeline-construct)
+                                (nthcdr pos ml))
+                      (append ml (list carriage--mode-modeline-construct)))))
+      ;; Fallback: если кастомный модлайн перезаписывает mode-line-format,
+      ;; продублируем сегмент в global-mode-string, чтобы он всё равно отображался.
+      (unless (memq carriage--mode-modeline-construct mode-line-format)
+        (setq-local global-mode-string
+                    (let ((cur (if (listp global-mode-string) (copy-sequence global-mode-string) (list global-mode-string))))
+                      (if (memq carriage--mode-modeline-construct cur)
+                          cur
+                        (append cur (list carriage--mode-modeline-construct))))))
+      (force-mode-line-update t)))
   (when (require 'carriage-keyspec nil t)
     (carriage-keys-apply-known-keymaps)
     (ignore-errors (carriage-keys-which-key-register))
@@ -341,6 +359,9 @@ Do not define bindings here; all key bindings are applied via keyspec and mode s
                (local-variable-p 'mode-line-format))
       (setq-local mode-line-format
                   (delq carriage--mode-modeline-construct mode-line-format)))
+    (when (local-variable-p 'global-mode-string)
+      (setq-local global-mode-string
+                  (delq carriage--mode-modeline-construct global-mode-string)))
     (setq carriage--mode-modeline-construct nil)
     ;; Clear abort handler and stop spinner if running
     (setq carriage--abort-handler nil)
