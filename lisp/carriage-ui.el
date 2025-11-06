@@ -843,7 +843,7 @@ reflects toggle state (muted when off, bright when on)."
                 (format "%s [%s]" ic engine-str)
               (let* ((_ (require 'carriage-i18n nil t))
                      (name (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                               (carriage-i18n :engine)
+                               (carriage-i18n :engine-label)
                              "Engine")))
                 (format "%s: [%s]" name engine-str)))))
          (engine

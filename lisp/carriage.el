@@ -36,5 +36,7 @@
 ;; Transports are loaded lazily by carriage-transport-dispatch per spec.
 ;; Do not require adapters by default here.
 
+(require 'carriage-announce)
+
 (provide 'carriage)
 ;;; carriage.el ends here

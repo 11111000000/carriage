@@ -37,20 +37,26 @@ about the lifecycle (spawn, wait ticks, timeout/exit) to help diagnose stalls."
                     (mapconcat #'identity (cons "git" (mapcar (lambda (x) (format "%s" x)) args)) " "))
       (unwind-protect
           (progn
-            (setq proc
-                  (make-process
-                   :name "carriage-git"
-                   :command (append (list "git") args)
-                   :buffer stdout-buf
-                   :stderr stderr-buf
-                   :noquery t
-                   :connection-type 'pipe
-                   :sentinel (lambda (p _e)
-                               (when (memq (process-status p) '(exit signal))
-                                 (setq exit-code (condition-case _
-                                                     (process-exit-status p)
-                                                   (error exit-code)))
-                                 (setq done t)))))
+            ;; Inject a safe fallback identity for 'git commit' when test repos lack config.
+            (let* ((args2 (if (and args (stringp (car args)) (string= (car args) "commit"))
+                              (append '("-c" "user.email=carriage@example.com"
+                                        "-c" "user.name=Carriage")
+                                      args)
+                            args)))
+              (setq proc
+                    (make-process
+                     :name "carriage-git"
+                     :command (append (list "git") args2)
+                     :buffer stdout-buf
+                     :stderr stderr-buf
+                     :noquery t
+                     :connection-type 'pipe
+                     :sentinel (lambda (p _e)
+                                 (when (memq (process-status p) '(exit signal))
+                                   (setq exit-code (condition-case _
+                                                       (process-exit-status p)
+                                                     (error exit-code)))
+                                   (setq done t))))))
             (when (process-live-p proc)
               (carriage-log "git: pid=%s spawned" (process-id proc)))
             ;; Wait loop with timeout, emit 1s ticks (only if process started)

@@ -927,6 +927,26 @@ May include :context-text and :context-target per v1.1."
   (carriage-ui-set-state 'dry-run)
   (carriage-dry-run-plan (list plan-item) root))
 
+(defun carriage--announce-apply-success (report)
+  "Show Messages summary for successful apply REPORT."
+  (when (and report (not (bound-and-true-p noninteractive)))
+    (let* ((items (or (plist-get report :items) '()))
+           (oks (cl-remove-if-not (lambda (it) (eq (plist-get it :status) 'ok)) items))
+           (created 0) (deleted 0) (renamed 0) (modified 0)
+           (files '()))
+      (dolist (it oks)
+        (let ((op (plist-get it :op)))
+          (pcase op
+            ('create (setq created (1+ created)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+            ('delete (setq deleted (1+ deleted)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+            ('rename (setq renamed (1+ renamed)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+            ((or 'patch 'sre 'aibo) (setq modified (1+ modified)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+            (_ (push (or (plist-get it :file) (plist-get it :path) "-") files)))))
+      (let* ((total (length oks))
+             (files-str (mapconcat #'identity (nreverse (delete-dups (delq nil files))) ", ")))
+        (when (> total 0)
+          (message "Carriage: applied OK (%d items) — created:%d modified:%d deleted:%d renamed:%d — %s"
+                   total created modified deleted renamed files-str))))))
 (defun carriage--apply-single-item-dispatch (plan-item root)
   "Apply single PLAN-ITEM under ROOT, async when configured; update UI/report."
   (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
@@ -937,10 +957,18 @@ May include :context-text and :context-target per v1.1."
          (lambda (rep)
            (when (not noninteractive)
              (carriage--report-open-maybe rep))
+           (when (and (not noninteractive)
+                      (let* ((sum (plist-get rep :summary)))
+                        (and sum (zerop (or (plist-get sum :fail) 0)))))
+             (carriage--announce-apply-success rep))
            (carriage-ui-set-state 'idle))))
     (let ((ap (carriage-apply-plan (list plan-item) root)))
       (when (not noninteractive)
         (carriage--report-open-maybe ap))
+      (when (and (not noninteractive)
+                 (let* ((sum (plist-get ap :summary)))
+                   (and sum (zerop (or (plist-get sum :fail) 0)))))
+        (carriage--announce-apply-success ap))
       (carriage-ui-set-state 'idle))))
 
 ;;;###autoload
@@ -1028,6 +1056,10 @@ May include :context-text and :context-target per v1.1."
                   (let ((ap (carriage-apply-plan plan root)))
                     (when (not noninteractive)
                       (carriage--report-open-maybe ap))
+                    (when (and (not noninteractive)
+                               (let* ((sum (plist-get ap :summary)))
+                                 (and sum (zerop (or (plist-get sum :fail) 0)))))
+                      (carriage--announce-apply-success ap))
                     (carriage-ui-set-state 'idle))))))))
     (call-interactively #'carriage-apply-at-point)))
 
@@ -1091,6 +1123,10 @@ May include :context-text and :context-target per v1.1."
                 (let ((ap (carriage-apply-plan plan root)))
                   (when (not noninteractive)
                     (carriage--report-open-maybe ap))
+                  (when (and (not noninteractive)
+                             (let* ((sum (plist-get ap :summary)))
+                               (and sum (zerop (or (plist-get sum :fail) 0)))))
+                    (carriage--announce-apply-success ap))
                   (carriage-ui-set-state 'idle))))))))))
 
 ;;;###autoload

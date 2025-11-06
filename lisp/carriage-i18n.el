@@ -31,6 +31,8 @@
     (:model-select       . ((ru . "Выбрать модель")            (en . "Select model")))
     (:toggle-ctx         . ((ru . "Переключить gptel-контекст") (en . "Toggle gptel-context")))
     (:toggle-doc         . ((ru . "Переключить файлы из документа") (en . "Toggle document files")))
+    (:select-suite       . ((ru . "Выбрать Suite")             (en . "Select Suite")))
+    (:toggle-intent      . ((ru . "Переключить Intent")        (en . "Toggle Intent")))
     (:dry-run            . ((ru . "Dry-run под точкой")        (en . "Dry-run at point")))
     (:apply              . ((ru . "Применить под точкой")      (en . "Apply at point")))
     (:apply-all          . ((ru . "Применить итерацию")        (en . "Apply last iteration")))
@@ -54,7 +56,7 @@
 
     ;; UI v1.3 — доп. ключи
     (:suite              . ((ru . "Suite")                     (en . "Suite")))
-    (:engine             . ((ru . "Engine")                    (en . "Engine")))
+    (:engine-label       . ((ru . "Engine")                    (en . "Engine")))
     (:suite-tooltip      . ((ru . "Выбрать Suite")             (en . "Select Suite")))
     (:engine-tooltip     . ((ru . "Выбрать движок применения") (en . "Select Engine")))
     (:engine-tooltip-branch . ((ru . "Движок: %s (ветки: %s)") (en . "Engine: %s (branches: %s)")))

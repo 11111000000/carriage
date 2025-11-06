@@ -156,15 +156,14 @@ Callbacks are invoked on the main thread via run-at-time 0. Returns the engine t
     ;; v1.1: дружелюбная деградация — возвращаем 'skip вместо жёсткой ошибки
     (if (and (eq op 'patch) (not (eq eng 'git)))
         (progn
-          (carriage-log "Engine dispatch: patch unsupported by %s; reporting skip" eng)
-          (when (functionp on-done)
-            (let ((msg (if (eq eng 'emacs)
-                           "patch unsupported by emacs engine"
-                         "patch unsupported by selected engine")))
-              (run-at-time 0 nil
-                           (lambda ()
-                             (funcall on-done
-                                      (list :engine eng :op 'patch :status 'skip :details msg))))))
+          (carriage-log "Engine dispatch: patch unsupported by %s; MODE_E_DISPATCH" eng)
+          (let ((err (list :code 'MODE_E_DISPATCH
+                           :engine eng :op 'patch
+                           :details (if (eq eng 'emacs)
+                                        "patch unsupported by emacs engine"
+                                      "patch unsupported by selected engine"))))
+            (when (functionp on-fail)
+              (run-at-time 0 nil (lambda () (funcall on-fail err)))))
           nil)
       (if (functionp cb)
           (condition-case e

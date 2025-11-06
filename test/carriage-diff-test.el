@@ -35,12 +35,12 @@
     (let* ((diff (concat
                   (mapconcat #'identity
                              '("diff --git a/a.txt b/a.txt"
+                               "index 0000000..0000001 100644"
                                "--- a/a.txt"
                                "+++ b/a.txt"
                                "@@ -1,1 +1,1 @@"
                                "-old"
-                               "+new"
-                               )
+                               "+new")
                              "\n")
                   "\n"))
            (item `(:version "1" :op patch :apply git-apply :strip 1
@@ -90,6 +90,7 @@
     (let* ((diff (concat
                   (mapconcat #'identity
                              '("diff --git a/a.txt b/a.txt"
+                               "index 0000000..0000001 100644"
                                "--- a/a.txt"
                                "+++ b/a.txt"
                                "@@ -1,1 +1,1 @@"

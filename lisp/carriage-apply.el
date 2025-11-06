@@ -90,10 +90,12 @@ for other ops → delegate to format registry."
         (let* ((done nil)
                (result nil)
                (t0 (float-time))
-               (token (carriage-apply-engine-dispatch
-                       :dry-run 'patch item repo-root
-                       (lambda (res) (setq result res done t))
-                       (lambda (res) (setq result res done t))))
+               ;; Patch operations must use the 'git engine regardless of current selection (v1 spec).
+               (token (let ((carriage-apply-engine 'git))
+                        (carriage-apply-engine-dispatch
+                         :dry-run 'patch item repo-root
+                         (lambda (res) (setq result res done t))
+                         (lambda (res) (setq result res done t)))))
                (proc (and (listp token) (plist-get token :process)))
                (deadline (+ (float-time)
                             (or (and (boundp 'carriage-apply-timeout-seconds)
@@ -133,10 +135,12 @@ for other ops → delegate to format registry."
         (let* ((done nil)
                (result nil)
                (t0 (float-time))
-               (token (carriage-apply-engine-dispatch
-                       :apply 'patch item repo-root
-                       (lambda (res) (setq result res done t))
-                       (lambda (res) (setq result res done t))))
+               ;; Patch operations must use the 'git engine regardless of current selection (v1 spec).
+               (token (let ((carriage-apply-engine 'git))
+                        (carriage-apply-engine-dispatch
+                         :apply 'patch item repo-root
+                         (lambda (res) (setq result res done t))
+                         (lambda (res) (setq result res done t)))))
                (proc (and (listp token) (plist-get token :process)))
                (deadline (+ (float-time)
                             (or (and (boundp 'carriage-apply-timeout-seconds)
@@ -260,14 +264,37 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
     (let* ((eng (carriage-apply-engine))
            (bp  (and (eq eng 'git)
                      (boundp 'carriage-git-branch-policy)
-                     carriage-git-branch-policy)))
-      (list :plan plan
-            :engine eng
-            :branch-policy bp
-            :branch-name (and (eq eng 'git) (carriage-git-current-branch repo-root))
-            :summary (list :ok ok :fail fail :skipped skip)
-            :items (nreverse items)
-            :messages (nreverse msgs)))))
+                     carriage-git-branch-policy))
+           (report (list :plan plan
+                         :engine eng
+                         :branch-policy bp
+                         :branch-name (and (eq eng 'git) (carriage-git-current-branch repo-root))
+                         :summary (list :ok ok :fail fail :skipped skip)
+                         :items (nreverse items)
+                         :messages (nreverse msgs))))
+      ;; Announce concise success summary (only when no failures and in interactive session)
+      (let* ((sum (plist-get report :summary))
+             (fail (and (listp sum) (plist-get sum :fail))))
+        (when (and (not (bound-and-true-p noninteractive))
+                   (numberp fail) (= fail 0))
+          (let* ((its (or (plist-get report :items) '()))
+                 (oks (cl-remove-if-not (lambda (it) (eq (plist-get it :status) 'ok)) its))
+                 (created 0) (deleted 0) (renamed 0) (modified 0)
+                 (files '()))
+            (dolist (it oks)
+              (let ((op (plist-get it :op)))
+                (pcase op
+                  ('create (setq created (1+ created)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+                  ('delete (setq deleted (1+ deleted)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+                  ('rename (setq renamed (1+ renamed)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+                  ((or 'patch 'sre 'aibo) (setq modified (1+ modified)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+                  (_ (push (or (plist-get it :file) (plist-get it :path) "-") files)))))
+            (let* ((total (length oks))
+                   (files-str (mapconcat #'identity (nreverse (delete-dups (delq nil files))) ", ")))
+              (when (> total 0)
+                (message "Carriage: applied OK (%d items) — created:%d modified:%d deleted:%d renamed:%d — %s"
+                         total created modified deleted renamed files-str))))))
+      report)))
 
 (defun carriage--make-apply-state (queue repo-root)
   "Create initial async apply STATE plist."
@@ -299,6 +326,28 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
                        :summary (carriage--apply-summary state)
                        :items (nreverse (plist-get state :items))
                        :messages (nreverse (plist-get state :messages)))))
+    ;; Announce concise success summary (only when no failures and in interactive session)
+    (let* ((sum (plist-get report :summary))
+           (fail (and (listp sum) (plist-get sum :fail))))
+      (when (and (not (bound-and-true-p noninteractive))
+                 (numberp fail) (= fail 0))
+        (let* ((items (or (plist-get report :items) '()))
+               (oks (cl-remove-if-not (lambda (it) (eq (plist-get it :status) 'ok)) items))
+               (created 0) (deleted 0) (renamed 0) (modified 0)
+               (files '()))
+          (dolist (it oks)
+            (let ((op (plist-get it :op)))
+              (pcase op
+                ('create (setq created (1+ created)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+                ('delete (setq deleted (1+ deleted)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+                ('rename (setq renamed (1+ renamed)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+                ((or 'patch 'sre 'aibo) (setq modified (1+ modified)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+                (_ (push (or (plist-get it :file) (plist-get it :path) "-") files)))))
+          (let* ((total (length oks))
+                 (files-str (mapconcat #'identity (nreverse (delete-dups (delq nil files))) ", ")))
+            (when (> total 0)
+              (message "Carriage: applied OK (%d items) — created:%d modified:%d deleted:%d renamed:%d — %s"
+                       total created modified deleted renamed files-str))))))
     (when (functionp callback)
       (run-at-time 0 nil (lambda () (funcall callback report))))
     report))
@@ -637,8 +686,24 @@ carriage-git-ephemeral-keep-on-fail: if any step failed and KEEP-ON-FAIL is t, d
                       (carriage--apply-finish plan state callback))))
                ;; Not empty — keep branch
                (carriage--apply-finish plan state callback)))
-           ;; If diff check failed, conservatively keep the branch
-           (lambda (_err) (carriage--apply-finish plan state callback)))
+           ;; If diff check failed, attempt best-effort deletion when ok==0 (fallback).
+           (lambda (_err)
+             (carriage-git-delete-branch-async
+              repo-root cur
+              (lambda (_okdel)
+                (carriage--apply-acc-msg
+                 state (list :code 'GIT_INFO :severity 'info
+                             :details (format "Ephemeral branch %s deleted" (or cur ""))))
+                (carriage--apply-finish plan state callback))
+              (lambda (err2)
+                (let* ((stderr (string-trim (or (plist-get err2 :stderr) "")))
+                       (stdout (string-trim (or (plist-get err2 :stdout) ""))))
+                  (carriage--apply-acc-msg
+                   state (list :code 'GIT_E_APPLY :severity 'warn
+                               :details (or (and (not (string-empty-p stderr)) stderr)
+                                            (and (not (string-empty-p stdout)) stdout)
+                                            "Ephemeral branch delete failed")))
+                  (carriage--apply-finish plan state callback))))))
         ;; No ORIG available — fallback to simple ok==0 heuristic
         (carriage-git-delete-branch-async
          repo-root cur

@@ -72,7 +72,7 @@
 * Ключи (дополнение v1.3)
 - UI/Mode-line:
   - :suite — метка "Suite".
-  - :engine — метка "Engine".
+  - :engine-label — метка "Engine".
   - :suite-tooltip — всплывающая подсказка для выбора Suite.
   - :engine-tooltip — всплывающая подсказка для выбора Engine.
   - :engine-tooltip-branch — шаблон тултипа для git (например, "Движок: %s (ветки: %s)").

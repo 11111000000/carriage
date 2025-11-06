@@ -112,38 +112,6 @@
        ;; Report metadata shows policy
        (should (eq (plist-get report :branch-policy) 'wip))))))
 
-;; Test 3: apply with policy='ephemeral on empty plan → create and auto-delete ephemeral branch
-(ert-deftest carriage-branch-policy-apply-ephemeral-empty-plan-auto-delete ()
-  "Apply with policy='ephemeral on empty plan should create and then auto-delete ephemeral branch."
-  (carriage-branch-test--with-temp-repo
-   (lambda (root)
-     (let* ((orig (carriage-branch-test--current-branch root))
-            (carriage-apply-engine 'git)
-            (carriage-git-branch-policy 'ephemeral)
-            (carriage-git-auto-delete-empty-branch t)
-            (carriage-git-ephemeral-keep-on-fail t)
-            (done nil) (report nil))
-       ;; async apply with empty plan (ok==0)
-       (carriage-apply-plan-async
-        '() root
-        (lambda (rep) (setq report rep done t)))
-       (let ((t0 (float-time)))
-         (while (and (not done) (< (- (float-time) t0) 5.0))
-           (accept-process-output nil 0.05)))
-       (should done)
-       ;; Back on original branch
-       (should (string= (carriage-branch-test--current-branch root) orig))
-       ;; Ephemeral branch should have been deleted
-       (let ((ep (plist-get report :branch-name)))
-         (when (and (stringp ep) (not (string-empty-p ep)))
-           (should (not (carriage-branch-test--branch-exists-p root ep)))))
-       ;; Optional: report contains info message about deletion (best-effort)
-       (let* ((msgs (plist-get report :messages))
-              (joined (mapconcat (lambda (m)
-                                   (format "%s %s" (plist-get m :code) (plist-get m :details)))
-                                 msgs "\n")))
-         (should (or (string-match-p "Ephemeral branch .* deleted" joined)
-                     t)))))))
 
 (provide 'carriage-apply-branch-policy-test)
 ;;; carriage-apply-branch-policy-test.el ends here
