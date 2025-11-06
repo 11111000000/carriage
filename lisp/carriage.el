@@ -19,7 +19,7 @@
        (engines-dir (and this-dir (expand-file-name "engines" this-dir))))
   (when (and ops-dir (file-directory-p ops-dir))
     (add-to-list 'load-path ops-dir))
-  (when (and ops-dir (file-directory-p transports-dir))
+  (when (and transports-dir (file-directory-p transports-dir))
     (add-to-list 'load-path transports-dir))
   (when (and engines-dir (file-directory-p engines-dir))
     (add-to-list 'load-path engines-dir)))

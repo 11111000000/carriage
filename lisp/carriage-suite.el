@@ -211,7 +211,10 @@ CTX may contain keys like :payload, :context-text, :context-target, :delim, :fil
                                (stringp ctx-text) (not (string-empty-p ctx-text)))
                           (concat ctx-text "\n" payload)
                         payload)))
-         (list :system (or system "") :prompt prompt)))
+         (let* ((sys0 (or system ""))
+                (fp (ignore-errors (secure-hash 'sha1 sys0)))
+                (sys1 (if fp (concat sys0 "\n;; fingerprint: " fp) sys0)))
+           (list :system sys1 :prompt prompt))))
       ((or 'Code 'Hybrid)
        (let* ((ops (progn
                      (unless (carriage-suite-known-p suite-id)
@@ -265,7 +268,10 @@ CTX may contain keys like :payload, :context-text, :context-target, :delim, :fil
                           (concat ctx-text "\n" payload)
                         payload)))
          (carriage--assert-suite-safety suite-id system)
-         (list :system system :prompt prompt)))
+         (let* ((sys0 system)
+                (fp (ignore-errors (secure-hash 'sha1 sys0)))
+                (sys1 (if fp (concat sys0 "\n;; fingerprint: " fp) sys0)))
+           (list :system sys1 :prompt prompt))))
       (_
        (signal (carriage-error-symbol 'MODE_E_DISPATCH)
                (list (format "Unknown intent: %S" intent)))))))

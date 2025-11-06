@@ -41,7 +41,8 @@ For left/right sides this is window-width; for top/bottom — window-height."
   (let* ((buf (get-buffer-create carriage--log-buffer-name)))
     (with-current-buffer buf
       (unless (derived-mode-p 'carriage-aux-mode)
-        (carriage-aux-mode)))
+        (carriage-aux-mode))
+      (setq-local header-line-format "Carriage: Log"))
     buf))
 
 (defun carriage-traffic-buffer ()
@@ -49,7 +50,8 @@ For left/right sides this is window-width; for top/bottom — window-height."
   (let* ((buf (get-buffer-create carriage--traffic-buffer-name)))
     (with-current-buffer buf
       (unless (derived-mode-p 'carriage-aux-mode)
-        (carriage-aux-mode)))
+        (carriage-aux-mode))
+      (setq-local header-line-format "Carriage: Traffic"))
     buf))
 
 (defun carriage--buffer-line-count (buffer)

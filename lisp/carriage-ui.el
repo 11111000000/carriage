@@ -22,7 +22,7 @@ Negative values move icons up; positive move them down."
   :group 'carriage-ui)
 
 ;; Debug logging controls
-(defcustom carriage-ui-debug t
+(defcustom carriage-ui-debug nil
   "When non-nil, log debug info about icon faces/colors in modeline."
   :type 'boolean
   :group 'carriage-ui)
@@ -570,6 +570,31 @@ Truncation order: outline → buffer → project."
 (defvar-local carriage-ui--last-outline-title nil
   "Cached outline heading title at point for fast header-line refresh.")
 
+(defcustom carriage-mode-headerline-idle-interval 0.12
+  "Idle interval in seconds before refreshing header-line after cursor/scroll changes."
+  :type 'number
+  :group 'carriage-ui)
+
+(defvar-local carriage-ui--headerline-idle-timer nil
+  "Idle timer used to coalesce frequent header-line refreshes.")
+
+(defun carriage-ui--headerline-queue-refresh ()
+  "Schedule a header-line refresh on idle to reduce churn."
+  (when (timerp carriage-ui--headerline-idle-timer)
+    (cancel-timer carriage-ui--headerline-idle-timer))
+  (let* ((buf (current-buffer))
+         (interval (or (and (boundp 'carriage-mode-headerline-idle-interval)
+                            carriage-mode-headerline-idle-interval)
+                       0.12)))
+    (setq carriage-ui--headerline-idle-timer
+          (run-with-idle-timer interval nil
+                               (lambda ()
+                                 (when (buffer-live-p buf)
+                                   (with-current-buffer buf
+                                     (force-mode-line-update t)
+                                     (setq carriage-ui--headerline-idle-timer nil)))))))
+  t)
+
 (defun carriage-ui--headerline-post-command ()
   "Post-command hook: refresh header-line instantly when Org outline context changes.
 Updates on any change of outline path, heading level, or heading title."
@@ -588,11 +613,11 @@ Updates on any change of outline path, heading level, or heading title."
         (setq carriage-ui--last-outline-path-str cur-path)
         (setq carriage-ui--last-outline-level lvl)
         (setq carriage-ui--last-outline-title ttl)
-        (force-mode-line-update t)))))
+        (carriage-ui--headerline-queue-refresh)))))
 
 (defun carriage-ui--headerline-window-scroll (_win _start)
   "Refresh header-line on window scroll for instant visual updates."
-  (force-mode-line-update t))
+  (carriage-ui--headerline-queue-refresh))
 
 (defun carriage-ui--ml-button (label fn help)
   "Return a clickable LABEL that invokes FN, preserving LABEL's text properties."

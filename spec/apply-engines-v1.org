@@ -11,7 +11,7 @@
 - Область и границы
 - Поддерживаемые форматы v1: sre, aibo, patch (unified diff), create, delete, rename.
 - В v1 движок 'emacs не применяет patch (unified diff); для patch обязателен 'git.
-- Default-движок: 'git.
+- Default-движок: 'emacs.
 
 - Термины
 - Движок применения (Engine) — реализация набора операций применения план-элементов (patch/sre/aibo/file-ops) с dry-run и apply.

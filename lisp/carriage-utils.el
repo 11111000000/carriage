@@ -166,20 +166,7 @@ about the lifecycle (spawn, wait ticks, timeout/exit) to help diagnose stalls."
       (setq p (cddr p)))
     (nreverse res)))
 
-(defun carriage--sre--rewrite-delim-markers (text old new)
-  "Rewrite segment markers for :op \"create\" from delimiter OLD to NEW in TEXT.
-This replaces only the segment markers at beginning of lines:
-  - \"<<OLD\" → \"<<NEW\"
-  - \":OLD\"  → \":NEW\"
-Other occurrences of OLD inside the payload are not touched."
-  (let* ((old (or old ""))
-         (new (or new ""))
-         (re-open (concat "^<<\\(" (regexp-quote old) "\\)\\b"))
-         (re-close (concat "^:\\(" (regexp-quote old) "\\)\\b"))
-         (res text))
-    (setq res (replace-regexp-in-string re-open (concat "<<" new) res))
-    (setq res (replace-regexp-in-string re-close (concat ":" new) res))
-    res))
+;; DELIM marker rewriter is unified in lisp/carriage-sre-delim.el (carriage-sre-rewrite-delim-markers).
 
 (provide 'carriage-utils)
 ;;; carriage-utils.el ends here

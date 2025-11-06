@@ -392,6 +392,10 @@ Do not define bindings here; all key bindings are applied via keyspec and mode s
     (setq carriage--mode-prev-header-line-format nil)
     (remove-hook 'post-command-hook #'carriage-ui--headerline-post-command t)
     (remove-hook 'window-scroll-functions #'carriage-ui--headerline-window-scroll t)
+    (when (and (boundp 'carriage-ui--headerline-idle-timer)
+               (timerp carriage-ui--headerline-idle-timer))
+      (cancel-timer carriage-ui--headerline-idle-timer))
+    (setq carriage-ui--headerline-idle-timer nil)
     (when (and carriage--mode-modeline-construct
                (local-variable-p 'mode-line-format))
       (setq-local mode-line-format
@@ -811,10 +815,7 @@ May include :context-text and :context-target per v1.1."
       (ignore-errors (carriage-show-log)))
     (when (and carriage-mode-auto-open-traffic (not (bound-and-true-p noninteractive)))
       (ignore-errors (carriage-show-traffic)))
-    ;; Begin new iteration before streaming: write Org property and set buffer-local id
-    (ignore-errors (carriage-begin-iteration))
-    ;; Begin new iteration before streaming: write Org property and set buffer-local id
-    (ignore-errors (carriage-begin-iteration))
+
     (carriage--ensure-transport)
     (carriage-stream-reset origin-marker)
     (let* ((unreg (carriage-transport-begin)))
@@ -861,10 +862,7 @@ May include :context-text and :context-target per v1.1."
       (ignore-errors (carriage-show-log)))
     (when (and carriage-mode-auto-open-traffic (not (bound-and-true-p noninteractive)))
       (ignore-errors (carriage-show-traffic)))
-    ;; Begin new iteration before streaming: write Org property and set buffer-local id
-    (ignore-errors (carriage-begin-iteration))
-    ;; Begin new iteration before streaming: write Org property and set buffer-local id
-    (ignore-errors (carriage-begin-iteration))
+
     (carriage--ensure-transport)
     (let* ((unreg (carriage-transport-begin)))
       (carriage-traffic-log 'out "request begin: source=subtree backend=%s model=%s"
@@ -1353,17 +1351,7 @@ Return a single string with blocks concatenated by blank lines."
           (forward-line 1)))
       (mapconcat #'identity (nreverse chunks) "\n\n"))))
 
-(defun carriage--sre--rewrite-delim-markers (body old new)
-  "Rewrite create segment markers in BODY from OLD to NEW token.
-Only rewrites full marker lines:
-- <<OLD
-- :OLD
-Returns modified BODY string."
-  (let* ((rx-open (concat "^[ \t]*<<\\(" (regexp-quote (or old "")) "\\)[ \t]*$"))
-         (rx-close (concat "^[ \t]*:\\(" (regexp-quote (or old "")) "\\)[ \t]*$"))
-         (s1 (replace-regexp-in-string rx-open (concat "<<" new) (or body "") t t))
-         (s2 (replace-regexp-in-string rx-close (concat ":" new) s1 t t)))
-    s2))
+
 
 (defun carriage--sanitize-llm-response (raw)
   "Return only sanitized #+begin_patch blocks from RAW.
@@ -1372,6 +1360,7 @@ Sanitization rules:
 - Keep only begin_patch blocks; drop any text outside blocks.
 - For :op create: ensure :delim is a 6-hex token in header.
   If missing/invalid, generate a token and rewrite markers in body (<<TOK and :TOK)."
+  (require 'carriage-sre-delim nil t)
   (with-temp-buffer
     (insert (or raw ""))
     (goto-char (point-min))
@@ -1406,7 +1395,7 @@ Sanitization rules:
             (when needs-delim
               (setq hdr1 (plist-put hdr1 :delim newtok))
               (when (and oldtok (not (string= oldtok newtok)))
-                (setq body1 (carriage--sre--rewrite-delim-markers body oldtok newtok))))
+                (setq body1 (carriage-sre-rewrite-delim-markers body oldtok newtok))))
             (let* ((hdr-print (prin1-to-string hdr1))
                    (block (concat "#+begin_patch " hdr-print "\n" body1 "\n#+end_patch\n")))
               (push block acc))))

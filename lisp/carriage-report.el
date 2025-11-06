@@ -338,6 +338,7 @@ In batch mode runs non-interactively and refreshes report."
   (use-local-map carriage-report-mode-map)
   (setq major-mode 'carriage-report-mode)
   (setq mode-name "Carriage-Report")
+  (setq-local header-line-format "Carriage: Report")
   (setq buffer-read-only t)
   (setq truncate-lines t)
   (run-mode-hooks 'carriage-report-mode-hook)
