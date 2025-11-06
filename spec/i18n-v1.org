@@ -64,6 +64,8 @@
   - :send-buffer — подпись действия «Отправить буфер».
   - :send-subtree — подпись действия «Отправить поддерево».
   - :open-buffer — «Открыть буфер Carriage».
+  - :select-suite — «Выбрать Suite».
+  - :toggle-intent — «Переключить Intent».
   - :carriage-menu — заголовок/подсказка «Carriage Menu».
   - :carriage-toggles — заголовок/подсказка «Carriage Toggles».
 

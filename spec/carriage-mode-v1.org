@@ -50,10 +50,10 @@
   - Политика включения reasoning определяется переменной carriage-mode-include-reasoning ('block|'ignore).
 - Допустимые спец-блоки: begin_patch/end_patch.
 - Любой «шум» вне блоков игнорируется; неверные блоки маркируются предупреждениями.
-- «Последняя итерация» помечается идентификатором CARRIAGE_ITERATION_ID:
-  - Org-property на уровне документа/заголовка: CARRIAGE_ITERATION_ID="UUID" (строка).
-  - Генерация: новый UUIDv4 создаётся при каждом send-buffer/send-subtree.
-  - Каждому принятому блоку присваивается текстовое свойство :carriage-iteration-id с тем же значением; C-c ! выбирает блоки по совпадению идентификатора.
+  - «Последняя итерация» помечается идентификатором CARRIAGE_ITERATION_ID:
+    - Org-property на уровне документа/заголовка: CARRIAGE_ITERATION_ID="UUID" (строка).
+    - Генерация: новый UUIDv4 создаётся РОВНО один раз на запрос в carriage-transport-begin; команды отправки (send-buffer/send-subtree) не генерируют id.
+    - Каждому принятому блоку присваивается текстовое свойство :carriage-iteration-id с тем же значением; C-c ! выбирает блоки по совпадению идентификатора.
 
 * Регистрация форматов (см. ./parser-registry-v1.org)
 - Диспетчеризация по (:version, :op) → parser/dry-run/apply.

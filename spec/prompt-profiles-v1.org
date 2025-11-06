@@ -180,12 +180,13 @@
   4) guardrails ← статический текст правил:
      - Имя блока: только begin_patch/end_patch (никаких алиасов).
      - Пути: только относительные; запрет «..», абсолютов, TRAMP.
-     - DELIM — только для :op "create"; в SRE :delim запрещён.
+     - DELIM — только для :op "create"; в SRE :delim запрещён. Закрывающий маркер должен быть РОВНО строкой вида ":DELIM" (двоеточие + токен) без пробелов и постфиксов на отдельной строке; строки вида ": DELIM", "::DELIM" или с хвостовыми пробелами запрещены (негативные примеры включать в prompt).
      - Suite=sre: разрешены только (sre create delete rename) и никакого unified diff.
      - Suite=udiff: разрешены только (patch create delete rename) и никакого begin_from/begin_to.
      - Intent=Code: запрет текста вне блоков; Intent=Hybrid: текст допускается, применяется только содержимое блоков.
   5) system ← guardrails + intent-note + join(fragments, "\n\n") + (опционально перечисление разрешённых :op).
   6) prompt ← CTX :payload (+ опционально :context-text в ветку, указанную :context-target).
+  7) fingerprint ← строка вида ";; fingerprint: <SHA1(system)>" добавляется в конец system для диагностики дрейфа промпта; UI/отчёт могут отображать несовпадение версий.
 - Выход: plist {:system STRING :prompt STRING} (или совместимая структура транспорта).
 
 * Защитные проверки (asserts)

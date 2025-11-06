@@ -92,6 +92,10 @@
 (:id send-buffer  :cmd carriage-send-buffer   :keys ("RET")    :contexts (carriage) :section act :desc-key :send-buffer)
 (:id send-subtree :cmd carriage-send-subtree  :keys ("M-RET")  :contexts (carriage) :section act :desc-key :send-subtree)
 
+;; Выбор Suite и Intent
+(:id select-suite :cmd carriage-select-suite  :keys ("s")      :contexts (carriage) :section tools :desc-key :select-suite)
+(:id toggle-intent :cmd carriage-toggle-intent :keys ("i")     :contexts (carriage) :section tools :desc-key :toggle-intent)
+
 ;; Глобальное «открыть буфер Carriage» (уникальный на проект)
 (:id open-buffer  :cmd carriage-open-buffer   :keys ("e")      :contexts (global)   :section session :desc-key :open-buffer)
 #+end_src

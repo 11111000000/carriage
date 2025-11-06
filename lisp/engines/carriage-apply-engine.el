@@ -153,14 +153,18 @@ Callbacks are invoked on the main thread via run-at-time 0. Returns the engine t
                 ((or 'apply   :apply)   (plist-get rec :apply))
                 (_ nil))))
     ;; Suite↔Engine guard (spec v1): patch требует git-движок
+    ;; v1.1: дружелюбная деградация — возвращаем 'skip вместо жёсткой ошибки
     (if (and (eq op 'patch) (not (eq eng 'git)))
         (progn
-          (carriage-log "Engine dispatch refused: op=patch requires git engine (current=%s)" eng)
-          (when (functionp on-fail)
-            (run-at-time 0 nil
-                         (lambda ()
-                           (funcall on-fail (list :engine eng :exit 125 :code 'MODE_E_DISPATCH
-                                                  :stderr "patch op requires git engine")))))
+          (carriage-log "Engine dispatch: patch unsupported by %s; reporting skip" eng)
+          (when (functionp on-done)
+            (let ((msg (if (eq eng 'emacs)
+                           "patch unsupported by emacs engine"
+                         "patch unsupported by selected engine")))
+              (run-at-time 0 nil
+                           (lambda ()
+                             (funcall on-done
+                                      (list :engine eng :op 'patch :status 'skip :details msg))))))
           nil)
       (if (functionp cb)
           (condition-case e
