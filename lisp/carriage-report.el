@@ -199,7 +199,8 @@ The report buffer is shown in a top side window (above the main window)."
     (let* ((items (plist-get report :items))
            (msgs  (plist-get report :messages)))
       (if (and (null items) (null msgs))
-          (carriage-log "report-open: skip rendering empty report")
+          (carriage-log "report-open: skip rendering empty report items=%d msgs=%d"
+                        (length (or items '())) (length (or msgs '())))
         (carriage-report-render report))))
   (save-selected-window
     ;; Show report in a top side window so it is easy to reach via window navigation.
@@ -310,6 +311,9 @@ In batch mode runs non-interactively and refreshes report."
            (root      (or (plist-get it :_root) (carriage-project-root) default-directory)))
       (unless (and plan-item root)
         (user-error "No plan/root stored on this row"))
+      (let* ((op (or (and (listp plan-item) (plist-get plan-item :op)) (alist-get :op plan-item)))
+             (target (or (alist-get :path plan-item) (alist-get :file plan-item))))
+        (carriage-log "report-apply: op=%s target=%s root=%s" op (or target "-") root))
       (carriage-ui-set-state 'apply)
       (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
           (progn

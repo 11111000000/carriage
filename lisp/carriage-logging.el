@@ -117,8 +117,8 @@ STRING may be any object; it will be coerced to a string via format."
   (delq nil (list (get-buffer carriage--log-buffer-name)
                   (get-buffer carriage--traffic-buffer-name))))
 
-(defun carriage--aux-tab-name (buffer)
-  "Return a short tab name for BUFFER."
+(defun carriage--aux-tab-name (buffer &rest _)
+  "Return a short tab name for BUFFER. Accept extra args for newer Emacs."
   (let ((n (buffer-name buffer)))
     (cond
      ((string= n carriage--log-buffer-name) "Log")
@@ -180,6 +180,10 @@ SIDE defaults to =carriage-mode-aux-window-side'. SIZE defaults to
          ;; Always use a single slot for both buffers to avoid creating two windows.
          (slot (or slot 0))
          (win (and reuse (carriage--aux-find-window))))
+    (when (and win
+               (let ((ws (window-parameter win 'window-side)))
+                 (not (eq ws side))))
+      (setq win nil))
     (save-selected-window
       (let* ((inhibit-switch-frame t))
         (cond

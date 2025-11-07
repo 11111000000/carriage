@@ -7,9 +7,11 @@
   "Announce a concise summary to Messages after successful apply REPORT via carriage-report-open."
   (when (and (not (bound-and-true-p noninteractive))
              (listp rep))
-    (let* ((sum (plist-get rep :summary))
+    (let* ((phase (plist-get rep :phase))
+           (sum (plist-get rep :summary))
            (fail (and (listp sum) (plist-get sum :fail))))
-      (when (and sum (numberp fail) (= fail 0))
+      ;; Announce only for real apply phase, not for dry-run or empty/diagnostic reports.
+      (when (and (eq phase 'apply) sum (numberp fail) (= fail 0))
         (let* ((items (or (plist-get rep :items) '()))
                (oks (cl-remove-if-not (lambda (it)
                                         (eq (plist-get it :status) 'ok))

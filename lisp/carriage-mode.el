@@ -1117,27 +1117,32 @@ May include :context-text and :context-target per v1.1."
                    total created modified deleted renamed files-str))))))
 (defun carriage--apply-single-item-dispatch (plan-item root)
   "Apply single PLAN-ITEM under ROOT, async when configured; update UI/report."
-  (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
-      (progn
-        (carriage-log "apply-at-point: async apply scheduled")
-        (carriage-apply-plan-async
-         (list plan-item) root
-         (lambda (rep)
-           (when (not noninteractive)
-             (carriage--report-open-maybe rep))
-           (when (and (not noninteractive)
-                      (let* ((sum (plist-get rep :summary)))
-                        (and sum (zerop (or (plist-get sum :fail) 0)))))
-             (carriage--announce-apply-success rep))
-           (carriage-ui-set-state 'idle))))
-    (let ((ap (carriage-apply-plan (list plan-item) root)))
-      (when (not noninteractive)
-        (carriage--report-open-maybe ap))
-      (when (and (not noninteractive)
-                 (let* ((sum (plist-get ap :summary)))
-                   (and sum (zerop (or (plist-get sum :fail) 0)))))
-        (carriage--announce-apply-success ap))
-      (carriage-ui-set-state 'idle))))
+  (let* ((op (or (and (listp plan-item) (plist-get plan-item :op)) (alist-get :op plan-item)))
+         (path (or (alist-get :path plan-item) (alist-get :file plan-item)))
+         (eng (carriage-apply-engine))
+         (pol (and (eq eng 'git) (boundp 'carriage-git-branch-policy) carriage-git-branch-policy)))
+    (carriage-log "apply-dispatch: op=%s target=%s engine=%s policy=%s" op (or path "-") eng pol)
+    (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
+        (progn
+          (carriage-log "apply-at-point: async apply scheduled")
+          (carriage-apply-plan-async
+           (list plan-item) root
+           (lambda (rep)
+             (when (not noninteractive)
+               (carriage--report-open-maybe rep))
+             (when (and (not noninteractive)
+                        (let* ((sum (plist-get rep :summary)))
+                          (and sum (zerop (or (plist-get sum :fail) 0)))))
+               (carriage--announce-apply-success rep))
+             (carriage-ui-set-state 'idle))))
+      (let ((ap (carriage-apply-plan (list plan-item) root)))
+        (when (not noninteractive)
+          (carriage--report-open-maybe ap))
+        (when (and (not noninteractive)
+                   (let* ((sum (plist-get ap :summary)))
+                     (and sum (zerop (or (plist-get sum :fail) 0)))))
+          (carriage--announce-apply-success ap))
+        (carriage-ui-set-state 'idle)))))
 
 ;;;###autoload
 (defun carriage-apply-at-point ()
