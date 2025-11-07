@@ -51,11 +51,9 @@ DEBUG:
 
 * FILE OPS (create / delete / rename)
 #+begin_example
-#+begin_patch (:version "1" :op "create" :file "docs/intro.md" :delim "beef01" :mkdir t)
-<<beef01
+#+begin_patch (:version "1" :op "create" :file "docs/intro.md" :mkdir t)
 * Intro
 Hello
-:beef01
 #+end_patch
 
 #+begin_patch (:version "1" :op "rename" :from "docs/intro.md" :to "docs/guide.md")

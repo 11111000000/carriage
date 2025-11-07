@@ -31,6 +31,7 @@
 - NOOP-политика: при carriage-mode-sre-noop-on-zero-matches=t и :occur first с 0 совпадений → статус 'skip и предупреждение.
 - Begin-iteration: команды отправки (send-buffer/send-subtree) не вызывают carriage-begin-iteration; идентификатор создаётся РОВНО один раз в carriage-transport-begin. Тест через advice/счётчик вызовов.
 - Collector fallback: при отсутствии текстовых свойств на #+begin_patch, но при наличии inline-маркера "#+CARRIAGE_ITERATION_ID: <id>", строгий сборщик выбирает все блоки после ПОСЛЕДНЕГО такого маркера до следующего ниже (или конца буфера).
+- Collector fallback: при отсутствии текстовых свойств на #+begin_patch, но при наличии inline-маркера "#+CARRIAGE_ITERATION_ID: <id>", строгий сборщик выбирает все блоки после ПОСЛЕДНЕГО такого маркера до следующего ниже (или конца буфера).
 - Load-path init: carriage.el добавляет каталоги lisp/ops, lisp/transports и lisp/engines в load-path с корректными guards (transports-dir проверяется по переменной transports-dir, а не ops-dir).
 
 ** Интеграционные

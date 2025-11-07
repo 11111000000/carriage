@@ -14,6 +14,144 @@
 (defvar carriage--transport-loading-adapter nil
   "Guard to prevent recursive/layered adapter loading in transport dispatcher.")
 
+;; Traffic logging (per-buffer buffers, summaries, and optional file logging)
+
+(defgroup carriage-traffic nil
+  "Traffic logging for Carriage (per-buffer buffers, summaries, file logging)."
+  :group 'carriage)
+
+(defcustom carriage-traffic-summary-head-bytes 4096
+  "Max bytes from the beginning of the response to include in summary."
+  :type 'integer :group 'carriage-traffic)
+
+(defcustom carriage-traffic-summary-tail-bytes 4096
+  "Max bytes from the end of the response to include in summary."
+  :type 'integer :group 'carriage-traffic)
+
+(defcustom carriage-traffic-max-bytes 1048576
+  "Approximate max size (in characters) for a traffic buffer before trimming from the top."
+  :type 'integer :group 'carriage-traffic)
+
+(defcustom carriage-traffic-log-to-file nil
+  "When non-nil, also append traffic log lines to a file (see `carriage-traffic-log-file')."
+  :type 'boolean :group 'carriage-traffic)
+
+(defcustom carriage-traffic-log-file "carriage-traffic.log"
+  "Path to traffic log file. Relative path is resolved against origin buffer's default-directory."
+  :type 'string :group 'carriage-traffic)
+
+(defun carriage--traffic--origin-name (origin-buffer)
+  "Return a short human name for ORIGIN-BUFFER (file basename or buffer-name)."
+  (with-current-buffer origin-buffer
+    (or (and buffer-file-name (file-name-nondirectory buffer-file-name))
+        (buffer-name origin-buffer)
+        "buffer")))
+
+(defun carriage--traffic-buffer-name (origin-buffer)
+  "Return per-origin traffic buffer name."
+  (format "*carriage-traffic:%s*" (carriage--traffic--origin-name origin-buffer)))
+
+(defun carriage--traffic--ensure-buffer (origin-buffer)
+  "Return the per-origin traffic buffer, creating it if necessary."
+  (let* ((name (carriage--traffic-buffer-name origin-buffer))
+         (buf  (get-buffer name)))
+    (unless (buffer-live-p buf)
+      (setq buf (get-buffer-create name))
+      (with-current-buffer buf
+        (special-mode)
+        (setq buffer-read-only t)
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (insert (format "Carriage Traffic — %s\n\n" (carriage--traffic--origin-name origin-buffer))))))
+    buf))
+
+(defun carriage--traffic--trim-if-needed (buf)
+  "Trim BUF from the beginning if it exceeds `carriage-traffic-max-bytes' (approx by chars)."
+  (when (and (integerp carriage-traffic-max-bytes)
+             (> carriage-traffic-max-bytes 0))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (when (> (buffer-size) carriage-traffic-max-bytes)
+          (save-excursion
+            (goto-char (point-min))
+            (forward-char (max 0 (- (buffer-size) carriage-traffic-max-bytes)))
+            (delete-region (point-min) (point))))))))
+
+(defun carriage--traffic-append (origin-buffer text)
+  "Append TEXT to per-origin traffic buffer and trim if needed. Also write to file if enabled."
+  (let ((buf (carriage--traffic--ensure-buffer origin-buffer)))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (goto-char (point-max))
+        (insert text)
+        (unless (string-suffix-p "\n" text) (insert "\n"))))
+    (carriage--traffic--trim-if-needed buf))
+  (when carriage-traffic-log-to-file
+    (condition-case _e
+        (let* ((root (with-current-buffer origin-buffer default-directory))
+               (path (if (file-name-absolute-p carriage-traffic-log-file)
+                         carriage-traffic-log-file
+                       (expand-file-name carriage-traffic-log-file root))))
+          (make-directory (file-name-directory path) t)
+          (with-temp-buffer
+            (insert text)
+            (unless (string-suffix-p "\n" text) (insert "\n"))
+            (append-to-file (point-min) (point-max) path)))
+      (error nil))))
+
+(defun carriage-traffic-log-local (origin-buffer type fmt &rest args)
+  "Log a formatted traffic line to ORIGIN-BUFFER's traffic buffer (and optional file).
+TYPE is a symbol like 'out or 'in, used only as a prefix marker."
+  (let ((prefix (pcase type ('out ">> ") ('in "<< ") (_ "-- "))))
+    (carriage--traffic-append origin-buffer
+                              (concat prefix (apply #'format fmt args)))))
+
+(defun carriage-traffic-log-request (origin-buffer &rest plist)
+  "Log a structured request to ORIGIN-BUFFER's traffic buffer.
+PLIST keys: :backend :model :system :prompt :context (list of paths or structures)."
+  (let* ((backend (plist-get plist :backend))
+         (model   (plist-get plist :model))
+         (system  (plist-get plist :system))
+         (prompt  (plist-get plist :prompt))
+         (context (plist-get plist :context)))
+    (carriage--traffic-append origin-buffer (format "==== BEGIN REQUEST (%s:%s) ====" backend model))
+    (when (stringp system)
+      (carriage--traffic-append origin-buffer "---- SYSTEM ----")
+      (carriage--traffic-append origin-buffer system))
+    (when (stringp prompt)
+      (carriage--traffic-append origin-buffer "---- PROMPT ----")
+      (carriage--traffic-append origin-buffer prompt))
+    (when context
+      (carriage--traffic-append origin-buffer "---- CONTEXT FILES (content omitted) ----")
+      (dolist (c context)
+        (let* ((p (cond
+                   ((stringp c) c)
+                   ((and (listp c) (plist-get c :path)) (plist-get c :path))
+                   ((and (listp c) (alist-get :path c)) (alist-get :path c))
+                   (t (format "%S" c)))))
+          (carriage--traffic-append origin-buffer (format "- %s (…)" p)))))
+    (carriage--traffic-append origin-buffer "==== END REQUEST ====")))
+
+(defun carriage-traffic-log-response-summary (origin-buffer total-text)
+  "Log a summary (head…tail) for TOTAL-TEXT into ORIGIN-BUFFER's traffic buffer."
+  (let* ((head-limit (max 0 (or carriage-traffic-summary-head-bytes 0)))
+         (tail-limit (max 0 (or carriage-traffic-summary-tail-bytes 0)))
+         (len (length (or total-text "")))
+         (head (substring total-text 0 (min len head-limit)))
+         (tail (if (> len tail-limit) (substring total-text (- len (min len tail-limit)) len) "")))
+    (carriage--traffic-append origin-buffer "==== BEGIN RESPONSE (summary) ====")
+    (when (> (length head) 0)
+      (carriage--traffic-append origin-buffer "---- HEAD ----")
+      (carriage--traffic-append origin-buffer head))
+    (when (and (> (length tail) 0) (> len (+ (length head) (length tail))))
+      (carriage--traffic-append origin-buffer "…"))
+    (when (> (length tail) 0)
+      (carriage--traffic-append origin-buffer "---- TAIL ----")
+      (carriage--traffic-append origin-buffer tail))
+    (carriage--traffic-append origin-buffer
+                              (format "==== END RESPONSE (bytes=%d) ====" (string-bytes (or total-text ""))))))
+
+
 ;;;###autoload
 (defun carriage-transport-begin (&optional abort-fn)
   "Signal beginning of an async request: set UI to 'sending and install ABORT-FN.

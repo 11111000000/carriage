@@ -63,7 +63,7 @@
 When non-nil, the [AutoRpt] toggle appears ON (meaning 'always)."
   :type 'boolean :group 'carriage)
 
-(defcustom carriage-mode-report-open-policy 'always
+(defcustom carriage-mode-report-open-policy 'on-error
   "Report auto-open policy:
 - 'on-error — open only when there are failures (default),
 - 'always   — always open after dry-run/apply,

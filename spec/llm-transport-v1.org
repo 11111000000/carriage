@@ -165,3 +165,23 @@
 * Эволюция (v1 → v1.1)
 - Добавить: отчёт стоимости токенов, централизованное логгирование запросов/ответов, метрики.
 - MCP совместимость: зарегистрировать/подключить источники инструментов.
+
+Addendum v1.2 — Traffic logging (structured, per-buffer, summaries)
+- Adapters MUST log structured request/response to per-origin traffic buffers:
+  - Buffer name: "*carriage-traffic:<basename>*".
+  - Request format:
+    - "==== BEGIN REQUEST (backend:model) ===="
+    - "---- SYSTEM ----" (full system message, if present)
+    - "---- PROMPT ----" (full prompt)
+    - "---- CONTEXT FILES (content omitted) ----" (only paths/names)
+    - "==== END REQUEST ===="
+  - Response summary on done/abort:
+    - "==== BEGIN RESPONSE (summary) ===="
+    - "---- HEAD ----" first carriage-traffic-summary-head-bytes
+    - "…"
+    - "---- TAIL ----" last carriage-traffic-summary-tail-bytes
+    - "==== END RESPONSE (bytes=K) ===="
+- File logging option:
+  - When carriage-traffic-log-to-file=t, adapters (or the transport layer) also append traffic lines to carriage-traffic.log.
+- Capacity:
+  - Traffic buffers are trimmed from the top when exceeding carriage-traffic-max-bytes; default ≈1MiB.

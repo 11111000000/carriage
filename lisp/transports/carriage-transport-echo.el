@@ -86,7 +86,14 @@ Does not modify the Org buffer and does not call 'carriage-transport-begin'."
                         (format "ECHO: %s" trimmed)))
              (chunks (carriage--echo--chunk-string payload carriage-transport-echo-chunk-size))
              (first t)
-             (timer nil))
+             (timer nil)
+             ;; Response accumulators for summary
+             (carriage--resp-head "") (carriage--resp-tail "")
+             (carriage--resp-bytes 0)
+             (carriage--resp-head-limit (or (and (boundp 'carriage-traffic-summary-head-bytes)
+                                                 carriage-traffic-summary-head-bytes) 4096))
+             (carriage--resp-tail-limit (or (and (boundp 'carriage-traffic-summary-tail-bytes)
+                                                 carriage-traffic-summary-tail-bytes) 4096)))
         ;; Install abort handler that cancels the streaming timer
         (carriage-register-abort-handler
          (lambda ()
@@ -97,7 +104,14 @@ Does not modify the Org buffer and does not call 'carriage-transport-begin'."
            (with-current-buffer buffer
              (carriage-stream-finalize t nil))
            (carriage-transport-complete t)))
-        ;; Log request
+        ;; Structured request
+        (carriage-traffic-log-request buffer
+                                      :backend 'echo
+                                      :model model
+                                      :prompt payload
+                                      :system nil
+                                      :context nil)
+        ;; Log request (legacy line)
         (carriage-traffic-log 'out "echo request: source=%s model=%s bytes=%d"
                               source model (length payload))
         ;; Drive streaming via timer
@@ -112,6 +126,15 @@ Does not modify the Org buffer and does not call 'carriage-transport-begin'."
                          (if (null rest)
                              (progn
                                (carriage-traffic-log 'in "echo: done")
+                               ;; Structured response summary
+                               (carriage-traffic-log-response-summary
+                                buffer
+                                (concat carriage--resp-head
+                                        (when (> carriage--resp-bytes
+                                                 (+ (string-bytes carriage--resp-head)
+                                                    (string-bytes carriage--resp-tail)))
+                                          "…")
+                                        carriage--resp-tail))
                                (with-current-buffer buffer
                                  (carriage-stream-finalize nil t))
                                (carriage-transport-complete nil)
@@ -125,6 +148,21 @@ Does not modify the Org buffer and does not call 'carriage-transport-begin'."
                              (let ((chunk (pop rest)))
                                (with-current-buffer buffer
                                  (carriage-insert-stream-chunk chunk 'text))
+                               ;; Accumulate head/tail
+                               (setq carriage--resp-bytes (+ carriage--resp-bytes (string-bytes chunk)))
+                               (when (< (length carriage--resp-head) carriage--resp-head-limit)
+                                 (let* ((need (max 0 (- carriage--resp-head-limit (length carriage--resp-head))))
+                                        (take (min need (length chunk))))
+                                   (setq carriage--resp-head
+                                         (concat carriage--resp-head (substring chunk 0 take)))
+                                   (setq chunk (substring chunk take))))
+                               (when (> (length chunk) 0)
+                                 (let* ((concatd (concat carriage--resp-tail chunk))
+                                        (len (length concatd)))
+                                   (setq carriage--resp-tail
+                                         (if (<= len carriage--resp-tail-limit)
+                                             concatd
+                                           (substring concatd (- len carriage--resp-tail-limit) len)))))
                                (carriage-traffic-log 'in "%s" chunk)))))
                      (error
                       (carriage-log "Echo stream error: %s" (error-message-string e))

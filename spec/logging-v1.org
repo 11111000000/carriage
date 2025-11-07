@@ -11,3 +11,29 @@
 - User messages:
   - Timeouts/aborts show a gentle message in interactive sessions.
   - Success summary is announced once per report via carriage-announce.el.
+
+Addendum v1.2 — Traffic buffers, summaries, and file logging
+- Per-buffer traffic buffers:
+  - Each carriage-mode buffer gets its own traffic buffer named: "*carriage-traffic:<basename>*"
+    where <basename> is the visited file name or buffer-name.
+  - Transport adapters log structured sections to this buffer.
+- Structured request logging:
+  - Adapters must emit:
+    - "==== BEGIN REQUEST (backend:model) ===="
+    - "---- SYSTEM ----" (full system message, if present)
+    - "---- PROMPT ----" (full prompt)
+    - "---- CONTEXT FILES (content omitted) ----" (list only paths/names; no content)
+    - "==== END REQUEST ===="
+- Structured response summaries:
+  - On completion/abort emit:
+    - "==== BEGIN RESPONSE (summary) ===="
+    - "---- HEAD ----" first N bytes (carriage-traffic-summary-head-bytes)
+    - "…"
+    - "---- TAIL ----" last M bytes (carriage-traffic-summary-tail-bytes)
+    - "==== END RESPONSE (bytes=K) ===="
+  - N and M are customizable; defaults: 4096 each.
+- Capacity and trimming:
+  - Traffic buffers are trimmed from the top when exceeding carriage-traffic-max-bytes (default ~1MiB).
+- Optional file logging:
+  - When carriage-traffic-log-to-file=t, all traffic lines are also appended to carriage-traffic.log
+    (path customizable; relative paths resolved against the origin buffer's default-directory).

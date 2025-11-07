@@ -149,7 +149,14 @@ On backend mismatch, logs and completes with error."
                        (carriage--gptel--prompt source buffer (intern (format "%s" mode)))))
            (system (plist-get args :system))
            (gptel-buffer buffer)
-           (gptel-model (carriage--gptel--normalize-model model)))
+           (gptel-model (carriage--gptel--normalize-model model))
+           ;; Response accumulation for summary (head/tail)
+           (carriage--resp-head "") (carriage--resp-tail "")
+           (carriage--resp-bytes 0)
+           (carriage--resp-head-limit (or (and (boundp 'carriage-traffic-summary-head-bytes)
+                                               carriage-traffic-summary-head-bytes) 4096))
+           (carriage--resp-tail-limit (or (and (boundp 'carriage-traffic-summary-tail-bytes)
+                                               carriage-traffic-summary-tail-bytes) 4096)))
       (with-current-buffer gptel-buffer
         (carriage--gptel--maybe-open-logs)
         (carriage-register-abort-handler
@@ -158,6 +165,13 @@ On backend mismatch, logs and completes with error."
                (gptel-abort gptel-buffer)
              (error (carriage-log "Transport[gptel]: abort error: %s"
                                   (error-message-string e))))))
+        ;; Structured request logging (per-buffer traffic buffer)
+        (carriage-traffic-log-request gptel-buffer
+                                      :backend 'gptel
+                                      :model gptel-model
+                                      :system system
+                                      :prompt prompt
+                                      :context (plist-get args :context))
         (carriage-traffic-log 'out "gptel request: model=%s source=%s bytes=%d"
                               gptel-model source (length prompt))
         (gptel-request prompt
@@ -196,6 +210,21 @@ On backend mismatch, logs and completes with error."
                  (when (stringp text)
                    (with-current-buffer gptel-buffer
                      (carriage-insert-stream-chunk text 'text))
+                   ;; Accumulate response summary head/tail
+                   (setq carriage--resp-bytes (+ carriage--resp-bytes (string-bytes text)))
+                   (when (< (length carriage--resp-head) carriage--resp-head-limit)
+                     (let* ((need (max 0 (- carriage--resp-head-limit (length carriage--resp-head))))
+                            (take (min need (length text))))
+                       (setq carriage--resp-head
+                             (concat carriage--resp-head (substring text 0 take)))
+                       (setq text (substring text take))))
+                   (when (> (length text) 0)
+                     (let* ((concatd (concat carriage--resp-tail text))
+                            (len (length concatd)))
+                       (setq carriage--resp-tail
+                             (if (<= len carriage--resp-tail-limit)
+                                 concatd
+                               (substring concatd (- len carriage--resp-tail-limit) len)))))
                    (setq any-text-seen t)
                    (carriage-traffic-log 'in "%s" text)))
                 ;; Reasoning end marker
@@ -212,7 +241,22 @@ On backend mismatch, logs and completes with error."
                  (when (stringp text)
                    (with-current-buffer gptel-buffer
                      ;; This will auto-close an open reasoning block
-                     (carriage-insert-stream-chunk text 'text)))
+                     (carriage-insert-stream-chunk text 'text))
+                   ;; Accumulate response summary head/tail
+                   (setq carriage--resp-bytes (+ carriage--resp-bytes (string-bytes text)))
+                   (when (< (length carriage--resp-head) carriage--resp-head-limit)
+                     (let* ((need (max 0 (- carriage--resp-head-limit (length carriage--resp-head))))
+                            (take (min need (length text))))
+                       (setq carriage--resp-head
+                             (concat carriage--resp-head (substring text 0 take)))
+                       (setq text (substring text take))))
+                   (when (> (length text) 0)
+                     (let* ((concatd (concat carriage--resp-tail text))
+                            (len (length concatd)))
+                       (setq carriage--resp-tail
+                             (if (<= len carriage--resp-tail-limit)
+                                 concatd
+                               (substring concatd (- len carriage--resp-tail-limit) len))))))
                  (setq any-text-seen t)
                  (when (stringp text)
                    (carriage-traffic-log 'in "%s" text)))
@@ -222,6 +266,15 @@ On backend mismatch, logs and completes with error."
                 ;; Done
                 ('done
                  (carriage-traffic-log 'in "gptel: done")
+                 ;; Structured response summary
+                 (carriage-traffic-log-response-summary
+                  gptel-buffer
+                  (concat carriage--resp-head
+                          (when (> carriage--resp-bytes
+                                   (+ (string-bytes carriage--resp-head)
+                                      (string-bytes carriage--resp-tail)))
+                            "…")
+                          carriage--resp-tail))
                  (with-current-buffer gptel-buffer
                    (carriage-stream-finalize nil t)
                    (carriage-transport-complete nil)))
@@ -229,6 +282,15 @@ On backend mismatch, logs and completes with error."
                 ('abort
                  (let ((msg (or (plist-get info :status) "error/abort")))
                    (carriage-traffic-log 'in "gptel: %s" msg))
+                 ;; Emit summary for what we've got so far
+                 (carriage-traffic-log-response-summary
+                  gptel-buffer
+                  (concat carriage--resp-head
+                          (when (> carriage--resp-bytes
+                                   (+ (string-bytes carriage--resp-head)
+                                      (string-bytes carriage--resp-tail)))
+                            "…")
+                          carriage--resp-tail))
                  (with-current-buffer gptel-buffer
                    (carriage-stream-finalize t nil)
                    (carriage-transport-complete t)))
