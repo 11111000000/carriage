@@ -315,8 +315,8 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
         :fail (plist-get state :fail)
         :skipped (plist-get state :skipped)))
 
-(defun carriage--apply-finish (plan state callback)
-  "Finish async apply: build REPORT from PLAN and STATE, invoke CALLBACK if any."
+(defun carriage--apply-build-report (plan state)
+  "Build final apply REPORT plist from PLAN and STATE."
   (let* ((eng (carriage-apply-engine))
          (bp  (and (eq eng 'git)
                    (boundp 'carriage-git-branch-policy)
@@ -324,565 +324,579 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
          (items (nreverse (plist-get state :items)))
          (msgs  (nreverse (plist-get state :messages)))
          (sum   (carriage--apply-summary state))
-         ;; Synthesize a diagnostic when nothing was processed at all to avoid an empty report.
-         (report
-          (let* ((synthetic
-                  (when (and (null items) (null msgs))
-                    (list (list :code 'APPLY_EMPTY_REPORT
-                                :severity 'warn
-                                :details (format "Apply produced no rows; plan-size=%d ok=%d fail=%d skipped=%d"
-                                                 (length plan)
-                                                 (plist-get sum :ok)
-                                                 (plist-get sum :fail)
-                                                 (plist-get sum :skipped))))))
-                 (list :phase 'apply
+         (synthetic
+          (when (and (null items) (null msgs))
+            (list (list :code 'APPLY_EMPTY_REPORT
+                        :severity 'warn
+                        :details (format "Apply produced no rows; plan-size=%d ok=%d fail=%d skipped=%d"
+                                         (length plan)
+                                         (plist-get sum :ok)
+                                         (plist-get sum :fail)
+                                         (plist-get sum :skipped))))))
+         (report (list :phase 'apply
                        :plan plan
                        :engine eng
                        :branch-policy bp
                        :branch-name (plist-get state :branch-name)
                        :summary sum
                        :items items
-                       :messages (or msgs synthetic)))))
-         (carriage-log "apply-finish: items=%d ok=%d fail=%d skipped=%d phase=apply"
-                       (length (or (plist-get report :items) '()))
-                       (or (plist-get (plist-get report :summary) :ok) 0)
-                       (or (plist-get (plist-get report :summary) :fail) 0)
-                       (or (plist-get (plist-get report :summary) :skipped) 0))
-         ;; Announce concise success summary (only when no failures and in interactive session)
-         (let* ((sum (plist-get report :summary))
-                (fail (and (listp sum) (plist-get sum :fail))))
-           (when (and (not (bound-and-true-p noninteractive))
-                      (numberp fail) (= fail 0))
-             (let* ((items (or (plist-get report :items) '()))
-                    (oks (cl-remove-if-not (lambda (it) (eq (plist-get it :status) 'ok)) items))
-                    (created 0) (deleted 0) (renamed 0) (modified 0)
-                    (files '()))
-               (dolist (it oks)
-                 (let ((op (plist-get it :op)))
-                   (pcase op
-                     ('create (setq created (1+ created)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
-                     ('delete (setq deleted (1+ deleted)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
-                     ('rename (setq renamed (1+ renamed)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
-                     ((or 'patch 'sre 'aibo) (setq modified (1+ modified)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
-                     (_ (push (or (plist-get it :file) (plist-get it :path) "-") files)))))
-               (let* ((total (length oks))
-                      (files-str (mapconcat #'identity (nreverse (delete-dups (delq nil files))) ", ")))
-                 (when (> total 0)
-                   (message "Carriage: applied OK (%d items) — created:%d modified:%d deleted:%d renamed:%d — %s"
-                            total created modified deleted renamed files-str))))))
-         (when (functionp callback)
-           (run-at-time 0 nil (lambda () (funcall callback report))))
-         report))
+                       :messages (or msgs synthetic))))
+    report))
 
-  (defun carriage--apply-acc-row (state row)
-    "Accumulate ROW in STATE."
-    (plist-put state :items (cons row (plist-get state :items))))
+(defun carriage--apply-log-summary (report)
+  "Log a concise summary about REPORT to the general log."
+  (carriage-log "apply-finish: items=%d ok=%d fail=%d skipped=%d phase=apply"
+                (length (or (plist-get report :items) '()))
+                (or (plist-get (plist-get report :summary) :ok) 0)
+                (or (plist-get (plist-get report :summary) :fail) 0)
+                (or (plist-get (plist-get report :summary) :skipped) 0)))
 
-  (defun carriage--apply-acc-msg (state msg)
-    "Accumulate diagnostic MSG in STATE."
-    (plist-put state :messages (cons msg (plist-get state :messages))))
+(defun carriage--apply-announce-success (report)
+  "Announce concise success summary (interactive only, when there are no failures)."
+  (let* ((sum (plist-get report :summary))
+         (fail (and (listp sum) (plist-get sum :fail))))
+    (when (and (not (bound-and-true-p noninteractive))
+               (numberp fail) (= fail 0))
+      (let* ((items (or (plist-get report :items) '()))
+             (oks (cl-remove-if-not (lambda (it) (eq (plist-get it :status) 'ok)) items))
+             (created 0) (deleted 0) (renamed 0) (modified 0)
+             (files '()))
+        (dolist (it oks)
+          (let ((op (plist-get it :op)))
+            (pcase op
+              ('create (setq created (1+ created)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+              ('delete (setq deleted (1+ deleted)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+              ('rename (setq renamed (1+ renamed)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+              ((or 'patch 'sre 'aibo) (setq modified (1+ modified)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+              (_ (push (or (plist-get it :file) (plist-get it :path) "-") files)))))
+        (let* ((total (length oks))
+               (files-str (mapconcat #'identity (nreverse (delete-dups (delq nil files))) ", ")))
+          (when (> total 0)
+            (message "Carriage: applied OK (%d items) — created:%d modified:%d deleted:%d renamed:%d — %s"
+                     total created modified deleted renamed files-str)))))))
 
-  (defun carriage--apply-bump (state status)
-    "Bump counters in STATE per STATUS."
-    (pcase status
-      ('ok   (plist-put state :ok (1+ (plist-get state :ok))))
-      ('fail (plist-put state :fail (1+ (plist-get state :fail))))
-      (_     (plist-put state :skipped (1+ (plist-get state :skipped))))))
+(defun carriage--apply-run-callback (callback report)
+  "Invoke CALLBACK with REPORT on the main thread, if CALLBACK is callable."
+  (when (functionp callback)
+    (run-at-time 0 nil (lambda () (funcall callback report)))))
 
-  (defun carriage--apply-update-abort (state token)
-    "Update TOKEN :abort-fn to cancel current async operation based on STATE.
+(defun carriage--apply-finish (plan state callback)
+  "Finish async apply: build REPORT from PLAN and STATE, invoke CALLBACK if any."
+  (let* ((report (carriage--apply-build-report plan state)))
+    (carriage--apply-log-summary report)
+    (carriage--apply-announce-success report)
+    (carriage--apply-run-callback callback report)
+    report))
+
+(defun carriage--apply-acc-row (state row)
+  "Accumulate ROW in STATE."
+  (plist-put state :items (cons row (plist-get state :items))))
+
+(defun carriage--apply-acc-msg (state msg)
+  "Accumulate diagnostic MSG in STATE."
+  (plist-put state :messages (cons msg (plist-get state :messages))))
+
+(defun carriage--apply-bump (state status)
+  "Bump counters in STATE per STATUS."
+  (pcase status
+    ('ok   (plist-put state :ok (1+ (plist-get state :ok))))
+    ('fail (plist-put state :fail (1+ (plist-get state :fail))))
+    (_     (plist-put state :skipped (1+ (plist-get state :skipped))))))
+
+(defun carriage--apply-update-abort (state token)
+  "Update TOKEN :abort-fn to cancel current async operation based on STATE.
 Registers the handler with the mode when available."
-    (let* ((cur (plist-get state :current)))
-      (setf (plist-get token :abort-fn)
-            (lambda ()
-              (plist-put state :aborted t)
-              ;; Cancel pending FS timer if any
-              (let ((tm (plist-get state :fs-timer)))
-                (when (timerp tm)
-                  (ignore-errors (cancel-timer tm))
-                  (plist-put state :fs-timer nil)))
-              ;; Engine-specific abort (e.g., git)
-              (cond
-               ((and (plist-get cur :engine)
-                     (eq (plist-get cur :engine) 'git)
-                     (fboundp 'carriage-engine-git-abort))
-                (ignore-errors (carriage-engine-git-abort cur))
-                t)
-               (t t)))))
-    (when (fboundp 'carriage-register-abort-handler)
-      (carriage-register-abort-handler (plist-get token :abort-fn))))
+  (let* ((cur (plist-get state :current)))
+    (setf (plist-get token :abort-fn)
+          (lambda ()
+            (plist-put state :aborted t)
+            ;; Cancel pending FS timer if any
+            (let ((tm (plist-get state :fs-timer)))
+              (when (timerp tm)
+                (ignore-errors (cancel-timer tm))
+                (plist-put state :fs-timer nil)))
+            ;; Engine-specific abort (e.g., git)
+            (cond
+             ((and (plist-get cur :engine)
+                   (eq (plist-get cur :engine) 'git)
+                   (fboundp 'carriage-engine-git-abort))
+              (ignore-errors (carriage-engine-git-abort cur))
+              t)
+             (t t)))))
+  (when (fboundp 'carriage-register-abort-handler)
+    (carriage-register-abort-handler (plist-get token :abort-fn))))
 
-  (defun carriage--engine-row (op res t0 ok-details fail-details &optional path-key)
-    "Normalize engine RES into a report row for OP started at T0."
-    (let* ((exit (plist-get res :exit))
-           (pid  (plist-get res :pid))
-           (pth  (or (plist-get res (or path-key :path))
-                     (alist-get :file res) "-"))
-           (stderr (string-trim (or (plist-get res :stderr) "")))
-           (elapsed (truncate (* 1000 (max 0.0 (- (float-time) t0))))))
-      (if (and (numberp exit) (zerop exit))
-          (list :op op :status 'ok
-                (if (eq op 'patch) :path :file) pth
-                :details ok-details
-                :pid pid :elapsed-ms elapsed :engine 'git)
-        (list :op op :status 'fail
+(defun carriage--engine-row (op res t0 ok-details fail-details &optional path-key)
+  "Normalize engine RES into a report row for OP started at T0."
+  (let* ((exit (plist-get res :exit))
+         (pid  (plist-get res :pid))
+         (pth  (or (plist-get res (or path-key :path))
+                   (alist-get :file res) "-"))
+         (stderr (string-trim (or (plist-get res :stderr) "")))
+         (elapsed (truncate (* 1000 (max 0.0 (- (float-time) t0))))))
+    (if (and (numberp exit) (zerop exit))
+        (list :op op :status 'ok
               (if (eq op 'patch) :path :file) pth
-              :details (if (string-empty-p stderr) fail-details stderr)
-              :pid pid :elapsed-ms elapsed :engine 'git))))
+              :details ok-details
+              :pid pid :elapsed-ms elapsed :engine 'git)
+      (list :op op :status 'fail
+            (if (eq op 'patch) :path :file) pth
+            :details (if (string-empty-p stderr) fail-details stderr)
+            :pid pid :elapsed-ms elapsed :engine 'git))))
 
-  (defun carriage--apply-done-patch (state t0 res plan repo-root callback token)
-    "Handle completion of a patch step."
-    (let ((row (carriage--engine-row 'patch res t0 "Applied" "git apply failed" :path)))
-      (carriage--apply-acc-row state row)
-      (carriage--apply-bump state (plist-get row :status))
-      (if (eq (plist-get row :status) 'ok)
-          (carriage--apply-next state plan repo-root callback token)
-        (carriage--apply-finish plan state callback))))
+(defun carriage--apply-done-patch (state t0 res plan repo-root callback token)
+  "Handle completion of a patch step."
+  (let ((row (carriage--engine-row 'patch res t0 "Applied" "git apply failed" :path)))
+    (carriage--apply-acc-row state row)
+    (carriage--apply-bump state (plist-get row :status))
+    (if (eq (plist-get row :status) 'ok)
+        (carriage--apply-next state plan repo-root callback token)
+      (carriage--apply-finish plan state callback))))
 
-  (defun carriage--apply-run-engine (state kind op item repo-root on-ok on-fail token)
-    "Dispatch KIND/OP ITEM via engine and update STATE/TOKEN.
+(defun carriage--apply-run-engine (state kind op item repo-root on-ok on-fail token)
+  "Dispatch KIND/OP ITEM via engine and update STATE/TOKEN.
 
 For :op 'patch always force 'git engine (parity with sync path)."
-    (let* ((t0 (float-time))
-           ;; Force 'git for patch operations in async path.
-           (carriage-apply-engine (if (eq op 'patch) 'git carriage-apply-engine))
-           (eng-token (carriage-apply-engine-dispatch
-                       kind op item repo-root
-                       (lambda (res) (funcall on-ok t0 res))
-                       (lambda (res) (funcall on-fail t0 res)))))
-      (plist-put state :current eng-token)
-      (carriage--apply-update-abort state token)))
+  (let* ((t0 (float-time))
+         ;; Force 'git for patch operations in async path.
+         (carriage-apply-engine (if (eq op 'patch) 'git carriage-apply-engine))
+         (eng-token (carriage-apply-engine-dispatch
+                     kind op item repo-root
+                     (lambda (res) (funcall on-ok t0 res))
+                     (lambda (res) (funcall on-fail t0 res)))))
+    (plist-put state :current eng-token)
+    (carriage--apply-update-abort state token)))
 
-  (defun carriage--apply-fs-async (state thunk token plan)
-    "Run THUNK asynchronously for filesystem ops; on error, mark STATE aborted and finish."
-    (carriage-log "fs-async: schedule filesystem operation")
-    (let ((tm (run-at-time
-               0 nil
-               (lambda ()
-                 (carriage-log "fs-async: run filesystem operation")
-                 (condition-case e
-                     (funcall thunk)
-                   (error
-                    (carriage--apply-acc-msg
-                     state (list :code 'MODE_E_DISPATCH :severity 'error
-                                 :details (error-message-string e)))
-                    (carriage-log "fs-async: error: %s" (error-message-string e))
-                    (plist-put state :aborted t)))))))
-      (plist-put state :fs-timer tm)
-      (carriage--apply-update-abort state token)))
+(defun carriage--apply-fs-async (state thunk token plan)
+  "Run THUNK asynchronously for filesystem ops; on error, mark STATE aborted and finish."
+  (carriage-log "fs-async: schedule filesystem operation")
+  (let ((tm (run-at-time
+             0 nil
+             (lambda ()
+               (carriage-log "fs-async: run filesystem operation")
+               (condition-case e
+                   (funcall thunk)
+                 (error
+                  (carriage--apply-acc-msg
+                   state (list :code 'MODE_E_DISPATCH :severity 'error
+                               :details (error-message-string e)))
+                  (carriage-log "fs-async: error: %s" (error-message-string e))
+                  (plist-put state :aborted t)))))))
+    (plist-put state :fs-timer tm)
+    (carriage--apply-update-abort state token)))
 
-  (defun carriage--apply-run-item (state item repo-root plan callback token)
-    "Run one ITEM according to its :op, updating STATE and continuing or finishing."
-    (let* ((op (carriage--plan-get item :op))
-           (target (or (carriage--plan-get item :path) (carriage--plan-get item :file))))
-      (carriage-log "apply-run-item: op=%s target=%s engine=%s stage=%s"
-                    op (or target "-")
-                    (carriage-apply-engine)
-                    (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy))
-      (pcase op
-        ('patch
-         (carriage--apply-run-engine
-          state :apply 'patch item repo-root
-          (lambda (t0 res) (carriage--apply-done-patch state t0 res plan repo-root callback token))
-          (lambda (t0 res) (carriage--apply-done-patch state t0 res plan repo-root callback token))
-          token))
-        ('delete
-         (if (and (eq carriage-apply-stage-policy 'index)
-                  (eq (carriage-apply-engine) 'git))
-             (carriage--apply-run-engine
-              state :apply 'delete item repo-root
-              (lambda (t0 res)
-                (let ((row (carriage--engine-row 'delete res t0 "Deleted (staged)" "git rm failed" :path)))
-                  (carriage--apply-acc-row state row)
-                  (carriage--apply-bump state (plist-get row :status))
-                  (if (eq (plist-get row :status) 'ok)
-                      (carriage--apply-next state plan repo-root callback token)
-                    (carriage--apply-finish plan state callback))))
-              (lambda (t0 res)
-                (let ((row (carriage--engine-row 'delete res t0 "Deleted (staged)" "git rm failed" :path)))
-                  (carriage--apply-acc-row state row)
-                  (carriage--apply-bump state (plist-get row :status))
-                  (carriage--apply-finish plan state callback)))
-              token)
-           (carriage--apply-fs-async
-            state
-            (lambda ()
-              (let ((row (carriage-apply-delete item repo-root)))
+(defun carriage--apply-run-item (state item repo-root plan callback token)
+  "Run one ITEM according to its :op, updating STATE and continuing or finishing."
+  (let* ((op (carriage--plan-get item :op))
+         (target (or (carriage--plan-get item :path) (carriage--plan-get item :file))))
+    (carriage-log "apply-run-item: op=%s target=%s engine=%s stage=%s"
+                  op (or target "-")
+                  (carriage-apply-engine)
+                  (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy))
+    (pcase op
+      ('patch
+       (carriage--apply-run-engine
+        state :apply 'patch item repo-root
+        (lambda (t0 res) (carriage--apply-done-patch state t0 res plan repo-root callback token))
+        (lambda (t0 res) (carriage--apply-done-patch state t0 res plan repo-root callback token))
+        token))
+      ('delete
+       (if (and (eq carriage-apply-stage-policy 'index)
+                (eq (carriage-apply-engine) 'git))
+           (carriage--apply-run-engine
+            state :apply 'delete item repo-root
+            (lambda (t0 res)
+              (let ((row (carriage--engine-row 'delete res t0 "Deleted (staged)" "git rm failed" :path)))
                 (carriage--apply-acc-row state row)
                 (carriage--apply-bump state (plist-get row :status))
-                (carriage--apply-next state plan repo-root callback token)))
-            token plan)))
-        ('rename
-         (if (and (eq carriage-apply-stage-policy 'index)
-                  (eq (carriage-apply-engine) 'git))
-             (carriage--apply-run-engine
-              state :apply 'rename item repo-root
-              (lambda (t0 res)
-                (let ((row (carriage--engine-row 'rename res t0 "Renamed (staged)" "git mv failed" :path)))
-                  (carriage--apply-acc-row state row)
-                  (carriage--apply-bump state (plist-get row :status))
-                  (if (eq (plist-get row :status) 'ok)
-                      (carriage--apply-next state plan repo-root callback token)
-                    (carriage--apply-finish plan state callback))))
-              (lambda (t0 res)
-                (let ((row (carriage--engine-row 'rename res t0 "Renamed (staged)" "git mv failed" :path)))
-                  (carriage--apply-acc-row state row)
-                  (carriage--apply-bump state (plist-get row :status))
-                  (carriage--apply-finish plan state callback)))
-              token)
-           (carriage--apply-fs-async
-            state
-            (lambda ()
-              (let ((row (carriage-apply-rename item repo-root)))
+                (if (eq (plist-get row :status) 'ok)
+                    (carriage--apply-next state plan repo-root callback token)
+                  (carriage--apply-finish plan state callback))))
+            (lambda (t0 res)
+              (let ((row (carriage--engine-row 'delete res t0 "Deleted (staged)" "git rm failed" :path)))
                 (carriage--apply-acc-row state row)
                 (carriage--apply-bump state (plist-get row :status))
-                (carriage--apply-next state plan repo-root callback token)))
-            token plan)))
-        ('create
+                (carriage--apply-finish plan state callback)))
+            token)
          (carriage--apply-fs-async
           state
           (lambda ()
-            (let ((row0 (carriage-apply-create item repo-root)))
-              (if (and (eq carriage-apply-stage-policy 'index)
-                       (eq (carriage-apply-engine) 'git))
-                  (let* ((file (carriage--plan-get item :file)))
-                    (carriage--apply-run-engine
-                     state :apply 'create (list (cons :file file)) repo-root
-                     (lambda (t0 res)
-                       (let ((r (carriage--engine-row 'create res t0 "Created (staged)" "git add failed" :path)))
-                         (carriage--apply-acc-row state (plist-put (copy-sequence r) :file file))
-                         (carriage--apply-bump state (plist-get r :status))
-                         (if (eq (plist-get r :status) 'ok)
-                             (carriage--apply-next state plan repo-root callback token)
-                           (carriage--apply-finish plan state callback))))
-                     (lambda (t0 res)
-                       (let ((r (carriage--engine-row 'create res t0 "Created (staged)" "git add failed" :path)))
-                         (carriage--apply-acc-row state (plist-put (copy-sequence r) :file file))
-                         (carriage--apply-bump state (plist-get r :status))
-                         (carriage--apply-finish plan state callback)))
-                     token))
-                (carriage--apply-acc-row state row0)
-                (carriage--apply-bump state (plist-get row0 :status))
-                (carriage--apply-next state plan repo-root callback token))))
-          token plan))
-        ('sre
-         (carriage--apply-fs-async
-          state
-          (lambda ()
-            (let ((row (carriage-apply-sre item repo-root)))
+            (let ((row (carriage-apply-delete item repo-root)))
               (carriage--apply-acc-row state row)
               (carriage--apply-bump state (plist-get row :status))
               (carriage--apply-next state plan repo-root callback token)))
-          token plan))
-        (_
+          token plan)))
+      ('rename
+       (if (and (eq carriage-apply-stage-policy 'index)
+                (eq (carriage-apply-engine) 'git))
+           (carriage--apply-run-engine
+            state :apply 'rename item repo-root
+            (lambda (t0 res)
+              (let ((row (carriage--engine-row 'rename res t0 "Renamed (staged)" "git mv failed" :path)))
+                (carriage--apply-acc-row state row)
+                (carriage--apply-bump state (plist-get row :status))
+                (if (eq (plist-get row :status) 'ok)
+                    (carriage--apply-next state plan repo-root callback token)
+                  (carriage--apply-finish plan state callback))))
+            (lambda (t0 res)
+              (let ((row (carriage--engine-row 'rename res t0 "Renamed (staged)" "git mv failed" :path)))
+                (carriage--apply-acc-row state row)
+                (carriage--apply-bump state (plist-get row :status))
+                (carriage--apply-finish plan state callback)))
+            token)
          (carriage--apply-fs-async
           state
           (lambda ()
-            (let ((row (carriage--report-fail (or op 'unknown) :details "Unknown op")))
+            (let ((row (carriage-apply-rename item repo-root)))
               (carriage--apply-acc-row state row)
-              (carriage--apply-bump state 'fail)))
-          token plan)
-         (carriage--apply-finish plan state callback)))))
+              (carriage--apply-bump state (plist-get row :status))
+              (carriage--apply-next state plan repo-root callback token)))
+          token plan)))
+      ('create
+       (carriage--apply-fs-async
+        state
+        (lambda ()
+          (let ((row0 (carriage-apply-create item repo-root)))
+            (if (and (eq carriage-apply-stage-policy 'index)
+                     (eq (carriage-apply-engine) 'git))
+                (let* ((file (carriage--plan-get item :file)))
+                  (carriage--apply-run-engine
+                   state :apply 'create (list (cons :file file)) repo-root
+                   (lambda (t0 res)
+                     (let ((r (carriage--engine-row 'create res t0 "Created (staged)" "git add failed" :path)))
+                       (carriage--apply-acc-row state (plist-put (copy-sequence r) :file file))
+                       (carriage--apply-bump state (plist-get r :status))
+                       (if (eq (plist-get r :status) 'ok)
+                           (carriage--apply-next state plan repo-root callback token)
+                         (carriage--apply-finish plan state callback))))
+                   (lambda (t0 res)
+                     (let ((r (carriage--engine-row 'create res t0 "Created (staged)" "git add failed" :path)))
+                       (carriage--apply-acc-row state (plist-put (copy-sequence r) :file file))
+                       (carriage--apply-bump state (plist-get r :status))
+                       (carriage--apply-finish plan state callback)))
+                   token))
+              (carriage--apply-acc-row state row0)
+              (carriage--apply-bump state (plist-get row0 :status))
+              (carriage--apply-next state plan repo-root callback token))))
+        token plan))
+      ('sre
+       (carriage--apply-fs-async
+        state
+        (lambda ()
+          (let ((row (carriage-apply-sre item repo-root)))
+            (carriage--apply-acc-row state row)
+            (carriage--apply-bump state (plist-get row :status))
+            (carriage--apply-next state plan repo-root callback token)))
+        token plan))
+      (_
+       (carriage--apply-fs-async
+        state
+        (lambda ()
+          (let ((row (carriage--report-fail (or op 'unknown) :details "Unknown op")))
+            (carriage--apply-acc-row state row)
+            (carriage--apply-bump state 'fail)))
+        token plan)
+       (carriage--apply-finish plan state callback)))))
 
-  (defun carriage--apply-next (state plan repo-root callback token)
-    "Advance to the next item or finish."
-    (if (plist-get state :aborted)
-        (carriage--apply-finish plan state callback)
-      (let ((q (plist-get state :queue)))
-        (if (null q)
-            (carriage--apply-complete state plan repo-root callback token)
-          (let ((item (car q)))
-            (plist-put state :queue (cdr q))
-            (carriage--apply-run-item state item repo-root plan callback token))))))
+(defun carriage--apply-next (state plan repo-root callback token)
+  "Advance to the next item or finish."
+  (if (plist-get state :aborted)
+      (carriage--apply-finish plan state callback)
+    (let ((q (plist-get state :queue)))
+      (if (null q)
+          (carriage--apply-complete state plan repo-root callback token)
+        (let ((item (car q)))
+          (plist-put state :queue (cdr q))
+          (carriage--apply-run-item state item repo-root plan callback token))))))
 
-  (defun carriage--preflight--record-orig-branch (state repo-root)
-    "Best-effort record of current branch into STATE for epilog."
-    (ignore-errors
-      (plist-put state :orig-branch (carriage-git-current-branch repo-root))))
+(defun carriage--preflight--record-orig-branch (state repo-root)
+  "Best-effort record of current branch into STATE for epilog."
+  (ignore-errors
+    (plist-put state :orig-branch (carriage-git-current-branch repo-root))))
 
-  (defun carriage--preflight--wip-async (state plan repo-root callback token)
-    "Checkout WIP branch and proceed to next step; record :branch-name or report error."
-    (carriage-git-checkout-wip-async
-     repo-root nil
-     (lambda (_ok)
-       (plist-put state :branch-name (or (and (boundp 'carriage-mode-wip-branch)
-                                              carriage-mode-wip-branch)
-                                         "carriage/WIP"))
-       (carriage--apply-next state plan repo-root callback token))
-     (lambda (err2)
-       (let* ((stderr (string-trim (or (plist-get err2 :stderr) "")))
-              (stdout (string-trim (or (plist-get err2 :stdout) "")))
-              (msg (list :code 'GIT_E_APPLY :severity 'error
-                         :details (or (and (not (string-empty-p stderr)) stderr)
-                                      (and (not (string-empty-p stdout)) stdout)
-                                      "WIP checkout failed"))))
-         (carriage--apply-acc-msg state msg)
-         (carriage--apply-bump state 'fail)
-         (carriage--apply-finish plan state callback)))))
+(defun carriage--preflight--wip-async (state plan repo-root callback token)
+  "Checkout WIP branch and proceed to next step; record :branch-name or report error."
+  (carriage-git-checkout-wip-async
+   repo-root nil
+   (lambda (_ok)
+     (plist-put state :branch-name (or (and (boundp 'carriage-mode-wip-branch)
+                                            carriage-mode-wip-branch)
+                                       "carriage/WIP"))
+     (carriage--apply-next state plan repo-root callback token))
+   (lambda (err2)
+     (let* ((stderr (string-trim (or (plist-get err2 :stderr) "")))
+            (stdout (string-trim (or (plist-get err2 :stdout) "")))
+            (msg (list :code 'GIT_E_APPLY :severity 'error
+                       :details (or (and (not (string-empty-p stderr)) stderr)
+                                    (and (not (string-empty-p stdout)) stdout)
+                                    "WIP checkout failed"))))
+       (carriage--apply-acc-msg state msg)
+       (carriage--apply-bump state 'fail)
+       (carriage--apply-finish plan state callback)))))
 
-  (defun carriage--preflight--ephemeral-async (state plan repo-root callback token)
-    "Create an ephemeral branch and proceed; on error report and finish."
-    (carriage-git-create-ephemeral-branch-async
-     repo-root
-     (lambda (r-ephem)
-       (let ((br (or (plist-get r-ephem :branch) "")))
-         (plist-put state :branch-name br))
-       (carriage--apply-next state plan repo-root callback token))
-     (lambda (err2)
-       (let* ((stderr (string-trim (or (plist-get err2 :stderr) "")))
-              (stdout (string-trim (or (plist-get err2 :stdout) "")))
-              (msg (list :code 'GIT_E_APPLY :severity 'error
-                         :details (or (and (not (string-empty-p stderr)) stderr)
-                                      (and (not (string-empty-p stdout)) stdout)
-                                      "Ephemeral branch create failed"))))
-         (carriage--apply-acc-msg state msg)
-         (carriage--apply-bump state 'fail)
-         (carriage--apply-finish plan state callback)))))
+(defun carriage--preflight--ephemeral-async (state plan repo-root callback token)
+  "Create an ephemeral branch and proceed; on error report and finish."
+  (carriage-git-create-ephemeral-branch-async
+   repo-root
+   (lambda (r-ephem)
+     (let ((br (or (plist-get r-ephem :branch) "")))
+       (plist-put state :branch-name br))
+     (carriage--apply-next state plan repo-root callback token))
+   (lambda (err2)
+     (let* ((stderr (string-trim (or (plist-get err2 :stderr) "")))
+            (stdout (string-trim (or (plist-get err2 :stdout) "")))
+            (msg (list :code 'GIT_E_APPLY :severity 'error
+                       :details (or (and (not (string-empty-p stderr)) stderr)
+                                    (and (not (string-empty-p stdout)) stdout)
+                                    "Ephemeral branch create failed"))))
+       (carriage--apply-acc-msg state msg)
+       (carriage--apply-bump state 'fail)
+       (carriage--apply-finish plan state callback)))))
 
-  (defun carriage--preflight--ensure-repo-async (state plan repo-root callback token policy)
-    "Ensure REPO exists, record orig branch, then branch per POLICY."
-    (carriage-git-ensure-repo-async
-     repo-root
-     (lambda (_r1)
-       (carriage--preflight--record-orig-branch state repo-root)
-       (pcase policy
-         ('in-place
-          (carriage--apply-next state plan repo-root callback token))
-         ('wip
-          (carriage--preflight--wip-async state plan repo-root callback token))
-         ('ephemeral
-          (carriage--preflight--ephemeral-async state plan repo-root callback token))
-         (_
-          (carriage--preflight--wip-async state plan repo-root callback token))))
-     (lambda (err1)
-       (let* ((stderr (string-trim (or (plist-get err1 :stderr) "")))
-              (stdout (string-trim (or (plist-get err1 :stdout) "")))
-              (msg (list :code 'GIT_E_APPLY :severity 'error
-                         :details (or (and (not (string-empty-p stderr)) stderr)
-                                      (and (not (string-empty-p stdout)) stdout)
-                                      "Git repo not detected"))))
-         (carriage--apply-acc-msg state msg)
-         (carriage--apply-bump state 'fail)
-         (carriage--apply-finish plan state callback)))))
+(defun carriage--preflight--ensure-repo-async (state plan repo-root callback token policy)
+  "Ensure REPO exists, record orig branch, then branch per POLICY."
+  (carriage-git-ensure-repo-async
+   repo-root
+   (lambda (_r1)
+     (carriage--preflight--record-orig-branch state repo-root)
+     (pcase policy
+       ('in-place
+        (carriage--apply-next state plan repo-root callback token))
+       ('wip
+        (carriage--preflight--wip-async state plan repo-root callback token))
+       ('ephemeral
+        (carriage--preflight--ephemeral-async state plan repo-root callback token))
+       (_
+        (carriage--preflight--wip-async state plan repo-root callback token))))
+   (lambda (err1)
+     (let* ((stderr (string-trim (or (plist-get err1 :stderr) "")))
+            (stdout (string-trim (or (plist-get err1 :stdout) "")))
+            (msg (list :code 'GIT_E_APPLY :severity 'error
+                       :details (or (and (not (string-empty-p stderr)) stderr)
+                                    (and (not (string-empty-p stdout)) stdout)
+                                    "Git repo not detected"))))
+       (carriage--apply-acc-msg state msg)
+       (carriage--apply-bump state 'fail)
+       (carriage--apply-finish plan state callback)))))
 
-  (defun carriage--apply-preflight-branch-async (state plan repo-root callback token)
-    "Async preflight per =carriage-git-branch-policy'.
+(defun carriage--apply-preflight-branch-async (state plan repo-root callback token)
+  "Async preflight per =carriage-git-branch-policy'.
 - in-place: no switching.
 - wip: ensure/checkout carriage/WIP.
 - ephemeral: create and checkout a unique ephemeral branch."
+  (let* ((eng (carriage-apply-engine))
+         (policy (and (eq eng 'git)
+                      (boundp 'carriage-git-branch-policy)
+                      carriage-git-branch-policy)))
+    (plist-put state :branch-policy policy)
+    (if (not (eq eng 'git))
+        (carriage--apply-next state plan repo-root callback token)
+      (carriage--preflight--ensure-repo-async state plan repo-root callback token policy))))
+
+(defun carriage--epilog--delete-ephemeral-if-needed-async (state plan repo-root callback cur ok)
+  "Delete ephemeral CUR when policy=ephemeral and auto-delete is enabled.
+Deletion happens only when there are no applied items (OK=0) and branch appears empty.
+If :orig-branch is known, verify emptiness by comparing diffs with ORIG. Respect
+carriage-git-ephemeral-keep-on-fail: if any step failed and KEEP-ON-FAIL is t, do not delete."
+  (let* ((auto-del (and (boundp 'carriage-git-auto-delete-empty-branch)
+                        carriage-git-auto-delete-empty-branch))
+         (keep-on-fail (and (boundp 'carriage-git-ephemeral-keep-on-fail)
+                            carriage-git-ephemeral-keep-on-fail))
+         (fail (plist-get state :fail))
+         (orig (plist-get state :orig-branch)))
+    (cond
+     ;; Do not delete when failures occurred and policy says to keep the branch
+     ((and keep-on-fail (numberp fail) (> fail 0))
+      (carriage--apply-finish plan state callback))
+     ;; Consider auto-delete only when OK==0 and branch name is sane
+     ((and auto-del
+           (numberp ok) (= ok 0)
+           (stringp cur) (not (string-empty-p cur)))
+      (if (and (stringp orig) (not (string-empty-p orig)) (not (string= orig cur))
+               (fboundp 'carriage-git-branches-diff-empty-async))
+          ;; Verify that ephemeral branch is effectively empty w.r.t. ORIG
+          (carriage-git-branches-diff-empty-async
+           repo-root orig cur
+           (lambda (r)
+             (if (plist-get r :empty)
+                 (carriage-git-delete-branch-async
+                  repo-root cur
+                  (lambda (_okdel)
+                    (carriage--apply-acc-msg
+                     state (list :code 'GIT_INFO :severity 'info
+                                 :details (format "Ephemeral branch %s deleted" (or cur ""))))
+                    (carriage--apply-finish plan state callback))
+                  (lambda (err)
+                    (let* ((stderr (string-trim (or (plist-get err :stderr) "")))
+                           (stdout (string-trim (or (plist-get err :stdout) ""))))
+                      (carriage--apply-acc-msg
+                       state (list :code 'GIT_E_APPLY :severity 'warn
+                                   :details (or (and (not (string-empty-p stderr)) stderr)
+                                                (and (not (string-empty-p stdout)) stdout)
+                                                "Ephemeral branch delete failed")))
+                      (carriage--apply-finish plan state callback))))
+               ;; Not empty — keep branch
+               (carriage--apply-finish plan state callback)))
+           ;; If diff check failed, attempt best-effort deletion when ok==0 (fallback).
+           (lambda (_err)
+             (carriage-git-delete-branch-async
+              repo-root cur
+              (lambda (_okdel)
+                (carriage--apply-acc-msg
+                 state (list :code 'GIT_INFO :severity 'info
+                             :details (format "Ephemeral branch %s deleted" (or cur ""))))
+                (carriage--apply-finish plan state callback))
+              (lambda (err2)
+                (let* ((stderr (string-trim (or (plist-get err2 :stderr) "")))
+                       (stdout (string-trim (or (plist-get err2 :stdout) ""))))
+                  (carriage--apply-acc-msg
+                   state (list :code 'GIT_E_APPLY :severity 'warn
+                               :details (or (and (not (string-empty-p stderr)) stderr)
+                                            (and (not (string-empty-p stdout)) stdout)
+                                            "Ephemeral branch delete failed")))
+                  (carriage--apply-finish plan state callback))))))
+        ;; No ORIG available — fallback to simple ok==0 heuristic
+        (carriage-git-delete-branch-async
+         repo-root cur
+         (lambda (_okdel)
+           (carriage--apply-acc-msg
+            state (list :code 'GIT_INFO :severity 'info
+                        :details (format "Ephemeral branch %s deleted" (or cur ""))))
+           (carriage--apply-finish plan state callback))
+         (lambda (err)
+           (let* ((stderr (string-trim (or (plist-get err :stderr) "")))
+                  (stdout (string-trim (or (plist-get err :stdout) ""))))
+             (carriage--apply-acc-msg
+              state (list :code 'GIT_E_APPLY :severity 'warn
+                          :details (or (and (not (string-empty-p stderr)) stderr)
+                                       (and (not (string-empty-p stdout)) stdout)
+                                       "Ephemeral branch delete failed")))
+             (carriage--apply-finish plan state callback))))))
+     (t
+      (carriage--apply-finish plan state callback)))))
+
+(defun carriage--epilog--after-switch (state plan repo-root callback)
+  "After switching back (if needed), possibly delete ephemeral branch and finish."
+  (let* ((policy (plist-get state :branch-policy))
+         (ok (plist-get state :ok))
+         (cur (plist-get state :branch-name)))
+    (if (eq policy 'ephemeral)
+        (carriage--epilog--delete-ephemeral-if-needed-async state plan repo-root callback cur ok)
+      (carriage--apply-finish plan state callback))))
+
+(defun carriage--epilog--maybe-switch-back (state plan repo-root callback)
+  "Switch back to original branch when recorded and different; otherwise finish."
+  (let* ((orig (plist-get state :orig-branch))
+         (cur  (plist-get state :branch-name)))
+    (if (and (stringp orig) (not (string-empty-p orig)) (not (string= orig cur)))
+        (carriage-git-switch-branch-async
+         repo-root orig
+         (lambda (_oksw)
+           (carriage--apply-acc-msg
+            state (list :code 'GIT_INFO :severity 'info
+                        :details (format "Switched back to %s" (or orig ""))))
+           (carriage--epilog--after-switch state plan repo-root callback))
+         (lambda (err)
+           (let* ((stderr (string-trim (or (plist-get err :stderr) "")))
+                  (stdout (string-trim (or (plist-get err :stdout) ""))))
+             (carriage--apply-acc-msg
+              state (list :code 'GIT_E_APPLY :severity 'warn
+                          :details (or (and (not (string-empty-p stderr)) stderr)
+                                       (and (not (string-empty-p stdout)) stdout)
+                                       "Switch back failed")))
+             (carriage--epilog--after-switch state plan repo-root callback))))
+      (carriage--epilog--after-switch state plan repo-root callback))))
+
+(defun carriage--apply-epilog-branch-async (state plan repo-root callback token)
+  "Epilog for Git branch policy: switch back and optionally delete ephemeral branch.
+Runs only when engine='git and policy∈{'wip 'ephemeral} and switch-back is enabled."
+  (let* ((eng (carriage-apply-engine))
+         (policy (plist-get state :branch-policy))
+         (switch-back (and (boundp 'carriage-git-switch-back-on-complete)
+                           carriage-git-switch-back-on-complete)))
+    (if (or (not (eq eng 'git))
+            (not (memq policy '(wip ephemeral)))
+            (not switch-back))
+        (carriage--apply-finish plan state callback)
+      (carriage--epilog--maybe-switch-back state plan repo-root callback))))
+
+(defun carriage--apply-complete (state plan repo-root callback token)
+  "Decide whether to run branch epilog or finish immediately."
+  (let* ((eng (carriage-apply-engine))
+         (policy (plist-get state :branch-policy))
+         (need-epilog (and (eq eng 'git)
+                           (memq policy '(wip ephemeral)))))
+    (if need-epilog
+        (carriage--apply-epilog-branch-async state plan repo-root callback token)
+      (carriage--apply-finish plan state callback))))
+
+(defun carriage--plan-has-patch-p (queue)
+  "Return non-nil when QUEUE contains any :op 'patch."
+  (seq-some (lambda (it) (eq (carriage--plan-get it :op) 'patch)) queue))
+
+(defun carriage--guard-apply-on-wip (repo-root)
+  "Signal user-error when on WIP/ephemeral branch and applying is not allowed."
+  (let ((allow-wip (and (boundp 'carriage-allow-apply-on-wip)
+                        carriage-allow-apply-on-wip)))
+    (unless allow-wip
+      (condition-case _e
+          (let* ((default-directory (file-name-as-directory (expand-file-name repo-root)))
+                 (br (string-trim (or (with-temp-buffer
+                                        (if (zerop (call-process "git" nil t nil "rev-parse" "--abbrev-ref" "HEAD"))
+                                            (buffer-string) ""))
+                                      "")))
+                 (wip (or (and (boundp 'carriage-mode-wip-branch) carriage-mode-wip-branch)
+                          "carriage/WIP"))
+                 (epfx (or (and (boundp 'carriage-git-ephemeral-prefix) carriage-git-ephemeral-prefix)
+                           "carriage/tmp")))
+            (when (and (not (string-empty-p br))
+                       (or (string= br wip)
+                           (string-prefix-p epfx br)))
+              (user-error "Вы на ветке %s (WIP/ephemeral). Применение отменено." br)))
+        (error nil)))))
+
+(defun carriage--async-initialize (plan repo-root)
+  "Prepare initial async state, token and patch presence flag for PLAN."
+  (let* ((queue (carriage--plan-sort plan))
+         (state (carriage--make-apply-state queue repo-root))
+         (token (list :abort-fn nil))
+         (patch-present (carriage--plan-has-patch-p queue)))
+    (carriage-log "async-init: plan-size=%d ops=%s"
+                  (length queue)
+                  (mapconcat (lambda (it) (format "%s" (carriage--plan-get it :op))) queue ", "))
+    (list :queue queue :state state :token token :patch-present patch-present)))
+
+
+(defun carriage--async-run (plan repo-root state token patch-present callback)
+  "Start async run: force engine when needed, handle preflight, or proceed to first item."
+  (let ((carriage-apply-engine (if patch-present 'git carriage-apply-engine)))
     (let* ((eng (carriage-apply-engine))
            (policy (and (eq eng 'git)
                         (boundp 'carriage-git-branch-policy)
                         carriage-git-branch-policy)))
-      (plist-put state :branch-policy policy)
-      (if (not (eq eng 'git))
-          (carriage--apply-next state plan repo-root callback token)
-        (carriage--preflight--ensure-repo-async state plan repo-root callback token policy))))
+      (carriage-log "async-run: engine=%s policy=%s patch-present=%s queue=%d"
+                    eng policy (if patch-present "yes" "no") (length (plist-get state :queue)))
+      (if (and (eq eng 'git) (not (eq policy 'in-place)))
+          (carriage--apply-preflight-branch-async state plan repo-root callback token)
+        (progn
+          (when (eq eng 'git)
+            (plist-put state :branch-policy policy))
+          (carriage--apply-next state plan repo-root callback token))))))
 
-  (defun carriage--epilog--delete-ephemeral-if-needed-async (state plan repo-root callback cur ok)
-    "Delete ephemeral CUR when policy=ephemeral and auto-delete is enabled.
-Deletion happens only when there are no applied items (OK=0) and branch appears empty.
-If :orig-branch is known, verify emptiness by comparing diffs with ORIG. Respect
-carriage-git-ephemeral-keep-on-fail: if any step failed and KEEP-ON-FAIL is t, do not delete."
-    (let* ((auto-del (and (boundp 'carriage-git-auto-delete-empty-branch)
-                          carriage-git-auto-delete-empty-branch))
-           (keep-on-fail (and (boundp 'carriage-git-ephemeral-keep-on-fail)
-                              carriage-git-ephemeral-keep-on-fail))
-           (fail (plist-get state :fail))
-           (orig (plist-get state :orig-branch)))
-      (cond
-       ;; Do not delete when failures occurred and policy says to keep the branch
-       ((and keep-on-fail (numberp fail) (> fail 0))
-        (carriage--apply-finish plan state callback))
-       ;; Consider auto-delete only when OK==0 and branch name is sane
-       ((and auto-del
-             (numberp ok) (= ok 0)
-             (stringp cur) (not (string-empty-p cur)))
-        (if (and (stringp orig) (not (string-empty-p orig)) (not (string= orig cur))
-                 (fboundp 'carriage-git-branches-diff-empty-async))
-            ;; Verify that ephemeral branch is effectively empty w.r.t. ORIG
-            (carriage-git-branches-diff-empty-async
-             repo-root orig cur
-             (lambda (r)
-               (if (plist-get r :empty)
-                   (carriage-git-delete-branch-async
-                    repo-root cur
-                    (lambda (_okdel)
-                      (carriage--apply-acc-msg
-                       state (list :code 'GIT_INFO :severity 'info
-                                   :details (format "Ephemeral branch %s deleted" (or cur ""))))
-                      (carriage--apply-finish plan state callback))
-                    (lambda (err)
-                      (let* ((stderr (string-trim (or (plist-get err :stderr) "")))
-                             (stdout (string-trim (or (plist-get err :stdout) ""))))
-                        (carriage--apply-acc-msg
-                         state (list :code 'GIT_E_APPLY :severity 'warn
-                                     :details (or (and (not (string-empty-p stderr)) stderr)
-                                                  (and (not (string-empty-p stdout)) stdout)
-                                                  "Ephemeral branch delete failed")))
-                        (carriage--apply-finish plan state callback))))
-                 ;; Not empty — keep branch
-                 (carriage--apply-finish plan state callback)))
-             ;; If diff check failed, attempt best-effort deletion when ok==0 (fallback).
-             (lambda (_err)
-               (carriage-git-delete-branch-async
-                repo-root cur
-                (lambda (_okdel)
-                  (carriage--apply-acc-msg
-                   state (list :code 'GIT_INFO :severity 'info
-                               :details (format "Ephemeral branch %s deleted" (or cur ""))))
-                  (carriage--apply-finish plan state callback))
-                (lambda (err2)
-                  (let* ((stderr (string-trim (or (plist-get err2 :stderr) "")))
-                         (stdout (string-trim (or (plist-get err2 :stdout) ""))))
-                    (carriage--apply-acc-msg
-                     state (list :code 'GIT_E_APPLY :severity 'warn
-                                 :details (or (and (not (string-empty-p stderr)) stderr)
-                                              (and (not (string-empty-p stdout)) stdout)
-                                              "Ephemeral branch delete failed")))
-                    (carriage--apply-finish plan state callback))))))
-          ;; No ORIG available — fallback to simple ok==0 heuristic
-          (carriage-git-delete-branch-async
-           repo-root cur
-           (lambda (_okdel)
-             (carriage--apply-acc-msg
-              state (list :code 'GIT_INFO :severity 'info
-                          :details (format "Ephemeral branch %s deleted" (or cur ""))))
-             (carriage--apply-finish plan state callback))
-           (lambda (err)
-             (let* ((stderr (string-trim (or (plist-get err :stderr) "")))
-                    (stdout (string-trim (or (plist-get err :stdout) ""))))
-               (carriage--apply-acc-msg
-                state (list :code 'GIT_E_APPLY :severity 'warn
-                            :details (or (and (not (string-empty-p stderr)) stderr)
-                                         (and (not (string-empty-p stdout)) stdout)
-                                         "Ephemeral branch delete failed")))
-               (carriage--apply-finish plan state callback))))))
-       (t
-        (carriage--apply-finish plan state callback)))))
-
-  (defun carriage--epilog--after-switch (state plan repo-root callback)
-    "After switching back (if needed), possibly delete ephemeral branch and finish."
-    (let* ((policy (plist-get state :branch-policy))
-           (ok (plist-get state :ok))
-           (cur (plist-get state :branch-name)))
-      (if (eq policy 'ephemeral)
-          (carriage--epilog--delete-ephemeral-if-needed-async state plan repo-root callback cur ok)
-        (carriage--apply-finish plan state callback))))
-
-  (defun carriage--epilog--maybe-switch-back (state plan repo-root callback)
-    "Switch back to original branch when recorded and different; otherwise finish."
-    (let* ((orig (plist-get state :orig-branch))
-           (cur  (plist-get state :branch-name)))
-      (if (and (stringp orig) (not (string-empty-p orig)) (not (string= orig cur)))
-          (carriage-git-switch-branch-async
-           repo-root orig
-           (lambda (_oksw)
-             (carriage--apply-acc-msg
-              state (list :code 'GIT_INFO :severity 'info
-                          :details (format "Switched back to %s" (or orig ""))))
-             (carriage--epilog--after-switch state plan repo-root callback))
-           (lambda (err)
-             (let* ((stderr (string-trim (or (plist-get err :stderr) "")))
-                    (stdout (string-trim (or (plist-get err :stdout) ""))))
-               (carriage--apply-acc-msg
-                state (list :code 'GIT_E_APPLY :severity 'warn
-                            :details (or (and (not (string-empty-p stderr)) stderr)
-                                         (and (not (string-empty-p stdout)) stdout)
-                                         "Switch back failed")))
-               (carriage--epilog--after-switch state plan repo-root callback))))
-        (carriage--epilog--after-switch state plan repo-root callback))))
-
-  (defun carriage--apply-epilog-branch-async (state plan repo-root callback token)
-    "Epilog for Git branch policy: switch back and optionally delete ephemeral branch.
-Runs only when engine='git and policy∈{'wip 'ephemeral} and switch-back is enabled."
-    (let* ((eng (carriage-apply-engine))
-           (policy (plist-get state :branch-policy))
-           (switch-back (and (boundp 'carriage-git-switch-back-on-complete)
-                             carriage-git-switch-back-on-complete)))
-      (if (or (not (eq eng 'git))
-              (not (memq policy '(wip ephemeral)))
-              (not switch-back))
-          (carriage--apply-finish plan state callback)
-        (carriage--epilog--maybe-switch-back state plan repo-root callback))))
-
-  (defun carriage--apply-complete (state plan repo-root callback token)
-    "Decide whether to run branch epilog or finish immediately."
-    (let* ((eng (carriage-apply-engine))
-           (policy (plist-get state :branch-policy))
-           (need-epilog (and (eq eng 'git)
-                             (memq policy '(wip ephemeral)))))
-      (if need-epilog
-          (carriage--apply-epilog-branch-async state plan repo-root callback token)
-        (carriage--apply-finish plan state callback))))
-
-  (defun carriage--plan-has-patch-p (queue)
-    "Return non-nil when QUEUE contains any :op 'patch."
-    (seq-some (lambda (it) (eq (carriage--plan-get it :op) 'patch)) queue))
-
-  (defun carriage--guard-apply-on-wip (repo-root)
-    "Signal user-error when on WIP/ephemeral branch and applying is not allowed."
-    (let ((allow-wip (and (boundp 'carriage-allow-apply-on-wip)
-                          carriage-allow-apply-on-wip)))
-      (unless allow-wip
-        (condition-case _e
-            (let* ((default-directory (file-name-as-directory (expand-file-name repo-root)))
-                   (br (string-trim (or (with-temp-buffer
-                                          (if (zerop (call-process "git" nil t nil "rev-parse" "--abbrev-ref" "HEAD"))
-                                              (buffer-string) ""))
-                                        "")))
-                   (wip (or (and (boundp 'carriage-mode-wip-branch) carriage-mode-wip-branch)
-                            "carriage/WIP"))
-                   (epfx (or (and (boundp 'carriage-git-ephemeral-prefix) carriage-git-ephemeral-prefix)
-                             "carriage/tmp")))
-              (when (and (not (string-empty-p br))
-                         (or (string= br wip)
-                             (string-prefix-p epfx br)))
-                (user-error "Вы на ветке %s (WIP/ephemeral). Применение отменено." br)))
-          (error nil)))))
-
-  (defun carriage--async-initialize (plan repo-root)
-    "Prepare initial async state, token and patch presence flag for PLAN."
-    (let* ((queue (carriage--plan-sort plan))
-           (state (carriage--make-apply-state queue repo-root))
-           (token (list :abort-fn nil))
-           (patch-present (carriage--plan-has-patch-p queue)))
-      (carriage-log "async-init: plan-size=%d ops=%s"
-                    (length queue)
-                    (mapconcat (lambda (it) (format "%s" (carriage--plan-get it :op))) queue ", "))
-      (list :queue queue :state state :token token :patch-present patch-present)))
-
-
-  (defun carriage--async-run (plan repo-root state token patch-present callback)
-    "Start async run: force engine when needed, handle preflight, or proceed to first item."
-    (let ((carriage-apply-engine (if patch-present 'git carriage-apply-engine)))
-      (let* ((eng (carriage-apply-engine))
-             (policy (and (eq eng 'git)
-                          (boundp 'carriage-git-branch-policy)
-                          carriage-git-branch-policy)))
-        (carriage-log "async-run: engine=%s policy=%s patch-present=%s queue=%d"
-                      eng policy (if patch-present "yes" "no") (length (plist-get state :queue)))
-        (if (and (eq eng 'git) (not (eq policy 'in-place)))
-            (carriage--apply-preflight-branch-async state plan repo-root callback token)
-          (progn
-            (when (eq eng 'git)
-              (plist-put state :branch-policy policy))
-            (carriage--apply-next state plan repo-root callback token))))))
-
-  (defun carriage-apply-plan-async (plan repo-root &optional callback)
-    "Apply PLAN under REPO-ROOT asynchronously (event-driven FSM).
+(defun carriage-apply-plan-async (plan repo-root &optional callback)
+  "Apply PLAN under REPO-ROOT asynchronously (event-driven FSM).
 Returns a TOKEN plist with :abort-fn that cancels the current step (engine kill) or pending timers.
 CALLBACK, when non-nil, is invoked with the final REPORT on the main thread."
-    (carriage--guard-apply-on-wip repo-root)
-    (cl-destructuring-bind (&key state token patch-present &allow-other-keys)
-        (carriage--async-initialize plan repo-root)
-      ;; Register abort handler early; will be updated per step
-      (carriage--apply-update-abort state token)
-      ;; Schedule start without passing extra ARGS to the lambda
-      (run-at-time 0 nil
-                   (lambda ()
-                     (carriage--async-run plan repo-root state token patch-present callback)))
-      token))
+  (carriage--guard-apply-on-wip repo-root)
+  (cl-destructuring-bind (&key state token patch-present &allow-other-keys)
+      (carriage--async-initialize plan repo-root)
+    ;; Register abort handler early; will be updated per step
+    (carriage--apply-update-abort state token)
+    ;; Schedule start without passing extra ARGS to the lambda
+    (run-at-time 0 nil
+                 (lambda ()
+                   (carriage--async-run plan repo-root state token patch-present callback)))
+    token))
 
-  (provide 'carriage-apply)
+(provide 'carriage-apply)
 ;;; carriage-apply.el ends here
