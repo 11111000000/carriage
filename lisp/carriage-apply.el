@@ -587,6 +587,7 @@ For :op 'patch always force 'git engine (parity with sync path)."
                                     (and (not (string-empty-p stdout)) stdout)
                                     "WIP checkout failed"))))
        (carriage--apply-acc-msg state msg)
+       (carriage--apply-bump state 'fail)
        (carriage--apply-finish plan state callback)))))
 
 (defun carriage--preflight--ephemeral-async (state plan repo-root callback token)
@@ -605,6 +606,7 @@ For :op 'patch always force 'git engine (parity with sync path)."
                                     (and (not (string-empty-p stdout)) stdout)
                                     "Ephemeral branch create failed"))))
        (carriage--apply-acc-msg state msg)
+       (carriage--apply-bump state 'fail)
        (carriage--apply-finish plan state callback)))))
 
 (defun carriage--preflight--ensure-repo-async (state plan repo-root callback token policy)
@@ -630,6 +632,7 @@ For :op 'patch always force 'git engine (parity with sync path)."
                                     (and (not (string-empty-p stdout)) stdout)
                                     "Git repo not detected"))))
        (carriage--apply-acc-msg state msg)
+       (carriage--apply-bump state 'fail)
        (carriage--apply-finish plan state callback)))))
 
 (defun carriage--apply-preflight-branch-async (state plan repo-root callback token)

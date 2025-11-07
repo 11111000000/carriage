@@ -58,7 +58,7 @@
 When non-nil, the [AutoRpt] toggle appears ON (meaning 'always)."
   :type 'boolean :group 'carriage)
 
-(defcustom carriage-mode-report-open-policy 'on-error
+(defcustom carriage-mode-report-open-policy 'always
   "Report auto-open policy:
 - 'on-error — open only when there are failures (default),
 - 'always   — always open after dry-run/apply,
@@ -74,9 +74,11 @@ When non-nil, the [AutoRpt] toggle appears ON (meaning 'always)."
       ('always (carriage-report-open report))
       ('never  nil)
       (_
-       (let* ((sum (plist-get report :summary))
-              (fails (or (plist-get sum :fail) 0)))
-         (when (> fails 0)
+       (let* ((sum   (plist-get report :summary))
+              (fails (or (plist-get sum :fail) 0))
+              (msgs  (plist-get report :messages))
+              (has-err (cl-some (lambda (m) (eq (plist-get m :severity) 'error)) msgs)))
+         (when (or (> fails 0) has-err)
            (carriage-report-open report)))))))
 
 (defcustom carriage-mode-show-diffs t
@@ -535,6 +537,9 @@ Consults engine capabilities; safe when registry is not yet loaded."
 (defvar-local carriage--reasoning-beg-marker nil
   "Marker pointing to the beginning line of the current #+begin_reasoning block.")
 
+(defvar-local carriage--iteration-inline-marker-inserted nil
+  "Non-nil when an inline iteration marker has been inserted for the current stream.")
+
 (defun carriage-stream-reset (&optional origin-marker)
   "Reset streaming state for current buffer and set ORIGIN-MARKER if provided.
 Does not modify buffer text; only clears markers/state so the next chunk opens a region."
@@ -544,6 +549,7 @@ Does not modify buffer text; only clears markers/state so the next chunk opens a
   (setq carriage--reasoning-open nil)
   (setq carriage--reasoning-tail-marker nil)
   (setq carriage--reasoning-beg-marker nil)
+  (setq carriage--iteration-inline-marker-inserted nil)
   t)
 
 (defun carriage-stream-region ()
@@ -727,6 +733,16 @@ TYPE is either 'text (default) or 'reasoning.
                             (= (marker-position carriage--stream-end-marker) tailpos))
                    (set-marker carriage--stream-end-marker newpos (current-buffer)))))))))
       (_
+       ;; Before the first text chunk, insert inline iteration marker (if configured).
+       (when (and (eq carriage-iteration-marker-placement 'inline)
+                  (not carriage--iteration-inline-marker-inserted)
+                  (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)
+         (let ((pos (and (markerp carriage--stream-end-marker)
+                         (marker-position carriage--stream-end-marker))))
+           (when (numberp pos)
+             (ignore-errors
+               (carriage-iteration--write-inline-marker pos carriage--last-iteration-id))
+             (setq carriage--iteration-inline-marker-inserted t))))
        ;; Do not auto-close reasoning here; text is appended after all prior content.
        (carriage--stream-insert-at-end s))))
   (point))
@@ -771,15 +787,17 @@ TYPE is either 'text (default) or 'reasoning.
                   (org-fold-region body-beg body-end t))))
              (t nil))))
       (error nil)))
-  ;; Inline iteration marker right before response (blank line + marker), if configured
+  ;; Inline iteration marker: if not inserted earlier (before first text chunk), insert now.
   (when (and (not errorp) mark-last-iteration
              (boundp 'carriage-iteration-marker-placement)
-             (eq carriage-iteration-marker-placement 'inline))
+             (eq carriage-iteration-marker-placement 'inline)
+             (not carriage--iteration-inline-marker-inserted))
     (let ((r (carriage-stream-region))
           (id (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)))
       (when (and (consp r) (numberp (car r)) id)
         (ignore-errors
-          (carriage-iteration--write-inline-marker (car r) id)))))
+          (carriage-iteration--write-inline-marker (car r) id))
+        (setq carriage--iteration-inline-marker-inserted t))))
   ;; Mark the streamed region as last iteration (text properties)
   (when (and (not errorp) mark-last-iteration)
     (let ((r (carriage-stream-region)))
