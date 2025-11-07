@@ -272,11 +272,18 @@ If no preview is available, signal a user-visible message."
                    (progn
                      (when patch-file
                        (with-temp-file patch-file (insert diff)))
-                     (unless (and diff abs (file-exists-p abs))
-                       (user-error "Cannot run Ediff for patch: missing :diff or file"))
+                     (unless diff
+                       (user-error "Cannot run Ediff for patch: missing :diff"))
                      (let ((default-directory (or (and root (file-name-as-directory (expand-file-name root))) "/")))
                        (require 'ediff nil t)
-                       (ediff-patch-file patch-file abs)))
+                       (if (and abs (file-exists-p abs))
+                           (ediff-patch-file patch-file abs)
+                         (let* ((ext (file-name-extension (or path "") ""))
+                                (base (make-temp-file "carriage-ediff-base-" nil (if (and ext (not (string-empty-p ext))) (concat "." ext)))))
+                           ;; Create empty base file to emulate /dev/null for create patches.
+                           (with-temp-file base)
+                           (message "Carriage: base file missing, launching Ediff against empty file")
+                           (ediff-patch-file patch-file base)))))
                  (when patch-file (ignore-errors (delete-file patch-file))))))))
         (_
          (if (bound-and-true-p noninteractive)

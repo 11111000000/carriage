@@ -185,7 +185,9 @@ PAIRS — список пар вида ((:from . STR) (:to . STR) (:opts . PLIST
    "#+begin_to\nTO text\n#+end_to\n"
    "#+end_patch\n"
    "- No regex; :match is forbidden.\n"
-   "- For :occur all, :expect is required.\n"))
+   "- For :occur all, :expect is required.\n"
+   "- Do NOT generate unified diff (udiff) or any :op \"patch\" blocks; never output lines starting with \"--- a/\" or \"+++ b/\".\n"
+   "- Answer ONLY with begin_patch blocks for :op \"aibo\"; prose is allowed, tool applies ONLY blocks.\n"))
 
 ;;; Registration
 

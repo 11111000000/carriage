@@ -11,11 +11,18 @@
     carriage-iteration-id on the begin_patch line(s) of blocks.
   - Writer: carriage-mark-last-iteration sets these properties for the region.
 
-Reading order:
-1) carriage-iteration-read-id looks for nearest inline marker above the first begin_patch in the current response block, within a small window (e.g. 50 lines).
-2) Fallback: global #+PROPERTY: CARRIAGE_ITERATION_ID ... (legacy).
-3) As a last resort, when neither marker nor PROPERTY exist, strict collector fails with a diagnostic:
-   - "Strict mode: found N begin_patch; marked M for iteration <id>; missing marks? Use carriage-mark-last-iteration."
+Reading and selection rules:
+1) The preferred source of truth is the text property 'carriage-iteration-id on the
+   #+begin_patch line; when present, only such blocks are selected.
+2) If no properties are set but an inline marker \"#+CARRIAGE_ITERATION_ID: <id>\" exists,
+   the last such marker in the buffer defines the region of the last iteration:
+   all blocks from the line after the marker up to the next marker below (or end of buffer)
+   are selected.
+3) Fallback: global #+PROPERTY: CARRIAGE_ITERATION_ID ... (legacy) for reading the id value.
+4) As a last resort, when neither properties nor inline markers exist, the strict collector
+   returns nil with a diagnostic hint to mark the region (carriage-mark-last-iteration).
+
+Implementation note: The strict collector must fall back to the inline-marker rule (2) when no text properties are present. It should select all begin_patch blocks from the line after the last "#+CARRIAGE_ITERATION_ID: <id>" up to the next such marker below (or end of buffer). This makes C-c e A work even after reopening files or after manual insertion of blocks.
 
 Writing:
 - When streaming finalizes and mark-last-iteration=t, insert the inline marker if missing:
