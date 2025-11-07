@@ -16,11 +16,16 @@
 ;; Autoload stub ensures calling carriage-global-mode works even if file isn't loaded yet.
 (autoload 'carriage-global-mode "carriage-global-mode" "Global Carriage prefix/menu." t)
 (require 'carriage-global-mode)
-;; Defer transport to avoid circular require; call via autoloaded functions.
-(declare-function carriage-transport-begin "carriage-transport" (&optional abort-fn))
-(declare-function carriage-transport-streaming "carriage-transport" ())
-(declare-function carriage-transport-complete "carriage-transport" (&optional errorp))
-(declare-function carriage-transport-dispatch "carriage-transport" (&rest args))
+;; Ensure 'transports' subdirectory is on load-path when loading carriage-mode directly
+(let* ((this-dir (file-name-directory (or load-file-name buffer-file-name)))
+       (transports-dir (and this-dir (expand-file-name "transports" this-dir))))
+  (when (and transports-dir (file-directory-p transports-dir))
+    (add-to-list 'load-path transports-dir)))
+;; Defer transport to avoid circular require; also provide autoloads for adapters
+(autoload 'carriage-transport-begin "carriage-transport" "Transport: begin (install abort handler and set UI state)." t)
+(autoload 'carriage-transport-streaming "carriage-transport" "Transport: switch UI to streaming." t)
+(autoload 'carriage-transport-complete "carriage-transport" "Transport: finalize (clear abort and set UI state)." t)
+(autoload 'carriage-transport-dispatch "carriage-transport" "Transport: dispatch request to adapter with lazy loading." t)
 (declare-function carriage-select-apply-engine "carriage-apply-engine" (&optional engine))
 
 (defun carriage--ensure-transport ()
