@@ -38,12 +38,8 @@
 (cl-defgeneric carriage-dry-run (plan-item repo-root))
 (cl-defgeneric carriage-apply (plan-item repo-root))
 
-(defun carriage-generate-delim ()
-  "Вернуть случайный токен длиной ровно 6 нижних hex-символов ([0-9a-f])."
-  (let* ((b1 (random 256))
-         (b2 (random 256))
-         (b3 (random 256)))
-    (format "%02x%02x%02x" b1 b2 b3)))
+;; v1.1: DELIM для :op \"create\" удалён; генерация токенов больше не используется.
+;; Эта заглушка намеренно опущена в спецификации.
 
 (defun carriage-parse-sre (header body repo-root)
   "Парсинг SRE v1 (begin_from/begin_to) по спецификации v1."
