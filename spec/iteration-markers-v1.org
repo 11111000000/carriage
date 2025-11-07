@@ -1,0 +1,30 @@
+* Iteration markers v1.1 (placement, reading, strictness)
+
+- Goal: make last-iteration collection robust and intuitive regardless of Org heading structure.
+- Marker form (inline, human-visible):
+  - Exactly one line:
+    #+CARRIAGE_ITERATION_ID: <hex-id>
+  - Placement: a blank line, then the marker, then the LLM response (patch blocks).
+    Rationale: visually ties the marker to the answer, not to the heading.
+- Text properties:
+  - Source of truth for strict collectors remains buffer text properties
+    carriage-iteration-id on the begin_patch line(s) of blocks.
+  - Writer: carriage-mark-last-iteration sets these properties for the region.
+
+Reading order:
+1) carriage-iteration-read-id looks for nearest inline marker above the first begin_patch in the current response block, within a small window (e.g. 50 lines).
+2) Fallback: global #+PROPERTY: CARRIAGE_ITERATION_ID ... (legacy).
+3) As a last resort, when neither marker nor PROPERTY exist, strict collector fails with a diagnostic:
+   - "Strict mode: found N begin_patch; marked M for iteration <id>; missing marks? Use carriage-mark-last-iteration."
+
+Writing:
+- When streaming finalizes and mark-last-iteration=t, insert the inline marker if missing:
+  blank line + "#+CARRIAGE_ITERATION_ID: <id>"
+- Avoid duplicate markers by checking the preceding lines.
+
+Compatibility:
+- PROPERTY remains accepted but is discouraged visually; text properties are authoritative for strict apply.
+
+Open tasks:
+- Write/ship carriage-iteration-read-id and ensure carriage-stream-finalize inserts inline marker when requested.
+- Improve strict diagnostics with counts and a one-liner hint to mark region.

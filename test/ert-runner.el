@@ -9,11 +9,15 @@
 
 (require 'carriage)
 
-;; Load all *-test.el in this directory.
-(let* ((here (file-name-directory (or load-file-name buffer-file-name))))
-  ;; Ensure tests directory is on load-path so (load "stage-policy-test.el") works.
+;; Load all *-test.el in this directory and subdirs (e.g., engines).
+(let* ((here (file-name-directory (or load-file-name buffer-file-name)))
+       (eng  (expand-file-name "engines" here))
+       (dirs (list here (and (file-directory-p eng) eng))))
+  ;; Ensure tests directory on load-path so (load "...") works.
   (add-to-list 'load-path here)
-  (dolist (f (directory-files here t "-test\\.el\\'"))
-    (load f nil t)))
+  (dolist (dir dirs)
+    (when dir
+      (dolist (f (directory-files dir t "-test\\.el\\'"))
+        (load f nil t)))))
 
 (ert-run-tests-batch-and-exit)

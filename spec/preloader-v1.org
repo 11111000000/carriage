@@ -1,0 +1,14 @@
+* Streaming preloader v1
+
+- Purpose: provide immediate visual feedback at insertion point before first token arrives.
+- Mechanics:
+  - On carriage-transport-begin, start a local buffer overlay spinner at insertion point.
+  - Stop spinner on first streaming token (carriage-transport-streaming) or on complete.
+- Customization:
+  - carriage-mode-preloader-enabled (t/nil)
+  - carriage-mode-preloader-interval (ms)
+  - Frameset: unicode and ascii variants (configurable).
+- Safety:
+  - Buffer-local overlay/timer; cleaned on finalize or mode disable.
+- Separation:
+  - Preloader is distinct from reasoning block; it leaves no residual text in the buffer.

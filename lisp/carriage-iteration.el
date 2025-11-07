@@ -6,7 +6,7 @@
 
 (defvar-local carriage--last-iteration-id nil
   "Buffer-local identifier of the last iteration.
-When set, only blocks whose text property `carriage-iteration-id' equals this value
+When set, only blocks whose text property =carriage-iteration-id' equals this value
 are considered by `carriage-collect-last-iteration-blocks'.")
 
 (defun carriage-iteration--generate-id ()
@@ -48,6 +48,17 @@ are considered by `carriage-collect-last-iteration-blocks'.")
       (when (re-search-forward "^[ \t]*#\\+PROPERTY:[ \t]+CARRIAGE_ITERATION_ID[ \t]+\\(.+\\)$" nil t)
         (string-trim (match-string 1))))))
 
+(defun carriage-iteration-read-inline-id ()
+  "Scan buffer for the last inline marker \"#+CARRIAGE_ITERATION_ID: <id>\" and return ID, or nil.
+Best-effort; does not require Org mode."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((last nil))
+      (while (re-search-forward "^[ \t]*#\\+CARRIAGE_ITERATION_ID:[ \t]+\\(.+\\)$" nil t)
+        (setq last (string-trim (match-string 1))))
+      last)))
+
+
 ;;;###autoload
 (defun carriage-mark-last-iteration (beg end &optional id)
   "Mark all #+begin_patch blocks between BEG and END as the “last iteration”.
@@ -88,10 +99,9 @@ When optional ID is non-nil, reuse it instead of generating a new one."
 
 ;;;###autoload
 (defun carriage-current-iteration-id ()
-  "Return current buffer's last iteration id, reading Org property if needed."
+  "Return current buffer's last iteration id, reading markers if needed."
   (interactive)
-  (let* ((id (or carriage--last-iteration-id
-                 (ignore-errors (carriage-iteration-read-org-id)))))
+  (let* ((id (carriage-iteration-read-id)))
     (when id (setq carriage--last-iteration-id id))
     (when (called-interactively-p 'any)
       (message (if id "Last iteration id: %s" "No last iteration id set")
@@ -100,12 +110,67 @@ When optional ID is non-nil, reuse it instead of generating a new one."
 
 ;;;###autoload
 (defun carriage-begin-iteration ()
-  "Generate and set iteration id before streaming; write Org property line."
+  "Generate and set iteration id before streaming; write marker per placement policy."
   (interactive)
   (let ((id (carriage-iteration--generate-id)))
     (setq carriage--last-iteration-id id)
-    (ignore-errors (carriage-iteration--write-org-id id))
+    (when (eq carriage-iteration-marker-placement 'property)
+      (ignore-errors (carriage-iteration--write-org-id id)))
     id))
+
+;;; Iteration marker placement and helpers
+
+(defcustom carriage-iteration-marker-placement 'inline
+  "Where to place visual iteration marker for last responses:
+- 'inline    — insert a dedicated line just above the streamed response:
+               blank line + \"#+CARRIAGE_ITERATION_ID: <id>\"
+- 'property  — use only Org #+PROPERTY header and do not insert inline markers."
+  :type '(choice (const inline) (const property))
+  :group 'carriage)
+
+(defun carriage-iteration--write-inline-marker (pos id)
+  "Insert a blank line and an inline iteration marker line at POS:
+\"#+CARRIAGE_ITERATION_ID: ID\".
+Does nothing if ID is nil or empty. Returns position after insertion."
+  (when (and (stringp id) (> (length (string-trim id)) 0)
+             (numberp pos))
+    (save-excursion
+      (goto-char pos)
+      ;; Ensure marker is on a separate line and visually separated by a blank line
+      (unless (bolp) (insert "\n"))
+      ;; If previous line is not blank, add a blank separator line
+      (save-excursion
+        (forward-line -1)
+        (unless (looking-at-p "^[ \t]*$")
+          (goto-char pos)
+          (insert "\n")
+          (setq pos (1+ pos))))
+      (goto-char pos)
+      (insert (format "#+CARRIAGE_ITERATION_ID: %s\n" (downcase id)))
+      (point))))
+
+(defun carriage-iteration-read-id ()
+  "Read iteration id for the current buffer.
+
+Precedence:
+1) Org PROPERTY header anywhere in the buffer:
+   \"#+PROPERTY: CARRIAGE_ITERATION_ID <id>\"
+2) Inline marker line:
+   \"#+CARRIAGE_ITERATION_ID: <id>\"
+
+Returns the id string or nil."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((case-fold-search t)
+          (rx-prop "^[ \t]*#\\+PROPERTY:[ \t]*CARRIAGE_ITERATION_ID[ \t]+\\([0-9a-fA-F-]+\\)")
+          (rx-inline "^[ \t]*#\\+CARRIAGE_ITERATION_ID:[ \t]*\\([0-9a-fA-F-]+\\)"))
+      (cond
+       ((re-search-forward rx-prop nil t)
+        (downcase (match-string 1)))
+       ((progn (goto-char (point-min))
+               (re-search-forward rx-inline nil t))
+        (downcase (match-string 1)))
+       (t nil)))))
 
 (provide 'carriage-iteration)
 ;;; carriage-iteration.el ends here

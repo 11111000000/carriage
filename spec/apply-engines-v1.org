@@ -11,6 +11,8 @@
 - Область и границы
 - Поддерживаемые форматы v1: sre, aibo, patch (unified diff), create, delete, rename.
 - В v1 движок 'emacs не применяет patch (unified diff); для patch обязателен 'git.
+  Исключение в диспетчере: для 'emacs + 'patch возвращается дружелюбная строка результата
+  со статусом 'skip (детали: "patch unsupported by emacs engine") вместо жёсткой ошибки.
 - Default-движок: 'emacs.
 
 - Термины
@@ -45,14 +47,17 @@
 
 - Совместимость Suite ↔ Engine
 - Suite='sre → Engine ∈ {'emacs 'git}.
-- Suite='udiff → Engine='git (движок 'emacs отклоняет patch).
-- При несовместимости запуск dry-run/apply отклоняется кодом MODE_E_DISPATCH с подсказкой сменить движок (UI показывает предупреждение; см. ./ui-v1.org).
+- Suite='udiff → Engine='git (движок 'emacs не применяет patch).
+- При несовместимости запуск dry-run/apply:
+  - для пары 'emacs + 'patch — диспетчер возвращает строку результата со статусом 'skip
+    и деталями "patch unsupported by emacs engine" (мягкая деградация);
+  - для прочих несовместимостей — MODE_E_DISPATCH с подсказкой сменить движок (см. ./ui-v1.org).
 
 - Движок 'emacs — локальные правки без внешних команд
 - Назначение: детерминированный SRE/AIBO и операции с файлами внутри Emacs; без Git и без unified diff.
 - Поддерживает: sre, aibo, create, delete, rename.
-- Не поддерживает: patch (unified diff) — попытка приводит к MODE_E_DISPATCH.
-  - UI/Report: отображать это дружелюбно как 'skip с деталями "patch unsupported by emacs engine", чтобы избежать жёстких ошибок в отчёте.
+- Не поддерживает: patch (unified diff) — диспетчер возвращает дружелюбную строку результата
+  со статусом 'skip и деталями "patch unsupported by emacs engine", чтобы избежать жёстких ошибок в отчёте.
 
 - Политики файлов/буферов:
   - Источник правды — файл на диске. Если буфер посещает файл и содержит несохранённые изменения — по умолчанию отказ с подсказкой сохранить (IO_E_PATH). Допускается авто-сохранение по настройке.

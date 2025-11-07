@@ -8,6 +8,8 @@
 ;; Break circular dependency with carriage-mode: call its fns via declare-function.
 (declare-function carriage-register-abort-handler "carriage-mode" (fn))
 (declare-function carriage-clear-abort-handler "carriage-mode" ())
+(declare-function carriage--preloader-start "carriage-mode" ())
+(declare-function carriage--preloader-stop "carriage-mode" ())
 
 (defvar carriage--transport-loading-adapter nil
   "Guard to prevent recursive/layered adapter loading in transport dispatcher.")
@@ -24,6 +26,9 @@ Returns an unregister lambda that clears the handler when called."
   (when (fboundp 'carriage-begin-iteration)
     (ignore-errors (carriage-begin-iteration)))
   (carriage-ui-set-state 'sending)
+  ;; Start buffer preloader (if available) at the insertion point.
+  (when (fboundp 'carriage--preloader-start)
+    (ignore-errors (carriage--preloader-start)))
   ;; Return unregister lambda
   (lambda ()
     (carriage-clear-abort-handler)
@@ -33,6 +38,9 @@ Returns an unregister lambda that clears the handler when called."
 (defun carriage-transport-streaming ()
   "Signal that transport has progressed to streaming: update UI state."
   (carriage-log "Transport: streaming")
+  ;; Stop preloader when first streaming chunk arrives.
+  (when (fboundp 'carriage--preloader-stop)
+    (ignore-errors (carriage--preloader-stop)))
   (carriage-ui-set-state 'streaming))
 
 ;;;###autoload
@@ -40,6 +48,9 @@ Returns an unregister lambda that clears the handler when called."
   "Signal completion of an async request: clear abort handler and set UI state.
 If ERRORP non-nil, set state to 'error; otherwise set 'idle."
   (carriage-clear-abort-handler)
+  ;; Ensure preloader is stopped on finalize.
+  (when (fboundp 'carriage--preloader-stop)
+    (ignore-errors (carriage--preloader-stop)))
   (carriage-ui-set-state (if errorp 'error 'idle))
   (carriage-log "Transport: complete (status=%s)" (if errorp "error" "ok"))
   t)

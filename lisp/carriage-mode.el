@@ -290,6 +290,21 @@ Do not define bindings here; all key bindings are applied via keyspec and mode s
 ;; This allows binding C-c e to open the menu immediately in carriage-mode buffers.
 (autoload 'carriage-keys-open-menu "carriage-keyspec" "Open Carriage action menu from keyspec." t)
 
+;; Capability probe for current engine (parity with dispatcher)
+(defun carriage--engine-supports-op-p (op)
+  "Return non-nil when the active apply engine supports OP.
+Consults engine capabilities; safe when registry is not yet loaded."
+  (condition-case _e
+      (let* ((eng (and (fboundp 'carriage-apply-engine)
+                       (carriage-apply-engine)))
+             (rec (and (fboundp 'carriage-apply-engine--get)
+                       (carriage-apply-engine--get eng)))
+             (capf (and (listp rec) (plist-get rec :capabilities)))
+             (caps (and (functionp capf) (ignore-errors (funcall capf op))))
+             (ops  (and (listp caps) (plist-get caps :ops))))
+        (and ops (memq op ops)))
+    (error nil)))
+
 ;;; Internal helpers split out of define-minor-mode
 
 (defun carriage-mode--init-state ()
@@ -408,6 +423,8 @@ Do not define bindings here; all key bindings are applied via keyspec and mode s
     (setq carriage--abort-handler nil)
     (when (fboundp 'carriage-ui--spinner-stop)
       (carriage-ui--spinner-stop t))
+    (when (fboundp 'carriage--preloader-stop)
+      (carriage--preloader-stop))
     ;; Remove per-buffer emulation maps we installed for this buffer
     (when (local-variable-p 'emulation-mode-map-alists)
       (let ((lst emulation-mode-map-alists))
@@ -429,6 +446,81 @@ Do not define bindings here; all key bindings are applied via keyspec and mode s
     (carriage-mode--disable)))
 
 ;; Streaming insertion state and helpers
+
+(defcustom carriage-mode-reasoning-log-verbose nil
+  "When non-nil, emit verbose reasoning begin/end logs to *carriage-log*."
+  :type 'boolean :group 'carriage)
+
+;; Preloader (buffer-local spinner at insertion point before first stream chunk)
+
+(defcustom carriage-mode-preloader-enabled t
+  "When non-nil, show a lightweight preloader spinner at the insertion point before streaming starts."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-preloader-interval 0.2
+  "Update interval, in seconds, for the buffer preloader spinner."
+  :type 'number :group 'carriage)
+
+(defconst carriage--preloader-frames-unicode
+  ["⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏"]
+  "Spinner frames for the buffer preloader (Unicode).")
+
+(defconst carriage--preloader-frames-ascii
+  ["." ".." "..."]
+  "Spinner frames for the buffer preloader (ASCII fallback).")
+
+(defvar-local carriage--preloader-overlay nil
+  "Overlay used to render the buffer preloader spinner.")
+
+(defvar-local carriage--preloader-timer nil
+  "Timer updating the buffer preloader spinner.")
+
+(defvar-local carriage--preloader-index 0
+  "Current frame index for the buffer preloader spinner.")
+
+(defun carriage--preloader-frames ()
+  "Return vector of frames appropriate for current display."
+  (if (display-graphic-p)
+      carriage--preloader-frames-unicode
+    carriage--preloader-frames-ascii))
+
+(defun carriage--preloader--render (pos)
+  "Render preloader at POS, updating overlay text."
+  (unless (overlayp carriage--preloader-overlay)
+    (setq carriage--preloader-overlay (make-overlay pos pos)))
+  (let* ((frames (carriage--preloader-frames))
+         (n (length frames))
+         (i (mod (or carriage--preloader-index 0) (max 1 n)))
+         (frame (aref frames i)))
+    (overlay-put carriage--preloader-overlay 'after-string (propertize frame 'face 'shadow))
+    (setq carriage--preloader-index (1+ i))))
+
+(defun carriage--preloader-start ()
+  "Start buffer preloader at the origin of the current stream region."
+  (when (and carriage-mode-preloader-enabled (null carriage--preloader-timer))
+    (let* ((pos (cond
+                 ((and (markerp carriage--stream-origin-marker)
+                       (buffer-live-p (marker-buffer carriage--stream-origin-marker)))
+                  (marker-position carriage--stream-origin-marker))
+                 (t (point))))
+           (interval (or carriage-mode-preloader-interval 0.2)))
+      (setq carriage--preloader-index 0)
+      (carriage--preloader--render pos)
+      (setq carriage--preloader-timer
+            (run-at-time 0 interval
+                         (lambda ()
+                           (when (overlayp carriage--preloader-overlay)
+                             (carriage--preloader--render (overlay-start carriage--preloader-overlay)))))))))
+
+(defun carriage--preloader-stop ()
+  "Stop and remove buffer preloader spinner if active."
+  (when (timerp carriage--preloader-timer)
+    (cancel-timer carriage--preloader-timer))
+  (setq carriage--preloader-timer nil)
+  (when (overlayp carriage--preloader-overlay)
+    (delete-overlay carriage--preloader-overlay))
+  (setq carriage--preloader-overlay nil)
+  (setq carriage--preloader-index 0))
 
 (defvar-local carriage--stream-beg-marker nil
   "Buffer-local begin marker of the current streaming region.")
@@ -484,7 +576,6 @@ Records begin and tail markers so main text can be inserted after reasoning
 without auto-closing; the end marker is inserted later at tail."
   (when (eq carriage-mode-include-reasoning 'block)
     (carriage--ensure-stream-region)
-    (carriage-log "reasoning: begin-request open=%s" carriage--reasoning-open)
     (unless carriage--reasoning-open
       (let ((inhibit-read-only t)
             (pos (marker-position carriage--stream-end-marker)))
@@ -498,69 +589,105 @@ without auto-closing; the end marker is inserted later at tail."
           ;; Stream end also advances to current point
           (set-marker carriage--stream-end-marker (point) (current-buffer)))
         (setq carriage--reasoning-open t)
-        (carriage-log "reasoning: begin inserted beg=%s tail=%s end=%s"
-                      (and (markerp carriage--reasoning-beg-marker)
-                           (marker-position carriage--reasoning-beg-marker))
-                      (and (markerp carriage--reasoning-tail-marker)
-                           (marker-position carriage--reasoning-tail-marker))
-                      (and (markerp carriage--stream-end-marker)
-                           (marker-position carriage--stream-end-marker)))))))
+        (when carriage-mode-reasoning-log-verbose
+          (carriage-log "reasoning: begin inserted beg=%s tail=%s end=%s"
+                        (and (markerp carriage--reasoning-beg-marker)
+                             (marker-position carriage--reasoning-beg-marker))
+                        (and (markerp carriage--reasoning-tail-marker)
+                             (marker-position carriage--reasoning-tail-marker))
+                        (and (markerp carriage--stream-end-marker)
+                             (marker-position carriage--stream-end-marker))))))))
+
+(defun carriage--reasoning-tail-pos ()
+  "Return tail position for inserting #+end_reasoning, or nil."
+  (or (and (markerp carriage--reasoning-tail-marker)
+           (marker-position carriage--reasoning-tail-marker))
+      (and (markerp carriage--stream-end-marker)
+           (marker-position carriage--stream-end-marker))))
+
+(defun carriage--reasoning-prev-line-at (pos)
+  "Return the previous line text at POS (without properties), or an empty string."
+  (if (numberp pos)
+      (save-excursion
+        (goto-char pos)
+        (forward-line -1)
+        (buffer-substring-no-properties
+         (line-beginning-position) (line-end-position)))
+    ""))
+
+(defun carriage--reasoning-find-begin ()
+  "Find matching #+begin_reasoning above point and return its position, or nil."
+  (save-excursion
+    (when (re-search-backward "^[ \t]*#\\+begin_reasoning\\b" nil t)
+      (match-beginning 0))))
+
+(defun carriage--reasoning-end-present-p (beg cur-end)
+  "Return non-nil when #+end_reasoning exists between BEG and CUR-END."
+  (when (and (numberp beg) (numberp cur-end))
+    (save-excursion
+      (goto-char (1+ beg))
+      (re-search-forward "^[ \t]*#\\+end_reasoning\\b" cur-end t))))
+
+(defun carriage--reasoning-insert-end-at (tailpos)
+  "Insert #+end_reasoning at TAILPOS, adjust markers, and return end position."
+  (when (numberp tailpos)
+    (goto-char tailpos)
+    (unless (bolp) (insert "\n"))
+    (insert "#+end_reasoning\n")
+    (let ((end-pos (point)))
+      ;; If stream-end was equal to tail, advance it; otherwise leave it.
+      (when (and (markerp carriage--stream-end-marker)
+                 (= (marker-position carriage--stream-end-marker) tailpos))
+        (set-marker carriage--stream-end-marker end-pos (current-buffer)))
+      ;; Advance tail marker to the new end as well.
+      (when (markerp carriage--reasoning-tail-marker)
+        (set-marker carriage--reasoning-tail-marker end-pos (current-buffer)))
+      end-pos)))
+
+(defun carriage--reasoning-log-end (skipped end-pos beg-pos prev-line)
+  "Log concise reasoning end diagnostics when verbose logging is enabled."
+  (when carriage-mode-reasoning-log-verbose
+    (carriage-log "reasoning: end %s (end-pos=%s beg-pos=%s prev='%s')"
+                  (pcase skipped
+                    ('none "inserted")
+                    ('prev-line "skipped-duplicate")
+                    ('already-present "skipped-already-present")
+                    (_ skipped))
+                  (or end-pos -1) (or beg-pos -1)
+                  (condition-case _
+                      (substring prev-line 0 (min 80 (length prev-line)))
+                    (error prev-line)))))
 
 (defun carriage-end-reasoning ()
   "Close the #+begin_reasoning block if it is open. Do not fold here; folding is done on finalize."
-  (carriage-log "reasoning: end-request open=%s" carriage--reasoning-open)
+  (when carriage-mode-reasoning-log-verbose
+    (carriage-log "reasoning: end-request open=%s" carriage--reasoning-open))
   (when carriage--reasoning-open
     (let ((inhibit-read-only t)
           (end-pos nil) (beg-pos nil)
           (skipped 'none)
           (prev-line "")
-          (tailpos (or (and (markerp carriage--reasoning-tail-marker)
-                            (marker-position carriage--reasoning-tail-marker))
-                       (and (markerp carriage--stream-end-marker)
-                            (marker-position carriage--stream-end-marker)))))
+          (tailpos (carriage--reasoning-tail-pos)))
       (save-excursion
+        ;; Context for diagnostics
         (when (numberp tailpos) (goto-char tailpos))
-        ;; Capture previous line at TAIL for diagnostics
-        (setq prev-line (save-excursion
-                          (forward-line -1)
-                          (buffer-substring-no-properties
-                           (line-beginning-position) (line-end-position))))
-        ;; Locate matching begin for context and detect existing end marker between beg..end
-        (when (re-search-backward "^[ \t]*#\\+begin_reasoning\\b" nil t)
-          (setq beg-pos (match-beginning 0))
-          (let* ((cur (marker-position carriage--stream-end-marker))
-                 (have-end (save-excursion
-                             (goto-char (1+ beg-pos))
-                             (re-search-forward "^[ \t]*#\\+end_reasoning\\b" cur t))))
-            (when have-end
-              (setq skipped 'already-present))))
-        ;; Quick guard: previous line already end marker
+        (setq prev-line (carriage--reasoning-prev-line-at tailpos))
+        ;; Detect begin and existing end marker between beg..end
+        (setq beg-pos (carriage--reasoning-find-begin))
+        (let ((cur (and (markerp carriage--stream-end-marker)
+                        (marker-position carriage--stream-end-marker))))
+          (when (carriage--reasoning-end-present-p beg-pos cur)
+            (setq skipped 'already-present)))
+        ;; Quick guard: previous line already an end marker
         (when (and (eq skipped 'none)
                    (string-match-p "^[ \t]*#\\+end_reasoning\\b" prev-line))
           (setq skipped 'prev-line))
-        ;; Insert end marker at TAIL if not skipped
+        ;; Insert end marker at tail when needed
         (when (and (eq skipped 'none) (numberp tailpos))
-          (goto-char tailpos)
-          (unless (bolp) (insert "\n"))
-          (insert "#+end_reasoning\n")
-          (setq end-pos (point))
-          ;; If stream-end was equal to tail, advance it; otherwise leave it (text already present beyond).
-          (when (and (markerp carriage--stream-end-marker)
-                     (= (marker-position carriage--stream-end-marker) tailpos))
-            (set-marker carriage--stream-end-marker end-pos (current-buffer)))
-          ;; Advance tail as well to the new end
-          (when (markerp carriage--reasoning-tail-marker)
-            (set-marker carriage--reasoning-tail-marker end-pos (current-buffer)))))
-      (carriage-log "reasoning: end %s (end-pos=%s beg-pos=%s prev='%s')"
-                    (pcase skipped
-                      ('none "inserted")
-                      ('prev-line "skipped-duplicate")
-                      ('already-present "skipped-already-present")
-                      (_ skipped))
-                    (or end-pos -1) (or beg-pos -1)
-                    (condition-case _ (substring prev-line 0 (min 80 (length prev-line))) (error prev-line)))))
-  (setq carriage--reasoning-open nil)
-  t)
+          (setq end-pos (carriage--reasoning-insert-end-at tailpos))))
+      (carriage--reasoning-log-end skipped end-pos beg-pos prev-line))
+    (setq carriage--reasoning-open nil)
+    t))
 
 (defun carriage--stream-insert-at-end (s)
   "Insert string S at the end of the current streaming region."
@@ -579,6 +706,9 @@ TYPE is either 'text (default) or 'reasoning.
 - 'reasoning: when carriage-mode-include-reasoning='block, ensure a #+begin_reasoning
   and append to the reasoning tail marker so that main text remains outside the block."
   (let ((s (or string "")))
+    ;; First incoming chunk stops the preloader (if any).
+    (when (fboundp 'carriage--preloader-stop)
+      (carriage--preloader-stop))
     (pcase type
       ((or 'reasoning :reasoning)
        (when (eq carriage-mode-include-reasoning 'block)
@@ -606,10 +736,13 @@ TYPE is either 'text (default) or 'reasoning.
   "Finalize the current streaming session.
 - Ensure any open reasoning block is closed.
 - Fold the reasoning block after the full answer is printed.
-- When MARK-LAST-ITERATION and not ERRORP: mark the inserted region as last iteration.
+- When MARK-LAST-ITERATION and not ERRORP: insert inline marker (if configured) and mark the region as last iteration.
 - Trigger UI effects (flash/audio) on success."
   ;; Close reasoning if still open (end marker inserted at tail)
   (ignore-errors (carriage-end-reasoning))
+  ;; Stop preloader if still running.
+  (when (fboundp 'carriage--preloader-stop)
+    (carriage--preloader-stop))
   ;; Fold reasoning now (after the whole response), using recorded begin marker if available.
   (when (and (not errorp)
              (markerp carriage--reasoning-beg-marker))
@@ -638,6 +771,16 @@ TYPE is either 'text (default) or 'reasoning.
                   (org-fold-region body-beg body-end t))))
              (t nil))))
       (error nil)))
+  ;; Inline iteration marker right before response (blank line + marker), if configured
+  (when (and (not errorp) mark-last-iteration
+             (boundp 'carriage-iteration-marker-placement)
+             (eq carriage-iteration-marker-placement 'inline))
+    (let ((r (carriage-stream-region))
+          (id (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)))
+      (when (and (consp r) (numberp (car r)) id)
+        (ignore-errors
+          (carriage-iteration--write-inline-marker (car r) id)))))
+  ;; Mark the streamed region as last iteration (text properties)
   (when (and (not errorp) mark-last-iteration)
     (let ((r (carriage-stream-region)))
       (when (and (consp r)
@@ -652,6 +795,7 @@ TYPE is either 'text (default) or 'reasoning.
     (when (fboundp 'carriage--audio-notify-success)
       (carriage--audio-notify-success)))
   t)
+
 
 ;;; Prompt construction helpers
 
@@ -819,6 +963,9 @@ May include :context-text and :context-target per v1.1."
     (carriage--ensure-transport)
     (carriage-stream-reset origin-marker)
     (let* ((unreg (carriage-transport-begin)))
+      ;; Start lightweight preloader at insertion point until first stream chunk arrives.
+      (when (fboundp 'carriage--preloader-start)
+        (ignore-errors (carriage--preloader-start)))
       (carriage-traffic-log 'out "request begin: source=buffer backend=%s model=%s"
                             backend model)
       (condition-case err
@@ -865,6 +1012,9 @@ May include :context-text and :context-target per v1.1."
 
     (carriage--ensure-transport)
     (let* ((unreg (carriage-transport-begin)))
+      ;; Start lightweight preloader at insertion point until first stream chunk arrives.
+      (when (fboundp 'carriage--preloader-start)
+        (ignore-errors (carriage--preloader-start)))
       (carriage-traffic-log 'out "request begin: source=subtree backend=%s model=%s"
                             backend model)
       (condition-case err
@@ -897,9 +1047,9 @@ May include :context-text and :context-target per v1.1."
     (let ((op (or (and (listp plan-item) (plist-get plan-item :op))
                   (alist-get :op plan-item))))
       (when (and (eq op 'patch)
-                 (not (eq (carriage-apply-engine) 'git)))
+                 (not (carriage--engine-supports-op-p 'patch)))
         (carriage-ui-set-state 'error)
-        (user-error "Patch requires 'git engine; current engine is %s" (carriage-apply-engine))))
+        (user-error "Patch unsupported by %s engine; switch to git" (carriage-apply-engine))))
     (let ((report (carriage-dry-run-plan (list plan-item) root)))
       (when (not noninteractive)
         (carriage--report-open-maybe report))
@@ -918,15 +1068,35 @@ May include :context-text and :context-target per v1.1."
   (let ((op (or (and (listp plan-item) (plist-get plan-item :op))
                 (alist-get :op plan-item))))
     (when (and (eq op 'patch)
-               (not (eq (carriage-apply-engine) 'git)))
+               (not (carriage--engine-supports-op-p 'patch)))
       (carriage-ui-set-state 'error)
-      (user-error "Patch requires 'git engine; current engine is %s" (carriage-apply-engine)))))
+      (user-error "Patch unsupported by %s engine; switch to git" (carriage-apply-engine)))))
 
 (defun carriage--dry-run-single-item (plan-item root)
   "Run dry-run for a single PLAN-ITEM under ROOT, setting UI state appropriately."
   (carriage-ui-set-state 'dry-run)
   (carriage-dry-run-plan (list plan-item) root))
 
+(defun carriage--announce-apply-success (report)
+  "Show Messages summary for successful apply REPORT."
+  (when (and report (not (bound-and-true-p noninteractive)))
+    (let* ((items (or (plist-get report :items) '()))
+           (oks (cl-remove-if-not (lambda (it) (eq (plist-get it :status) 'ok)) items))
+           (created 0) (deleted 0) (renamed 0) (modified 0)
+           (files '()))
+      (dolist (it oks)
+        (let ((op (plist-get it :op)))
+          (pcase op
+            ('create (setq created (1+ created)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+            ('delete (setq deleted (1+ deleted)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+            ('rename (setq renamed (1+ renamed)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+            ((or 'patch 'sre 'aibo) (setq modified (1+ modified)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+            (_ (push (or (plist-get it :file) (plist-get it :path) "-") files)))))
+      (let* ((total (length oks))
+             (files-str (mapconcat #'identity (nreverse (delete-dups (delq nil files))) ", ")))
+        (when (> total 0)
+          (message "Carriage: applied OK (%d items) — created:%d modified:%d deleted:%d renamed:%d — %s"
+                   total created modified deleted renamed files-str))))))
 (defun carriage--apply-single-item-dispatch (plan-item root)
   "Apply single PLAN-ITEM under ROOT, async when configured; update UI/report."
   (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
@@ -937,10 +1107,18 @@ May include :context-text and :context-target per v1.1."
          (lambda (rep)
            (when (not noninteractive)
              (carriage--report-open-maybe rep))
+           (when (and (not noninteractive)
+                      (let* ((sum (plist-get rep :summary)))
+                        (and sum (zerop (or (plist-get sum :fail) 0)))))
+             (carriage--announce-apply-success rep))
            (carriage-ui-set-state 'idle))))
     (let ((ap (carriage-apply-plan (list plan-item) root)))
       (when (not noninteractive)
         (carriage--report-open-maybe ap))
+      (when (and (not noninteractive)
+                 (let* ((sum (plist-get ap :summary)))
+                   (and sum (zerop (or (plist-get sum :fail) 0)))))
+        (carriage--announce-apply-success ap))
       (carriage-ui-set-state 'idle))))
 
 ;;;###autoload
@@ -994,9 +1172,9 @@ May include :context-text and :context-target per v1.1."
                                             (and (listp it) (plist-get it :op)))
                                         'patch))
                                   plan)))
-          (when (and has-patch (not (eq (carriage-apply-engine) 'git)))
+          (when (and has-patch (not (carriage--engine-supports-op-p 'patch)))
             (carriage-ui-set-state 'error)
-            (user-error "Patch requires 'git engine; current engine is %s" (carriage-apply-engine))))
+            (user-error "Patch unsupported by %s engine; switch to git" (carriage-apply-engine))))
         ;; Guard: forbid applying on WIP/ephemeral branches unless explicitly allowed
         (let* ((cur-br (ignore-errors (and (fboundp 'carriage-git-current-branch)
                                            (carriage-git-current-branch root))))
@@ -1028,6 +1206,10 @@ May include :context-text and :context-target per v1.1."
                   (let ((ap (carriage-apply-plan plan root)))
                     (when (not noninteractive)
                       (carriage--report-open-maybe ap))
+                    (when (and (not noninteractive)
+                               (let* ((sum (plist-get ap :summary)))
+                                 (and sum (zerop (or (plist-get sum :fail) 0)))))
+                      (carriage--announce-apply-success ap))
                     (carriage-ui-set-state 'idle))))))))
     (call-interactively #'carriage-apply-at-point)))
 
@@ -1038,7 +1220,22 @@ May include :context-text and :context-target per v1.1."
   (let* ((root (or (carriage-project-root) default-directory))
          (plan (carriage-collect-last-iteration-blocks-strict root)))
     (when (or (null plan) (zerop (length plan)))
-      (user-error "Нет последней итерации (CARRIAGE_ITERATION_ID)"))
+      (let* ((id (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id))
+             (total 0) (marked 0))
+        (save-excursion
+          (goto-char (point-min))
+          (while (search-forward "#+begin_patch" nil t)
+            (when (save-excursion
+                    (beginning-of-line)
+                    (looking-at-p "^[ \t]*#\\+begin_patch"))
+              (setq total (1+ total))
+              (let ((lb (line-beginning-position)))
+                (when (equal (get-text-property lb 'carriage-iteration-id) id)
+                  (setq marked (1+ marked))))
+              (forward-line 1))))
+        (user-error (format "Нет последней итерации (CARRIAGE_ITERATION_ID). Blocks=%d, marked=%d%s"
+                            total marked
+                            (if id (format ", id=%s" (substring id 0 (min 8 (length id)))) "")))))
     (when (and carriage-mode-confirm-apply-all
                (not (y-or-n-p (format "Применить все блоки (%d)? " (length plan)))))
       (user-error "Отменено"))
@@ -1047,9 +1244,9 @@ May include :context-text and :context-target per v1.1."
       (dolist (it plan)
         (when (eq (or (alist-get :op it) (and (listp it) (plist-get it :op))) 'patch)
           (setq has-patch t)))
-      (when (and has-patch (not (eq (carriage-apply-engine) 'git)))
+      (when (and has-patch (not (carriage--engine-supports-op-p 'patch)))
         (carriage-ui-set-state 'error)
-        (user-error "Patch requires 'git engine; current engine is %s" (carriage-apply-engine))))
+        (user-error "Patch unsupported by %s engine; switch to git" (carriage-apply-engine))))
     ;; Guard: forbid applying on WIP/ephemeral branches unless explicitly allowed
     (let* ((cur-br (ignore-errors (and (fboundp 'carriage-git-current-branch)
                                        (carriage-git-current-branch root))))
@@ -1091,6 +1288,10 @@ May include :context-text and :context-target per v1.1."
                 (let ((ap (carriage-apply-plan plan root)))
                   (when (not noninteractive)
                     (carriage--report-open-maybe ap))
+                  (when (and (not noninteractive)
+                             (let* ((sum (plist-get ap :summary)))
+                               (and sum (zerop (or (plist-get sum :fail) 0)))))
+                    (carriage--announce-apply-success ap))
                   (carriage-ui-set-state 'idle))))))))))
 
 ;;;###autoload
@@ -1481,12 +1682,16 @@ If no handler is present, stops UI spinner and reports no active request."
          (message "Abort handler error: %s" (error-message-string err))))
       (when (fboundp 'carriage-ui--spinner-stop)
         (carriage-ui--spinner-stop t))
+      (when (fboundp 'carriage--preloader-stop)
+        (carriage--preloader-stop))
       (when (fboundp 'carriage-ui-set-state)
         (carriage-ui-set-state 'idle))
       (message "Carriage: abort requested"))
      (t
       (when (fboundp 'carriage-ui--spinner-stop)
         (carriage-ui--spinner-stop t))
+      (when (fboundp 'carriage--preloader-stop)
+        (carriage--preloader-stop))
       (when (fboundp 'carriage-ui-set-state)
         (carriage-ui-set-state 'idle))
       (message "Нет активного запроса")))))

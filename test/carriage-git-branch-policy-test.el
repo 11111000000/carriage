@@ -41,6 +41,8 @@
 
 (defun carriage-bp--make-diff (old new)
   (format (concat
+           "diff --git a/foo.txt b/foo.txt\n"
+           "index 0000000..0000001 100644\n"
            "--- a/foo.txt\n"
            "+++ b/foo.txt\n"
            "@@ -1,1 +1,1 @@\n"

@@ -1,0 +1,13 @@
+* Logging/Traffic v1 (noise gating)
+
+- Reduce UI noise:
+  - Reasoning logs ("reasoning: begin-request open=t") are gated behind defcustom carriage-mode-reasoning-log-verbose (default: nil).
+  - Only state transitions are logged by default: begin, first token, end.
+- Transport logs:
+  - carriage-transport-* functions emit concise begin/streaming/complete lines.
+  - Adapters (gptel/echo) log request and chunk kinds to *carriage-traffic* buffer.
+- Apply logs:
+  - Begin per item (engine, op, path, bytes), exit (code, stdout/stderr sizes), pid and elapsed time.
+- User messages:
+  - Timeouts/aborts show a gentle message in interactive sessions.
+  - Success summary is announced once per report via carriage-announce.el.

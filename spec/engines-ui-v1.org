@@ -1,0 +1,20 @@
+* Engines selection UI (mode-line and prompt)
+
+- List of engines in UI:
+  - Hide bare 'git' from choices to avoid ambiguity.
+  - Show only:
+    - git:in-place — Git apply engine (in-place)
+    - git:wip      — Git apply engine (wip)
+    - git:ephemeral— Git apply engine (ephemeral)
+  - Other engines (e.g., emacs) show as "emacs — Emacs apply engine" without policy suffixes.
+
+- Default selection:
+  - If current engine=git, default prompt value must be "git:<policy>" to match combo entries.
+  - Selecting a combo sets carriage-apply-engine='git and carriage-git-branch-policy to the chosen policy.
+
+- Patch dispatch contract (v1):
+  - :op 'patch must go via git engine. If a user selects 'emacs, patch dispatch returns MODE_E_DISPATCH.
+  - Async apply path also forces git engine when plan contains any patch items (parity with sync).
+
+- Tooltips:
+  - [Engine] tooltip should include current branch policy when engine=git.

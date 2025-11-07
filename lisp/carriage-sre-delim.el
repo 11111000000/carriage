@@ -18,7 +18,9 @@ Only lines that are exactly \"<<OLD\" or \":OLD\" (no leading/trailing whitespac
 are rewritten. Lines like \" <<OLD\", \"<< OLD\", \": DELIM\", \"::DELIM\" remain unchanged.
 
 Signals an error if OLD/NEW don't match \\`[0-9a-f]\\{6\\}\\'."
-  (let ((rx "\\`[0-9a-f]\\{6\\}\\'"))
+  ;; Ensure strict lowercase hex validation regardless of global case-fold-search.
+  (let ((rx "\\`[0-9a-f]\\{6\\}\\'")
+        (case-fold-search nil))
     (unless (and (stringp old) (string-match-p rx old)
                  (stringp new) (string-match-p rx new))
       (condition-case _
@@ -26,6 +28,7 @@ Signals an error if OLD/NEW don't match \\`[0-9a-f]\\{6\\}\\'."
               (signal (carriage-error-symbol 'OPS_E_DELIM) (list "Invalid :delim token(s)"))
             (signal 'error (list "Invalid :delim token(s)")))
         (error (signal 'error (list "Invalid :delim token(s)"))))))
+
   (let* ((open-old (concat "<<" old))
          (close-old (concat ":" old))
          (open-new (concat "<<" new))

@@ -1,0 +1,26 @@
+;;; carriage-engine-selection-test.el  -*- lexical-binding: t; -*-
+
+(require 'ert)
+
+(ert-deftest carriage-available-apply-engines-no-bare-git ()
+  (require 'carriage-apply-engine)
+  (require 'carriage-engine-git)
+  (require 'carriage-engine-emacs)
+  (let* ((lst (carriage-available-apply-engines))
+         (joined (mapconcat #'identity lst "\n")))
+    (should (string-match-p "git:in-place" joined))
+    (should (string-match-p "git:wip" joined))
+    (should (string-match-p "git:ephemeral" joined))
+    (should-not (string-match-p "^git\\b" joined))))
+
+(ert-deftest carriage-select-apply-engine-git-policy-combo ()
+  (require 'carriage-apply-engine)
+  (require 'carriage-engine-git)
+  (let ((carriage-apply-engine 'emacs))
+    (carriage-select-apply-engine "git:in-place")
+    (should (eq carriage-apply-engine 'git))
+    (should (eq carriage-git-branch-policy 'in-place))
+    (carriage-select-apply-engine "git:wip")
+    (should (eq carriage-git-branch-policy 'wip))
+    (carriage-select-apply-engine "git:ephemeral")
+    (should (eq carriage-git-branch-policy 'ephemeral))))

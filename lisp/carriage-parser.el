@@ -210,10 +210,10 @@ Otherwise, return all patch blocks in the buffer.
 If REPO-ROOT is nil, detect via =carriage-project-root' or use =default-directory'."
   (let* ((root (or repo-root (carriage-project-root) default-directory))
          (id   (or (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)
-                   (ignore-errors (carriage-iteration-read-org-id)))))
-    (message "Carriage: collect-last-iteration root=%s id=%s"
-             (or root "<nil>")
-             (and id (substring id 0 (min 8 (length id)))))
+                   (ignore-errors (carriage-iteration-read-id)))))
+    (carriage-log "collect-last-iteration root=%s id=%s"
+                  (or root "<nil>")
+                  (and id (substring id 0 (min 8 (length id)))))
     (if (not id)
         (carriage-parse-blocks-in-region (point-min) (point-max) root)
       (save-excursion
@@ -256,22 +256,16 @@ If REPO-ROOT is nil, detect via =carriage-project-root' or use =default-director
                        (after (save-excursion (goto-char block-end) (forward-line 1) (point))))
                   (carriage-log "iter-collect: begin@%d prop=%s id=%s match=%s"
                                 line-beg prop id (if (equal prop id) "yes" "no"))
-                  (message "Carriage: iter-collect begin@%d prop=%s id=%s match=%s"
-                           line-beg prop (and id (substring id 0 (min 8 (length id))))
-                           (if (equal prop id) "yes" "no"))
                   (when (equal prop id)
                     (let* ((body (buffer-substring-no-properties body-beg block-end))
                            (op (plist-get header-plist :op)))
                       (push (carriage-parse op header-plist body root) plan)
                       (carriage-log "iter-collect: pushed op=%s file=%s"
-                                    op (plist-get header-plist :file))
-                      (message "Carriage: iter-collect pushed op=%s file=%s"
-                               op (plist-get header-plist :file))))
+                                    op (plist-get header-plist :file))))
                   (goto-char after)
-                  (carriage-log "iter-collect: advanced to %d (after end_patch)" (point))
-                  (message "Carriage: iter-collect advanced to %d" (point))))))
+                  (carriage-log "iter-collect: advanced to %d (after end_patch)" (point))))))
           (setq plan (nreverse plan))
-          (message "Carriage: iter-collect done matched=%d" (length plan))
+          (carriage-log "iter-collect done matched=%d" (length plan))
           (if plan
               plan
             (carriage-parse-blocks-in-region (point-min) (point-max) root)))))))
@@ -283,12 +277,12 @@ Unlike =carriage-collect-last-iteration-blocks', this function NEVER falls back 
 collecting all blocks in the buffer when the last-iteration id is missing."
   (let* ((root (or repo-root (carriage-project-root) default-directory))
          (id   (or (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)
-                   (ignore-errors (carriage-iteration-read-org-id)))))
-    (message "Carriage: collect-last-iteration STRICT root=%s id=%s"
-             (or root "<nil>")
-             (and id (substring id 0 (min 8 (length id)))))
+                   (ignore-errors (carriage-iteration-read-id)))))
+    (carriage-log "collect-last-iteration STRICT root=%s id=%s"
+                  (or root "<nil>")
+                  (and id (substring id 0 (min 8 (length id)))))
     (unless id
-      (message "Carriage: no last-iteration id; strict collector returns nil")
+      (carriage-log "no last-iteration id; strict collector returns nil")
       (cl-return-from carriage-collect-last-iteration-blocks-strict nil))
     (save-excursion
       (goto-char (point-min))

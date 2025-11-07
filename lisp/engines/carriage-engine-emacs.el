@@ -6,9 +6,16 @@
 (require 'carriage-apply-engine)
 
 (defgroup carriage-engine-emacs nil
-  "Emacs-based apply engine (local FS ops; no git; no unified diff)."
+  "Emacs-based apply engine (local FS ops; optional unified diff).
+By default, udiff (op 'patch) is disabled; enable via
+=carriage-engine-emacs-enable-udiff' to allow single-file patches without git."
   :group 'carriage-engines
   :prefix "carriage-engine-emacs-")
+
+(defcustom carriage-engine-emacs-enable-udiff nil
+  "When non-nil, enable single-file unified diff apply in the Emacs engine.
+Scope (v1): text-only; create/modify; a/b header with :strip=1; no rename/binary."
+  :type 'boolean :group 'carriage-engine-emacs)
 
 (defun carriage-engine-emacs--fail-dispatch (op _item _repo on-fail)
   "Fail with MODE_E_DISPATCH for unsupported OP."
@@ -33,27 +40,161 @@
                                   :path (or (alist-get :file item)
                                             (alist-get :path item) "-")))))))
 
+;; -------- Minimal udiff (create-from-/dev/null) helpers --------
+
+(defun carriage-engine-emacs--udiff-parse-create (diff-str)
+  "Parse minimal udiff for file creation. Return (cons PATH . LINES) or signal error.
+Supports headers:
+  --- /dev/null
+  +++ b/PATH
+and one or more hunks with only '+' lines."
+  (let* ((lines (split-string (or diff-str "") "\n" nil))
+         (len (length lines)))
+    (when (< len 3)
+      (error "Invalid udiff: too short"))
+    (let ((hdr1 (nth 0 lines))
+          (hdr2 (nth 1 lines)))
+      (unless (and (string-match-p "\\=---[ \t]+/dev/null\\'" (string-trim hdr1))
+                   (string-match "\\=\\+\\+\\+[ \t]+b/\\(.+\\)\\'" (string-trim hdr2)))
+        (error "Unsupported udiff headers (expect create from /dev/null)"))
+      (let* ((path (replace-regexp-in-string "\\=\\+\\+\\+[ \t]+b/" "" (string-trim hdr2)))
+             (i 2)
+             (acc '()))
+        ;; Parse hunks; accept @@ -0,0 +L,N @@ then +lines
+        (while (< i len)
+          (let ((l (nth i lines)))
+            (cond
+             ;; hunk header
+             ((string-match-p "\\=@@[ \t]+" l)
+              (setq i (1+ i)))
+             ;; added line
+             ((and (>= (length l) 1) (eq (aref l 0) ?+))
+              (push (substring l 1) acc)
+              (setq i (1+ i)))
+             ;; "\ No newline at end of file"
+             ((string-prefix-p "\\" l)
+              (setq i (1+ i)))
+             ;; disallow deletions in create
+             ((and (>= (length l) 1) (eq (aref l 0) ?-))
+              (error "Delete lines not allowed in create udiff"))
+             ;; allow blanks or context (rare in create), just skip
+             (t
+              (setq i (1+ i))))))
+        (cons path (nreverse acc))))))
+
+(defun carriage-engine-emacs--ensure-parent-dir (abs)
+  "Ensure parent directory of ABS exists."
+  (let ((dir (file-name-directory abs)))
+    (when (and dir (not (file-directory-p dir)))
+      (make-directory dir t))))
+
+(defun carriage-engine-emacs--apply-create (path lines repo on-done on-fail)
+  "Write LINES to PATH under REPO; call ON-DONE or ON-FAIL."
+  (condition-case e
+      (let* ((root (file-name-as-directory (expand-file-name repo)))
+             (abs  (expand-file-name path root))
+             (text (mapconcat #'identity lines "\n"))
+             (text-final (concat text "\n")))
+        (carriage-engine-emacs--ensure-parent-dir abs)
+        (with-temp-file abs
+          (insert text-final))
+        (run-at-time 0 nil
+                     (lambda ()
+                       (when (functionp on-done)
+                         (funcall on-done
+                                  (list :engine 'emacs
+                                        :exit 0
+                                        :op 'patch
+                                        :path path
+                                        :stdout "" :stderr ""))))))
+    (error
+     (run-at-time 0 nil
+                  (lambda ()
+                    (when (functionp on-fail)
+                      (funcall on-fail
+                               (list :engine 'emacs
+                                     :exit 125
+                                     :op 'patch
+                                     :stderr (error-message-string e)))))))))
+
+(defun carriage-engine-emacs--udiff-dry-run-create (diff-str _strip repo on-done on-fail)
+  "Dry-run for create udiff: parse only."
+  (ignore repo)
+  (condition-case e
+      (let* ((pair (carriage-engine-emacs--udiff-parse-create diff-str))
+             (p (car pair)))
+        (run-at-time 0 nil
+                     (lambda ()
+                       (when (functionp on-done)
+                         (funcall on-done
+                                  (list :engine 'emacs
+                                        :exit 0
+                                        :op 'patch
+                                        :path p
+                                        :stdout "" :stderr ""))))))
+    (error
+     (run-at-time 0 nil
+                  (lambda ()
+                    (when (functionp on-fail)
+                      (funcall on-fail
+                               (list :engine 'emacs
+                                     :exit 125
+                                     :op 'patch
+                                     :stderr (error-message-string e)))))))))
+
+;; -------- Entrypoints --------
+
 (defun carriage-engine-emacs-dry-run (op item repo on-done on-fail)
   "Entrypoint :dry-run for Emacs engine.
-Unsupported: 'patch → MODE_E_DISPATCH. Others → async OK/NOOP."
-  (if (eq op 'patch)
-      (carriage-engine-emacs--fail-dispatch op item repo on-fail)
-    (carriage-engine-emacs--ok-noop op item repo on-done)))
+When =carriage-engine-emacs-enable-udiff' is non-nil and OP='patch,
+support minimal create-from-/dev/null udiff; otherwise, unsupported."
+  (cond
+   ((and (eq op 'patch) carriage-engine-emacs-enable-udiff)
+    (let* ((diff (or (alist-get :diff item) (plist-get item :diff)))
+           (strip (or (alist-get :strip item) (plist-get item :strip) 1)))
+      (when (and strip (not (= strip 1)))
+        (funcall on-fail (list :engine 'emacs :exit 125 :stderr "Only :strip=1 supported in emacs udiff v1"))
+        (cl-return-from carriage-engine-emacs-dry-run nil))
+      (carriage-engine-emacs--udiff-dry-run-create diff strip repo on-done on-fail)))
+   ((eq op 'patch)
+    (carriage-engine-emacs--fail-dispatch op item repo on-fail))
+   (t
+    (carriage-engine-emacs--ok-noop op item repo on-done))))
 
 (defun carriage-engine-emacs-apply (op item repo on-done on-fail)
   "Entrypoint :apply for Emacs engine.
-Unsupported: 'patch → MODE_E_DISPATCH. Others → async OK/NOOP.
+When =carriage-engine-emacs-enable-udiff' is non-nil and OP='patch,
+support minimal create-from-/dev/null udiff; otherwise, unsupported.
 
-Note: real SRE/AIBO/file-ops are executed in ops layer in v1; engine stub remains
-for registry/UI consistency and forward evolution."
-  (if (eq op 'patch)
-      (carriage-engine-emacs--fail-dispatch op item repo on-fail)
-    (carriage-engine-emacs--ok-noop op item repo on-done)))
+Note: SRE/AIBO/file-ops apply paths reside in ops layer in v1."
+  (cond
+   ((and (eq op 'patch) carriage-engine-emacs-enable-udiff)
+    (let* ((diff (or (alist-get :diff item) (plist-get item :diff)))
+           (strip (or (alist-get :strip item) (plist-get item :strip) 1)))
+      (when (and strip (not (= strip 1)))
+        (funcall on-fail (list :engine 'emacs :exit 125 :stderr "Only :strip=1 supported in emacs udiff v1"))
+        (cl-return-from carriage-engine-emacs-apply nil))
+      (condition-case e
+          (let* ((pair (carriage-engine-emacs--udiff-parse-create diff))
+                 (path (car pair))
+                 (lines (cdr pair)))
+            (carriage-engine-emacs--apply-create path lines repo on-done on-fail))
+        (error
+         (run-at-time 0 nil
+                      (lambda ()
+                        (when (functionp on-fail)
+                          (funcall on-fail
+                                   (list :engine 'emacs :exit 125 :stderr (error-message-string e))))))))))
+   ((eq op 'patch)
+    (carriage-engine-emacs--fail-dispatch op item repo on-fail))
+   (t
+    (carriage-engine-emacs--ok-noop op item repo on-done))))
 
 (defun carriage-engine-emacs-capabilities (_op)
-  "Capabilities for Emacs engine."
+  "Capabilities for Emacs engine (dynamic wrt udiff flag)."
   (list :name "Emacs apply engine"
-        :ops '(sre aibo create delete rename) ; patch is intentionally unsupported
+        :ops (append '(sre aibo create delete rename)
+                     (when carriage-engine-emacs-enable-udiff '(patch)))
         :async t
         :timeout nil))
 

@@ -85,14 +85,17 @@ For 'git engine also provide policy-specific combos:
   git:in-place — <name> (in-place)
   git:wip      — <name> (wip)
   git:ephemeral— <name> (ephemeral)"
-  (let* ((base (mapcar (lambda (cell)
+  (let* (;; Hide bare git entry; git policies are listed via combos below.
+         (registry (cl-remove-if (lambda (cell) (eq (car cell) 'git))
+                                 (reverse carriage-apply-engine--registry)))
+         (base (mapcar (lambda (cell)
                          (let* ((s (car cell))
                                 (pl (cdr cell))
                                 (nm (or (plist-get pl :name) (symbol-name s))))
                            (format "%s%s" (symbol-name s)
                                    (if (and nm (not (string= nm (symbol-name s))))
                                        (format " — %s" nm) ""))))
-                       (reverse carriage-apply-engine--registry)))
+                       registry))
          (git-cell (assoc 'git carriage-apply-engine--registry))
          (git-name (and git-cell (or (plist-get (cdr git-cell) :name) "git")))
          (combos (when git-cell
@@ -113,7 +116,11 @@ For 'git engine also provide policy-specific combos:
 Supports git policy combos: git:in-place|git:wip|git:ephemeral."
   (interactive)
   (let* ((choices (carriage-available-apply-engines))
-         (current (symbol-name (carriage-apply-engine)))
+         (cur-sym (carriage-apply-engine))
+         ;; Default prompt shows git:<policy> when engine is 'git to match combos.
+         (current (if (and (eq cur-sym 'git) (boundp 'carriage-git-branch-policy))
+                      (format "git:%s" carriage-git-branch-policy)
+                    (symbol-name cur-sym)))
          (sel-s (cond
                  ((and engine (symbolp engine)) (symbol-name engine))
                  ((and engine (stringp engine)) engine)
@@ -152,47 +159,56 @@ Callbacks are invoked on the main thread via run-at-time 0. Returns the engine t
                 ((or 'dry-run :dry-run) (plist-get rec :dry-run))
                 ((or 'apply   :apply)   (plist-get rec :apply))
                 (_ nil))))
-    ;; Suite↔Engine guard (spec v1): patch требует git-движок
-    ;; v1.1: дружелюбная деградация — возвращаем 'skip вместо жёсткой ошибки
-    (if (and (eq op 'patch) (not (eq eng 'git)))
-        (progn
-          (carriage-log "Engine dispatch: patch unsupported by %s; reporting skip" eng)
-          (when (functionp on-done)
-            (let ((msg (if (eq eng 'emacs)
-                           "patch unsupported by emacs engine"
-                         "patch unsupported by selected engine")))
+    ;; Suite↔Engine guard (spec v1.1):
+    ;; - По умолчанию patch требует git-движок.
+    ;; - Но если активный движок явно заявляет поддержку patch (capabilities), разрешаем.
+    (let* ((capf (plist-get rec :capabilities))
+           (caps (and (functionp capf) (ignore-errors (funcall capf op))))
+           (ops  (and (listp caps) (plist-get caps :ops)))
+           (supported (and ops (memq op ops))))
+      (if (and (eq op 'patch) (not (eq eng 'git)) (not supported))
+          (progn
+            (carriage-log "Engine dispatch: patch unsupported by %s" eng)
+            (if (eq eng 'emacs)
+                ;; Friendly skip row for emacs engine
+                (let ((row (list :engine 'emacs :op 'patch :status 'skip
+                                 :details "patch unsupported by emacs engine")))
+                  (when (functionp on-done)
+                    (run-at-time 0 nil (lambda () (funcall on-done row)))))
+              ;; Other non-git engines → hard dispatch error
+              (let ((err (list :code 'MODE_E_DISPATCH
+                               :engine eng :op 'patch
+                               :details "patch unsupported by selected engine")))
+                (when (functionp on-fail)
+                  (run-at-time 0 nil (lambda () (funcall on-fail err))))))
+            nil)
+        (if (functionp cb)
+            (condition-case e
+                (let ((ret
+                       (funcall cb op plan-item repo-root
+                                (lambda (result)
+                                  (run-at-time 0 nil
+                                               (lambda ()
+                                                 (when (functionp on-done)
+                                                   (funcall on-done result)))))
+                                (lambda (err)
+                                  (run-at-time 0 nil
+                                               (lambda ()
+                                                 (when (functionp on-fail)
+                                                   (funcall on-fail err))))))))
+                  ret)
+              (error
+               (carriage-log "Engine dispatch error (%s): %s" eng (error-message-string e))
+               (when (functionp on-fail)
+                 (run-at-time 0 nil (lambda () (funcall on-fail e))))
+               nil))
+          (progn
+            (carriage-log "No %s callback for engine %s (op=%s)" kind eng op)
+            (when (functionp on-fail)
               (run-at-time 0 nil
                            (lambda ()
-                             (funcall on-done
-                                      (list :engine eng :op 'patch :status 'skip :details msg))))))
-          nil)
-      (if (functionp cb)
-          (condition-case e
-              (let ((ret
-                     (funcall cb op plan-item repo-root
-                              (lambda (result)
-                                (run-at-time 0 nil
-                                             (lambda ()
-                                               (when (functionp on-done)
-                                                 (funcall on-done result)))))
-                              (lambda (err)
-                                (run-at-time 0 nil
-                                             (lambda ()
-                                               (when (functionp on-fail)
-                                                 (funcall on-fail err))))))))
-                ret)
-            (error
-             (carriage-log "Engine dispatch error (%s): %s" eng (error-message-string e))
-             (when (functionp on-fail)
-               (run-at-time 0 nil (lambda () (funcall on-fail e))))
-             nil))
-        (progn
-          (carriage-log "No %s callback for engine %s (op=%s)" kind eng op)
-          (when (functionp on-fail)
-            (run-at-time 0 nil
-                         (lambda ()
-                           (funcall on-fail (list :error 'no-callback :engine eng :kind kind)))))
-          nil)))))
+                             (funcall on-fail (list :error 'no-callback :engine eng :kind kind)))))
+            nil))))))
 
 (provide 'carriage-apply-engine)
 ;;; carriage-apply-engine.el ends here

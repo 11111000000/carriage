@@ -36,8 +36,12 @@
    (lambda (root)
      ;; first change and commit to get to rev 2
      (carriage-commit-test--prepare-change root "hello" "hello X")
-     (with-temp-buffer (setq default-directory root)
-                       (carriage-commit-changes "seed"))
+     (with-temp-buffer
+       (setq default-directory root)
+       ;; Ensure commit identity is present for CI/fresh repos
+       (call-process "git" nil nil nil "config" "user.email" "tester@example.com")
+       (call-process "git" nil nil nil "config" "user.name" "Tester")
+       (carriage-commit-changes "seed"))
      ;; apply second change but do not commit yet
      (carriage-commit-test--prepare-change root "hello X" "hello Y")
      ;; insert a matching patch block via accept to mark 'last iteration'
