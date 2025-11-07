@@ -24,7 +24,7 @@
   - MODE: алиасы :op запрещены; любые алиасы → MODE_E_DISPATCH.
   - MODE: sanitizer — SRE-блоки не переписываются; для create обязателен и нормализуется :delim (6 lower hex).
 
-  - File Ops: create/delete/rename — предусловия, :mkdir, :ensure-final-newline, конфликты путей и существование/отсутствие файлов; create: валидация :delim (=6 hex, Emacs regexp \\`[0-9a-f]\\{6\\}\\'), негативный кейс при неверном токене.
+  - File Ops: create/replace/delete/rename — предусловия, :mkdir, :ensure-final-newline, конфликты путей и существование/отсутствие файлов; create: валидация :delim (=6 hex, Emacs regexp \\`[0-9a-f]\\{6\\}\\'), негативный кейс при неверном токене.
 - Валидаторы regexp (Emacs flavor): неподдерживаемые конструкции → ошибка.
 - Нормализация путей: см. ./security-v1.org.
 - TRAMP/remote: см. ./security-v1.org (отказ при (file-remote-p) t).
@@ -138,6 +138,9 @@
 
 (ert-deftest carriage-rename-validate-and-apply ()
   (should (fboundp 'carriage-parse-rename)))
+
+(ert-deftest carriage-replace-validate-and-apply ()
+  (should (fboundp 'carriage-parse-replace)))
 
 ;; create no longer uses :delim in v1.1; body is taken as-is between begin/end.
 (ert-deftest carriage-create-no-delim-body-as-is ()

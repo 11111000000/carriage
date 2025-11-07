@@ -9,6 +9,7 @@
   - :op "create" — создать файл с содержимым.
   - :op "delete" — удалить файл.
   - :op "rename" — переименовать/переместить файл.
+  - :op "replace" — полностью переписать содержимое существующего файла.
 - Цель v1: минимальная и надёжная спецификация, совместимая с общим пайплайном (dry-run → применить → git).
 
 * Общие нормы
@@ -106,6 +107,40 @@ Welcome to Carriage.
 #+begin_patch (:version "1" :op "rename" :from "lib/legacy.c" :to "src/core/legacy.c")
 #+end_patch
 
+* Блок :op "replace"
+** Заголовок
+- #+begin_patch (:version "1" :op "replace" :file "relative/path")
+- #+end_patch
+
+Ключи:
+- :version — "1".
+- :op — "replace".
+- :file — относительный путь существующего файла.
+- :ensure-final-newline — добавлять завершающую новую строку при сохранении (по умолчанию t).
+
+** Тело
+- Новое содержимое файла — всё, что находится между #+begin_patch и #+end_patch; никаких специальных маркеров не требуется.
+
+** Валидация (replace)
+- Путь внутри репозитория; файл должен существовать (иначе OPS_E_NOT_FOUND).
+- Для создания нового файла используйте :op "create".
+
+** Dry-run (replace)
+- Проверить доступность пути и существование файла.
+- Предпросмотр: показать размер заменяемого содержимого (байт) и ожидаемый размер нового.
+- NOOP: если содержимое совпадает байт-в-байт — статус 'skip.
+
+** Применение (replace)
+- Перезаписать файл новым содержимым атомарно (temp → rename), сохранив права.
+- Если содержимое не заканчивается переводом строки и :ensure-final-newline=t — добавить завершающую новую строку.
+- Индексация по политике стадирования (carriage-apply-stage-policy); по умолчанию — без индексации.
+
+** Пример (replace)
+#+begin_patch (:version "1" :op "replace" :file "docs/intro.md")
+* Intro
+Welcome to Carriage v2.
+#+end_patch
+
 * Формальная грамматика (EBNF)
 #+begin_src text
 patch-block   := patch-header newline patch-body patch-footer
@@ -127,5 +162,9 @@ delete-body     := ε
 ; rename
 rename-required := :version "1" :op "rename" :from "old" :to "new"
 rename-body     := ε
+
+; replace
+replace-required := :version "1" :op "replace" :file "relative/path"
+replace-body     := segment
 
 segment         := segment-open payload segment-close

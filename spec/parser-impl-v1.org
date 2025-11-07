@@ -101,3 +101,15 @@
 (defun carriage-apply-create (plan-item repo-root) )
 (defun carriage-apply-delete (plan-item repo-root) )
 (defun carriage-apply-rename (plan-item repo-root) )
+
+(defun carriage-parse-replace (header body repo-root)
+  "Парсинг replace: переписать содержимое существующего файла."
+  )
+
+(defun carriage-dry-run-replace (plan-item repo-root)
+  "Симуляция replace: сравнить sizes/bytes и определить NOOP."
+  )
+
+(defun carriage-apply-replace (plan-item repo-root)
+  "Атомарно перезаписать файл новым содержимым; ensure-final-newline при необходимости."
+  )

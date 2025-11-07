@@ -16,7 +16,8 @@
 - "sre" v1 — 1..N пар FROM→TO в одном блоке =patch= (begin_from/begin_to).
 - "aibo" v1 — literal-only поиск/замена (без регулярок) в одном блоке =patch= (begin_from/begin_to).
 - "patch" v1 — unified diff одного файла в блоке =patch=.
-- "create" v1 — создать файл с содержимым (см. ./file-ops-v1.org).
+- "create" v1 — создать файл (см. ./file-ops-v1.org).
+- "replace" v1 — полностью заменить содержимое существующего файла (см. ./file-ops-v1.org).
 - "delete" v1 — удалить файл (см. ./file-ops-v1.org).
 - "rename" v1 — переименовать файл (см. ./file-ops-v1.org).
 
@@ -50,6 +51,10 @@
   - parse: carriage-parse-rename
   - dry-run: carriage-dry-run-rename
   - apply: carriage-apply-rename
+- replace:
+  - parse: carriage-parse-replace
+  - dry-run: carriage-dry-run-replace
+  - apply: carriage-apply-replace
 
 * Ошибки и совместимость
 - Неизвестная :version или :op → отказ с кодом MODE_E_DISPATCH.

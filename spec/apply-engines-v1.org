@@ -9,7 +9,7 @@
 - Дать два реализованных движка в v1: 'emacs и 'git. Движок 'unix отложен.
 
 - Область и границы
-- Поддерживаемые форматы v1: sre, aibo, patch (unified diff), create, delete, rename.
+- Поддерживаемые форматы v1: sre, aibo, patch (unified diff), create, replace, delete, rename.
 - В v1 движок 'emacs не применяет patch (unified diff); для patch обязателен 'git.
   Исключение в диспетчере: для 'emacs + 'patch возвращается дружелюбная строка результата
   со статусом 'skip (детали: "patch unsupported by emacs engine") вместо жёсткой ошибки.
@@ -24,7 +24,7 @@
 - Чистый dry-run: никакие файлы/ветки/индекс не изменяются.
 - Асинхронность: каждый шаг запускается неблокирующе; on-done/on-fail вызываются ровно один раз (в main thread).
 - Отмена и таймауты: текущий шаг можно прервать; при истечении таймаута шаг завершается ошибкой (см. ./async-workflow-v1.org).
-- Порядок типов операций в группе: delete → rename → create → patch → sre (см. ./apply-pipeline-v1.org).
+- Порядок типов операций в группе: delete → rename → create → replace → patch → sre (см. ./apply-pipeline-v1.org).
 - NOOP-политика: если after==before — статус 'skip с :matches и :changed-bytes=0 (см. ./index.org FREEZE).
 - Безопасность путей: только относительные внутри корня проекта; запрет абсолютов, «..», TRAMP/remote (см. ./security-v1.org).
 - Метрики: отчёты dry-run/apply включают :pid (если есть процесс) и :elapsed-ms для паритета с async (см. ./code-style-v1.org).
@@ -55,7 +55,7 @@
 
 - Движок 'emacs — локальные правки без внешних команд
 - Назначение: детерминированный SRE/AIBO и операции с файлами внутри Emacs; без Git и без unified diff.
-- Поддерживает: sre, aibo, create, delete, rename.
+- Поддерживает: sre, aibo, create, replace, delete, rename.
 - Не поддерживает: patch (unified diff) — диспетчер возвращает дружелюбную строку результата
   со статусом 'skip и деталями "patch unsupported by emacs engine", чтобы избежать жёстких ошибок в отчёте.
 
@@ -83,7 +83,7 @@
 
 - Движок 'git — unified diff, индексация и ветки
 - Назначение: применение patch через git apply, стадирование по политике, управление ветками для изоляции.
-- Поддерживает: patch, sre, aibo, create, delete, rename.
+- Поддерживает: patch, sre, aibo, create, replace, delete, rename.
 - Стадирование:
   - carriage-apply-stage-policy: 'none | 'index (по умолчанию 'none). При 'index изменения добавляются в индекс; коммит — отдельной командой пользователя (см. ./git-integration-v1.org).
 - Политики веток (carriage-git-branch-policy):
@@ -105,6 +105,7 @@
   - patch: git apply --directory=<root> [-p strip] [--index при policy='index].
   - sre/aibo: переписывание файла; при policy='index — git add PATH.
   - create: mkdir -p при :mkdir t; запись; ensure-final-newline при t; индексировать при policy='index.
+  - replace: перезаписать файл новым содержимым; ensure-final-newline при t; индексировать при policy='index.
   - delete: git rm (или FS + git add -A при особых состояниях); индексировать при policy='index.
   - rename: git mv.
 - Асинхронность/Abort/таймаут:

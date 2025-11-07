@@ -27,8 +27,8 @@
 
 * Intent: Code/Hybrid и Suites
 ** Базовые сьюиты v1
-- 'sre — разрешены :op (sre, aibo, create, delete, rename).
-- 'udiff — разрешены :op (patch, create, delete, rename).
+- 'sre — разрешены :op (sre, aibo, create, replace, delete, rename).
+- 'udiff — разрешены :op (patch, create, replace, delete, rename).
 - Примечание: file-ops (create/delete/rename) разрешены в обоих сьюитах; отдельных 'auto и 'file-ops нет.
 
 ** Композиция промпта
@@ -75,6 +75,8 @@
   - #+end_patch
 - Замечания:
   - Никаких регулярок; ключ :match запрещён.
+  - Минимум одна пара FROM→TO обязателен. Пустой блок (без пар) — ошибка (SRE_E_SEGMENTS_COUNT).
+  - Для полной замены содержимого файла НЕ используйте aibo — вместо этого применяйте :op "replace".
   - Допустимы только :occur 'first|'all (при all обязателен :expect), :range и (опционально) :anchor.
   - Идемпотентность: при after==before — шаг помечается 'skip; отчёт включает :matches и :changed-bytes.
 
@@ -86,10 +88,14 @@
 - Замечания:
   - Строго соблюдай unified diff; пути a/ и b/ указывают на один и тот же относительный путь.
 
-** FILE OPS (create/delete/rename)
+** FILE OPS (create/replace/delete/rename)
 - create:
   - #+begin_patch (:version "1" :op "create" :file "RELATIVE/PATH")
   - СОДЕРЖИМОЕ ФАЙЛА
+  - #+end_patch
+- replace (переписать существующий файл целиком):
+  - #+begin_patch (:version "1" :op "replace" :file "RELATIVE/PATH")
+  - НОВОЕ СОДЕРЖИМОЕ ФАЙЛА
   - #+end_patch
 - delete:
   - #+begin_patch (:version "1" :op "delete" :file "RELATIVE/PATH")

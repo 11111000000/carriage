@@ -80,9 +80,9 @@
   - Unified diff v1 (один файл), валидация :strip, binary/rename/copy guards.
   - Ключевые: carriage-parse-diff (+ вспом. валидаторы).
 - lisp/ops/carriage-op-file.el
-  - File ops: create/delete/rename (парсер, dry-run, apply).
-  - Ключевые: carriage-parse-create, carriage-parse-delete, carriage-parse-rename,
-    carriage-dry-run-create, carriage-apply-create, carriage-apply-delete, carriage-apply-rename.
+  - File ops: create/replace/delete/rename (парсер, dry-run, apply).
+  - Ключевые: carriage-parse-create, carriage-parse-delete, carriage-parse-rename, carriage-parse-replace,
+    carriage-dry-run-create, carriage-dry-run-replace, carriage-apply-create, carriage-apply-replace, carriage-apply-delete, carriage-apply-rename.
 - lisp/carriage-sre-core.el
   - Общие хелперы SRE (в т.ч. загрузка carriage-sre-delim).
 - (Удалено в v1.1) — модуль перепрошивки DELIM не требуется: :op create использует «сырой» контент тела блока.

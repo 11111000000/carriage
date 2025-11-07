@@ -51,6 +51,12 @@
      :mkdir t                      ; по умолчанию t
      :ensure-final-newline t)      ; по умолчанию t
 
+* Элемент плана: REPLACE
+- Каркас:
+  - (:version "1" :op 'replace :file "path"
+     :content STRING               ; новое содержимое файла
+     :ensure-final-newline t)      ; по умолчанию t
+
 * Элемент плана: DELETE
 - Каркас:
   - (:version "1" :op 'delete :file "path")

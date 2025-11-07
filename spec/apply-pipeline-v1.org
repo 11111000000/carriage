@@ -15,8 +15,9 @@
   1) delete
   2) rename
   3) create
-  4) patch
-  5) sre
+  4) replace
+  5) patch
+  6) sre
 - Внутри одного типа — в порядке появления в ответе.
 - Конфликты по пути:
   - Если и create, и sre касаются одного файла — create → затем sre.
