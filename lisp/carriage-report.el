@@ -195,31 +195,12 @@ Keeps focus and major-mode of the current buffer intact.
 The report buffer is shown in a top side window (above the main window)."
   (interactive)
   (when report
-    (carriage-report-render report)
-    ;; Announce success summary when all items succeeded (friendly UX and test support).
-    (let* ((sum  (plist-get report :summary))
-           (ok   (and sum (plist-get sum :ok)))
-           (fail (and sum (plist-get sum :fail))))
-      (when (and (numberp ok) (> ok 0) (or (not (numberp fail)) (zerop fail)))
-        (let* ((items (or (plist-get report :items) '()))
-               (created 0) (deleted 0) (renamed 0) (modified 0)
-               (files '()))
-          (dolist (it items)
-            (let* ((op0 (plist-get it :op))
-                   ;; Be robust to quoted values in tests: :op may be (quote create)
-                   (op  (if (and (consp op0) (eq (car op0) 'quote)) (cadr op0) op0))
-                   (file (or (plist-get it :file) (plist-get it :path) "-")))
-              (pcase op
-                ('create (setq created (1+ created)) (push file files))
-                ('delete (setq deleted (1+ deleted)) (push file files))
-                ('rename (setq renamed (1+ renamed)) (push file files))
-                ((or 'patch 'sre 'aibo) (setq modified (1+ modified)) (push file files))
-                (_ nil))))
-          (let* ((total ok)
-                 (files-str (mapconcat #'identity (nreverse (delete-dups (delq nil files))) ", ")))
-            (when (> total 0)
-              (message "Carriage: applied OK (%d items) — created:%d modified:%d deleted:%d renamed:%d — %s"
-                       total created modified deleted renamed files-str)))))))
+    ;; Do not overwrite an existing useful report with an empty one.
+    (let* ((items (plist-get report :items))
+           (msgs  (plist-get report :messages)))
+      (if (and (null items) (null msgs))
+          (carriage-log "report-open: skip rendering empty report")
+        (carriage-report-render report))))
   (save-selected-window
     ;; Show report in a top side window so it is easy to reach via window navigation.
     (carriage--display-aux-buffer (carriage-report-buffer) 'top 0.33 t)))
