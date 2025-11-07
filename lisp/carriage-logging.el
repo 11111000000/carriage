@@ -42,7 +42,9 @@ For left/right sides this is window-width; for top/bottom — window-height."
     (with-current-buffer buf
       (unless (derived-mode-p 'carriage-aux-mode)
         (carriage-aux-mode))
-      (setq-local header-line-format "Carriage: Log"))
+      (setq-local header-line-format (carriage--aux-header-line 'log))
+      (carriage--aux-ensure-tabline)
+      (setq-local header-line-format (carriage--aux-header-line 'log)))
     buf))
 
 (defun carriage-traffic-buffer ()
@@ -51,7 +53,9 @@ For left/right sides this is window-width; for top/bottom — window-height."
     (with-current-buffer buf
       (unless (derived-mode-p 'carriage-aux-mode)
         (carriage-aux-mode))
-      (setq-local header-line-format "Carriage: Traffic"))
+      (setq-local header-line-format (carriage--aux-header-line 'traffic))
+      (carriage--aux-ensure-tabline)
+      (setq-local header-line-format (carriage--aux-header-line 'traffic)))
     buf))
 
 (defun carriage--buffer-line-count (buffer)
@@ -103,12 +107,67 @@ STRING may be any object; it will be coerced to a string via format."
   (message "Carriage logs cleared.")
   t)
 
+;; -------------------------------------------------------------------
+;; Unified stacked (tabbed) aux window: one window with [Log|Traffic] tabs
+;; - Prefer tab-line-mode when available (Emacs 27+).
+;; - Fallback to a clickable header-line tabs if tab-line is unavailable.
+
+(defun carriage--aux-tab-buffers ()
+  "Return the list of aux buffers in tab order."
+  (delq nil (list (get-buffer carriage--log-buffer-name)
+                  (get-buffer carriage--traffic-buffer-name))))
+
+(defun carriage--aux-tab-name (buffer)
+  "Return a short tab name for BUFFER."
+  (let ((n (buffer-name buffer)))
+    (cond
+     ((string= n carriage--log-buffer-name) "Log")
+     ((string= n carriage--traffic-buffer-name) "Traffic")
+     (t n))))
+
+(defun carriage--aux-ensure-tabline ()
+  "Enable tab-line with only Log/Traffic buffers when available."
+  (when (boundp 'tab-line-tabs-function)
+    (setq-local tab-line-tabs-function (lambda ()
+                                         (carriage--aux-tab-buffers)))
+    (setq-local tab-line-tab-name-function #'carriage--aux-tab-name)
+    (when (fboundp 'tab-line-mode)
+      (tab-line-mode 1))))
+
+(defun carriage--aux-header-line (active)
+  "Build a minimal header-line with clickable [Log|Traffic] tabs as fallback.
+ACTIVE is 'log or 'traffic to highlight current tab."
+  (let* ((mk (lambda (label which)
+               (let* ((on (eq active which))
+                      (txt (format "[%s]" label))
+                      (map (let ((m (make-sparse-keymap)))
+                             (define-key m [header-line mouse-1]
+                                         (lambda (&rest _)
+                                           (pcase which
+                                             ('log (carriage-show-log))
+                                             ('traffic (carriage-show-traffic)))))
+                             m)))
+                 (propertize txt
+                             'mouse-face 'mode-line-highlight
+                             'help-echo (format "Switch to %s" label)
+                             'local-map map
+                             'face (when on 'mode-line-emphasis))))))
+    (concat "Carriage: "
+            (funcall mk "Log" 'log)
+            " "
+            (funcall mk "Traffic" 'traffic))))
+
+(defun carriage--aux-find-window ()
+  "Return an existing window showing either log or traffic buffer, or nil."
+  (or (get-buffer-window carriage--log-buffer-name t)
+      (get-buffer-window carriage--traffic-buffer-name t)))
+
 (defun carriage--display-aux-buffer (buffer &optional side size reuse slot)
   "Display BUFFER in a side window without replacing the current window.
 SIDE defaults to =carriage-mode-aux-window-side'. SIZE defaults to
 =carriage-mode-aux-window-size'. When REUSE (or
-=carriage-mode-aux-window-reuse') is non-nil, reuse an existing window
-already showing BUFFER."
+=carriage-mode-aux-window-reuse') is non-nil, reuse the single aux window
+(and switch its buffer) to keep one stacked tabbed panel."
   (let* ((side (or side (and (boundp 'carriage-mode-aux-window-side)
                              carriage-mode-aux-window-side)
                    'right))
@@ -118,15 +177,18 @@ already showing BUFFER."
          (reuse (if (boundp 'carriage-mode-aux-window-reuse)
                     carriage-mode-aux-window-reuse
                   t))
-         (win (and reuse (get-buffer-window buffer t))))
+         ;; Always use a single slot for both buffers to avoid creating two windows.
+         (slot (or slot 0))
+         (win (and reuse (carriage--aux-find-window))))
     (save-selected-window
       (let* ((inhibit-switch-frame t))
         (cond
          (win
-          ;; Reuse existing window but do not select it (preserve user focus).
-          (set-window-buffer win buffer))
+          ;; Reuse the existing aux window, just switch its buffer.
+          (when (window-live-p win)
+            (set-window-buffer win buffer)))
          (t
-          ;; Show in a side window and keep main window intact (no focus change).
+          ;; Show new side window
           (display-buffer buffer
                           `((display-buffer-reuse-window display-buffer-in-side-window)
                             (inhibit-same-window . t)
@@ -134,13 +196,11 @@ already showing BUFFER."
                             ,@(if (memq side '(left right))
                                   `((window-width . ,size))
                                 `((window-height . ,size)))
-                            (slot . ,(or slot -1))
+                            (slot . ,slot)
                             (window-parameters . ((no-delete-other-windows . t)))))))))))
 
-
-
 (defun carriage-show-log ()
-  "Display the Carriage log buffer in a side window."
+  "Display the Carriage log in a single right-side window with tabs."
   (interactive)
   (carriage--display-aux-buffer (carriage-log-buffer)
                                 carriage-mode-aux-window-side
@@ -149,22 +209,21 @@ already showing BUFFER."
                                 0))
 
 (defun carriage-show-traffic ()
-  "Display the Carriage traffic buffer in a side window."
+  "Display the Carriage traffic in a single right-side window with tabs."
   (interactive)
   (carriage--display-aux-buffer (carriage-traffic-buffer)
                                 carriage-mode-aux-window-side
                                 carriage-mode-aux-window-size
                                 carriage-mode-aux-window-reuse
-                                1))
+                                0))
 
 ;;;###autoload
 (defun carriage-show-log-and-traffic ()
-  "Open both *carriage-log* and *carriage-traffic* side windows on the right."
+  "Open a single side window (right) with tabs [Log|Traffic].
+Click tabs (or call carriage-show-log / carriage-show-traffic) to switch."
   (interactive)
-  (let ((reuse (and (boundp 'carriage-mode-aux-window-reuse) carriage-mode-aux-window-reuse))
-        (size  (and (boundp 'carriage-mode-aux-window-size) carriage-mode-aux-window-size)))
-    (carriage--display-aux-buffer (carriage-log-buffer) 'right size reuse 0)
-    (carriage--display-aux-buffer (carriage-traffic-buffer) 'right size reuse 1)))
+  ;; Default to Log on open; tabs allow switching instantly.
+  (carriage-show-log))
 
 ;; Auxiliary buffers major mode (read-only, 'q' to close window)
 (defvar carriage-aux-mode-map
@@ -185,6 +244,9 @@ already showing BUFFER."
   (setq mode-name "Carriage-Aux")
   (setq buffer-read-only t)
   (setq truncate-lines t)
+  ;; Ensure tab-line fallback header reflects current buffer
+  (setq-local header-line-format
+              (carriage--aux-header-line (if (string= (buffer-name) carriage--log-buffer-name) 'log 'traffic)))
   (run-mode-hooks 'carriage-aux-mode-hook)
   ;; Ensure keyspec bindings (e.g., C-c e q) are present when the mode is enabled.
   (when (fboundp 'carriage-keys-apply-known-keymaps)
