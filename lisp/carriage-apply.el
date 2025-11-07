@@ -163,19 +163,28 @@ for other ops → delegate to format registry."
 
 (defun carriage--dry-run-item-result (item repo-root virt)
   "Return dry-run ROW for ITEM using virtual FS VIRT when needed.
-Handles SRE simulation on virtual content; otherwise dispatches normally."
+Handles SRE/AIBO simulation on virtual content; otherwise dispatches normally."
   (let* ((op (carriage--plan-get item :op))
          (file (carriage--plan-get item :file)))
     (cond
-     ;; If SRE targets a file that will be created in this plan, simulate on that content.
-     ((and (eq op 'sre)
+     ;; If SRE/AIBO targets a file that will be created in this plan, simulate on that content.
+     ((and (memq op '(sre aibo))
            file
            (not (let* ((abs (ignore-errors (carriage-normalize-path repo-root file))))
                   (and abs (file-exists-p abs))))
            (assoc-string file virt t))
-      (if (fboundp 'carriage-sre-dry-run-on-text)
-          (carriage-sre-dry-run-on-text item (cdr (assoc-string file virt t)))
-        (carriage--report-fail op :file file :details "SRE simulation not available")))
+      (let ((text (cdr (assoc-string file virt t))))
+        (cond
+         ((and (eq op 'sre) (fboundp 'carriage-sre-dry-run-on-text))
+          (carriage-sre-dry-run-on-text item text))
+         ((and (eq op 'aibo)
+               (require 'carriage-op-aibo nil t)
+               (fboundp 'carriage--aibo->sre-item)
+               (fboundp 'carriage-sre-dry-run-on-text))
+          (let ((sre-item (carriage--aibo->sre-item item)))
+            (carriage-sre-dry-run-on-text sre-item text)))
+         (t
+          (carriage--report-fail op :file file :details "SRE/AIBO simulation not available")))))
      (t
       (carriage--dry-run-dispatch item repo-root)))))
 
@@ -588,15 +597,24 @@ For :op 'patch always force 'git engine (parity with sync path)."
             (carriage--apply-bump state (plist-get row :status))
             (carriage--apply-next state plan repo-root callback token)))
         token plan))
+      ('aibo
+       (carriage--apply-fs-async
+        state
+        (lambda ()
+          (let ((row (carriage-apply-aibo item repo-root)))
+            (carriage--apply-acc-row state row)
+            (carriage--apply-bump state (plist-get row :status))
+            (carriage--apply-next state plan repo-root callback token)))
+        token plan))
       (_
        (carriage--apply-fs-async
         state
         (lambda ()
           (let ((row (carriage--report-fail (or op 'unknown) :details "Unknown op")))
             (carriage--apply-acc-row state row)
-            (carriage--apply-bump state 'fail)))
-        token plan)
-       (carriage--apply-finish plan state callback)))))
+            (carriage--apply-bump state 'fail)
+            (carriage--apply-finish plan state callback)))
+        token plan)))))
 
 (defun carriage--apply-next (state plan repo-root callback token)
   "Advance to the next item or finish."
