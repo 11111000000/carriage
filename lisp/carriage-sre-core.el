@@ -3,9 +3,7 @@
 (require 'cl-lib)
 (require 'subr-x)
 
-;; DELIM marker rewriter is unified in lisp/carriage-sre-delim.el (carriage-sre-rewrite-delim-markers).
-;; This file no longer provides an alternate implementation.
-(require 'carriage-sre-delim)
+;; Shared SRE helpers placeholder (no DELIM markers in v1; file retained for future extensions).
 
 (provide 'carriage-sre-core)
 ;;; carriage-sre-core.el ends here

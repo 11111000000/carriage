@@ -5,7 +5,7 @@
 #+property: header-args :results silent
 
 * FREEZE (v1)
-  - DELIM: ровно 6 hex в нижнем регистре ([0-9a-f]{6}); Emacs regexp якорями: "\`[0-9a-f]\{6\}\'" (в строках Elisp: "\\`[0-9a-f]\\{6\\}\\'"); инструмент генерирует случайный токен.
+  - (DELIM removed in v1.1 for :op create): содержимое файла берётся как есть между begin/end.
   - SRE: без :delim; пары begin_from/begin_to.
   - Макс. пар в SRE: 200 (превышение → SRE_E_LIMITS)
   - Макс. сегмент FROM/TO: 512 KiB

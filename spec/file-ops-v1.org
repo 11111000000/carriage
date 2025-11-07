@@ -19,23 +19,18 @@
 
 * Блок :op "create"
 ** Заголовок
-- #+begin_patch (:version "1" :op "create" :file "relative/path" :delim "TOKEN" [:mkdir t|nil])
+- #+begin_patch (:version "1" :op "create" :file "relative/path" [:mkdir t|nil])
 - #+end_patch
 
 Ключи:
 - :version — "1".
 - :op — "create".
 - :file — относительный путь создаваемого файла.
-- :delim — обязателен; ровно 6 hex-символов (Emacs regexp: \`[0-9a-f]\{6\}\'; в строках Elisp: "\\`[0-9a-f]\\{6\\}\\'") (см. ./index.org, секция FREEZE)
-- При неверном формате :delim парсер сигнализирует OPS_E_DELIM.
 - :mkdir — t для создания недостающих каталогов (по умолчанию t).
 - :ensure-final-newline — добавлять завершающую новую строку при сохранении (по умолчанию t).
 
 ** Тело
-- Ровно один сегмент с содержимым:
-  - <<DELIM
-    …содержимое файла…
-    :DELIM
+- Содержимое файла — всё, что находится между #+begin_patch и #+end_patch; никаких специальных маркеров не требуется.
 
 ** Валидация (create)
 - Путь внутри репозитория; каталоги допускается создать при :mkdir t.
@@ -52,14 +47,10 @@
 - Коммит не выполняется в apply; он запускается отдельной командой пользователя.
 
 ** Пример (create)
-#+begin_patch (:version "1" :op "create" :file "docs/intro.md" :delim "cafe01")
-<<cafe01
+#+begin_patch (:version "1" :op "create" :file "docs/intro.md")
 * Intro
 Welcome to Carriage.
-:cafe01
 #+end_patch
-; Примечание: токен :delim валидируется якорями начала/конца строки (\` ... \'); в строках Elisp: "\\`[0-9a-f]\\{6\\}\\'".
-; поэтому "cafe01" — корректный (6 нижних hex).
 
 * Блок :op "delete"
 ** Заголовок
@@ -125,7 +116,7 @@ kv-pair       := ":"symbol ws value
 value         := string | number | symbol | list
 
 ; create
-create-required := :version "1" :op "create" :file "relative/path" :delim "TOKEN"
+create-required := :version "1" :op "create" :file "relative/path"
 create-optional := (:mkdir t|nil)
 create-body     := segment
 
@@ -137,6 +128,4 @@ delete-body     := ε
 rename-required := :version "1" :op "rename" :from "old" :to "new"
 rename-body     := ε
 
-segment-open    := "<<" TOKEN newline
-segment-close   := ":" TOKEN newline
 segment         := segment-open payload segment-close

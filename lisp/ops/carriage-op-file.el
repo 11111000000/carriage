@@ -12,18 +12,16 @@
 
 ;;;; Prompt fragments
 
-(defun carriage-op-create-prompt-fragment (ctx)
-  "Prompt fragment for :op create. CTX may contain :delim."
-  (let ((delim (or (plist-get ctx :delim) (carriage-generate-delim))))
-    (concat
-     "CREATE:\n"
-     "#+begin_patch (:version \"1\" :op \"create\" :file \"RELATIVE/PATH\" :delim \"" delim "\")\n"
-     "<<" delim "\nFILE CONTENTS\n:" delim "\n"
-     "#+end_patch\n"
-     "- Requirements: :version \"1\"; :file (not :path); :delim — exactly 6 lowercase hex characters.\n"
-     "- Closing marker must be exactly ':DELIM' (a single colon immediately followed by the token) on its own line; no spaces before/after.\n"
-     "- Common mistakes: missing colon; ': DELIM' (with a space); '::DELIM'; trailing spaces after ':DELIM'.\n"
-     "- Aliases like write/create_file/delete_file/rename_file are forbidden; use create/delete/rename/patch.\n")))
+(defun carriage-op-create-prompt-fragment (_ctx)
+  "Prompt fragment for :op create (no delimiter markers in v1)."
+  (concat
+   "CREATE:\n"
+   "#+begin_patch (:version \"1\" :op \"create\" :file \"RELATIVE/PATH\")\n"
+   "FILE CONTENTS\n"
+   "#+end_patch\n"
+   "- Requirements: :version \"1\"; :file (not :path). The file content is the raw body between begin/end.\n"
+   "- No delimiter markers (<<DELIM/:DELIM) are used in v1.\n"
+   "- Aliases like write/create_file/delete_file/rename_file are forbidden; use create/delete/rename/patch.\n"))
 
 (defun carriage-op-delete-prompt-fragment (_ctx)
   "Prompt fragment for :op delete."
@@ -46,9 +44,11 @@
 ;;;; Parse
 
 (defun carriage-parse-create (header body repo-root)
-  "Parse :op create from HEADER/BODY under REPO-ROOT. Return plan item alist."
+  "Parse :op create from HEADER/BODY under REPO-ROOT. Return plan item alist.
+
+In v1, no delimiter markers are used. The file content is the raw BODY between
+#+begin_patch and #+end_patch."
   (let* ((file (plist-get header :file))
-         (delim (plist-get header :delim))
          (_v (plist-get header :version))
          (mkdir (if (plist-member header :mkdir)
                     (plist-get header :mkdir) t))
@@ -56,33 +56,13 @@
                            (plist-get header :ensure-final-newline) t)))
     (unless (and (stringp file) (not (string-empty-p file)))
       (signal (carriage-error-symbol 'OPS_E_PATH) (list file)))
-    (unless (and (stringp delim) (string-match-p "\\`[0-9a-f]\\{6\\}\\'" delim))
-      (signal (carriage-error-symbol 'OPS_E_DELIM) (list "Invalid :delim")))
-    ;; Extract exactly one segment using SRE-like scanner: <<DELIM ... :DELIM
-    (let* ((open (concat "<<" delim))
-           (close (concat ":" delim))
-           (segments
-            (let ((acc '()) (state 'idle) (tmp nil))
-              (dolist (ln (split-string body "\n" nil nil))
-                (let ((tln (string-trim ln)))
-                  (cond
-                   ((and (eq state 'idle) (string= tln open)) (setq state 'in tmp nil))
-                   ((and (eq state 'in) (string= tln close))
-                    (push (mapconcat #'identity (nreverse tmp) "\n") acc)
-                    (setq tmp nil state 'idle))
-                   ((eq state 'in) (push ln tmp)))))
-              (when (eq state 'in)
-                (signal (carriage-error-symbol 'SRE_E_UNCLOSED_SEGMENT) (list "Unclosed segment")))
-              (nreverse acc))))
-      (unless (= (length segments) 1)
-        (signal (carriage-error-symbol 'SRE_E_SEGMENTS_COUNT) (list (length segments))))
-      (let* ((norm (carriage-normalize-path repo-root file)))
-        (list (cons :version "1")
-              (cons :op 'create)
-              (cons :file (file-relative-name norm repo-root))
-              (cons :content (car segments))
-              (cons :mkdir mkdir)
-              (cons :ensure-final-newline ensure-final))))))
+    (let* ((norm (carriage-normalize-path repo-root file)))
+      (list (cons :version "1")
+            (cons :op 'create)
+            (cons :file (file-relative-name norm repo-root))
+            (cons :content body)
+            (cons :mkdir mkdir)
+            (cons :ensure-final-newline ensure-final)))))
 
 (defun carriage-parse-delete (header _body repo-root)
   "Parse :op delete from HEADER under REPO-ROOT."

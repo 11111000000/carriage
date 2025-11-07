@@ -172,7 +172,7 @@ about the lifecycle (spawn, wait ticks, timeout/exit) to help diagnose stalls."
       (setq p (cddr p)))
     (nreverse res)))
 
-;; DELIM marker rewriter is unified in lisp/carriage-sre-delim.el (carriage-sre-rewrite-delim-markers).
+;; DELIM markers were removed in v1.1: :op create uses raw body content between begin/end.
 
 (provide 'carriage-utils)
 ;;; carriage-utils.el ends here

@@ -33,7 +33,8 @@
 ** Композиция промпта
 - Каждый op-модуль (например, lisp/ops/carriage-op-sre.el) публикует фрагмент промпта и регистрирует parse/dry-run/apply.
 - Suite объявляет (:ops-allowed …) и собирает системный промпт как конкатенацию фрагментов разрешённых ops, добавляя строгости для Intent=Code (никакого текста вне блоков; только begin_patch). Для Intent=Hybrid текст вне блоков допускается, но инструмент обрабатывает только блоки.
-- Инструмент подставляет пути; DELIM используется только там, где требуется форматом (например, create) и всегда задаётся инструментом.
+- Инструмент подставляет пути. Для :op "create" не используются маркеры‑разделители: содержимое файла — это «сырое» тело между #+begin_patch и #+end_patch.
+
 
 ** Общие регуляции
 - В Intent=Code ответ содержит ТОЛЬКО блоки =begin_patch/end_patch=; в Intent=Hybrid текст вне блоков допускается и игнорируется при применении.
@@ -86,10 +87,8 @@
 
 ** FILE OPS (create/delete/rename)
 - create:
-  - #+begin_patch (:version "1" :op "create" :file "RELATIVE/PATH" :delim "DELIM")
-  - <<DELIM
+  - #+begin_patch (:version "1" :op "create" :file "RELATIVE/PATH")
   - СОДЕРЖИМОЕ ФАЙЛА
-  - :DELIM
   - #+end_patch
 - delete:
   - #+begin_patch (:version "1" :op "delete" :file "RELATIVE/PATH")
@@ -180,10 +179,12 @@
   4) guardrails ← статический текст правил:
      - Имя блока: только begin_patch/end_patch (никаких алиасов).
      - Пути: только относительные; запрет «..», абсолютов, TRAMP.
-     - DELIM — только для :op "create"; в SRE :delim запрещён. Закрывающий маркер должен быть РОВНО строкой вида ":DELIM" (двоеточие + токен) без пробелов и постфиксов на отдельной строке; строки вида ": DELIM", "::DELIM" или с хвостовыми пробелами запрещены (негативные примеры включать в prompt).
+     - Для :op \"create\" не используются маркеры‑разделители (<<DELIM/:DELIM); содержимое файла — это всё тело блока между begin/end.
      - Suite=sre: разрешены только (sre create delete rename) и никакого unified diff.
      - Suite=udiff: разрешены только (patch create delete rename) и никакого begin_from/begin_to.
      - Intent=Code: запрет текста вне блоков; Intent=Hybrid: текст допускается, применяется только содержимое блоков.
+     - Запрещены «случайные» строки вида \"#+end\" внутри блока; блок должен закрываться только точной строкой \"#+end_patch\".
+     - Никогда не печатать строку \"#+CARRIAGE_ITERATION_ID: …\" — её вставляет инструмент.
   5) system ← guardrails + intent-note + join(fragments, "\n\n") + (опционально перечисление разрешённых :op).
   6) prompt ← CTX :payload (+ опционально :context-text в ветку, указанную :context-target).
   7) fingerprint ← строка вида ";; fingerprint: <SHA1(system)>" добавляется в конец system для диагностики дрейфа промпта; UI/отчёт могут отображать несовпадение версий.
