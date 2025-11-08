@@ -237,6 +237,7 @@
   - "C-c e RET" → carriage-send-buffer (в carriage-mode при transient=nil).
   - "C-c e M-RET" → carriage-send-subtree (в carriage-mode при transient=nil).
   - "C-c e e" (global) → carriage-open-buffer (при включённом carriage-global-mode).
+  - "C-c e M-d" → carriage-clear-patch-blocks (очистить все блоки patch в текущем документе).
 - Open-buffer (эфемерный проектный буфер):
   - Создаёт/находит уникальный для проекта буфер с включённым carriage-mode; default-directory — корень проекта.
   - При kill-emacs тест проверяет, что хук предлагает сохранить такие буферы (мокаем пользовательский ответ).
