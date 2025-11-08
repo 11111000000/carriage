@@ -53,6 +53,7 @@
     (:show-log           . ((ru . "Показать лог")              (en . "Show log")))
     (:show-traffic       . ((ru . "Показать трафик")           (en . "Show traffic")))
     (:quit               . ((ru . "Закрыть окно")              (en . "Quit window")))
+    (:clean               . ((ru . "Удалить блоки патчей")     (en . "Cleanup patches")))
 
     ;; UI v1.3 — доп. ключи
     (:suite              . ((ru . "Suite")                     (en . "Suite")))
