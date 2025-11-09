@@ -8,15 +8,24 @@
 
 (defcustom carriage-perf-cache-icons t
   "Cache results of icon availability and built icon strings."
-  :type 'boolean :group 'carriage-perf)
+  :type 'boolean :group 'carriage-perf
+  :set (lambda (sym val)
+         (set-default sym val)
+         (carriage-perf-reset))))
 
 (defcustom carriage-perf-cache-outline t
   "Cache org outline string used in header-line to avoid repeated parsing during redisplay."
-  :type 'boolean :group 'carriage-perf)
+  :type 'boolean :group 'carriage-perf
+  :set (lambda (sym val)
+         (set-default sym val)
+         (carriage-perf-reset))))
 
 (defcustom carriage-perf-cache-project t
   "Cache project root/name buffer-locally to avoid expensive detection during redisplay."
-  :type 'boolean :group 'carriage-perf)
+  :type 'boolean :group 'carriage-perf
+  :set (lambda (sym val)
+         (set-default sym val)
+         (carriage-perf-reset))))
 
 ;; Global generation for theme/frame changes to invalidate caches.
 (defvar carriage-perf--gen 0
