@@ -7,6 +7,7 @@
 (require 'carriage-apply)
 (require 'carriage-logging)
 (require 'carriage-ui)
+(require 'carriage-traffic-batch nil t)
 ;; ediff is loaded lazily in interactive branches to avoid batch-mode side effects.
 ;; Byte-compile hygiene: declare external function used conditionally.
 (declare-function carriage-sre-simulate-apply "carriage-op-sre" (plan-item repo-root))

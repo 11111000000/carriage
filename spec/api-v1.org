@@ -86,7 +86,11 @@
 - carriage-mode-show-mode-line-ui (boolean) — t
 - carriage-mode-spinner-interval (number) — 0.15
 - carriage-mode-headerline-max-width (integer or nil) — nil
+- carriage-mode-headerline-show-outline (boolean) — t; показывать сегмент outline в header-line (можно отключить в больших Org-файлах).
 - carriage-mode-use-icons (boolean) — t
+- carriage-perf-cache-icons (boolean) — t; кэшировать иконки и доступность иконок для modeline/header-line.
+- carriage-perf-cache-outline (boolean) — t; кэшировать строку outline в буфере (обновление вне hot-path).
+- carriage-perf-cache-project (boolean) — t; кэшировать project root/name буферно-локально.
 - carriage-mode-include-reasoning (symbol) — 'block | 'ignore — политика вставки reasoning в исходный буфер (по умолчанию 'block: #+begin_reasoning/#+end_reasoning)
 - carriage-mode-allow-patch-binary (boolean) — nil (v1)
 - carriage-mode-max-batch-pairs (integer) — лимит пар в SRE-блоке
