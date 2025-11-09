@@ -237,11 +237,14 @@
   "Apply patch via git apply (maybe --index)."
   (let* ((diff (carriage-engine-git--get item :diff))
          (strip (or (carriage-engine-git--get item :strip) 1))
+         (path  (or (carriage-engine-git--get item :path) "-"))
          (patch-file (carriage-engine-git--write-patch diff))
          (argv (carriage-engine-git--args-apply strip patch-file))
          (token (list :engine 'git :op 'patch
-                      :path (or (carriage-engine-git--get item :path) "-")
+                      :path path
                       :patch-file patch-file)))
+    ;; Ensure parent directory exists for create patches (git apply does not create dirs).
+    (ignore-errors (carriage-engine-git--ensure-parent-dir root path))
     (carriage-engine-git--log-begin :apply item)
     (carriage-engine-git--start root argv token on-done on-fail)))
 

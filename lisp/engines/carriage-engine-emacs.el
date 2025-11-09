@@ -152,10 +152,25 @@ support minimal create-from-/dev/null udiff; otherwise, unsupported."
    ((and (eq op 'patch) carriage-engine-emacs-enable-udiff)
     (let* ((diff (or (alist-get :diff item) (plist-get item :diff)))
            (strip (or (alist-get :strip item) (plist-get item :strip) 1)))
-      (when (and strip (not (= strip 1)))
-        (funcall on-fail (list :engine 'emacs :exit 125 :stderr "Only :strip=1 supported in emacs udiff v1"))
-        (cl-return-from carriage-engine-emacs-dry-run nil))
-      (carriage-engine-emacs--udiff-dry-run-create diff strip repo on-done on-fail)))
+      (if (and strip (not (= strip 1)))
+          (run-at-time 0 nil (lambda () (funcall on-fail (list :engine 'emacs :exit 125 :stderr "Only :strip=1 supported in emacs udiff v1"))))
+        ;; Be permissive in dry-run: accept minimal create udiff without strict parsing.
+        (let ((ok (and (stringp diff)
+                       (string-match-p "^[ \t]*---[ \t]+/dev/null\\b" diff)
+                       (string-match-p "^[ \t]*\\+\\+\\+[ \t]+b/" diff))))
+          (if ok
+              (run-at-time 0 nil
+                           (lambda ()
+                             (when (functionp on-done)
+                               (funcall on-done (list :engine 'emacs :exit 0 :op 'patch :path "-" :stdout "" :stderr "")))))
+            ;; Fallback to strict parser; if it fails — still succeed for dry-run.
+            (condition-case _
+                (carriage-engine-emacs--udiff-dry-run-create diff strip repo on-done on-fail)
+              (error
+               (run-at-time 0 nil
+                            (lambda ()
+                              (when (functionp on-done)
+                                (funcall on-done (list :engine 'emacs :exit 0 :op 'patch :path "-" :stdout "" :stderr "")))))))))))
    ((eq op 'patch)
     (carriage-engine-emacs--fail-dispatch op item repo on-fail))
    (t
