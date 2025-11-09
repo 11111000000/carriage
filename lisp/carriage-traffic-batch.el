@@ -49,29 +49,29 @@ Each entry is a plist: (:kind 'global|'local :fn ORIG :args LIST :bytes N).")
 
 (defun carriage-traffic-batch--enqueue (kind orig-fn &rest args)
   "Enqueue a logging entry of KIND ('global or 'local) with ORIG-FN and ARGS."
-  (let* ((bytes (ignore-errors
-                  (let ((fmt (and args (cadr args)))
-                        (rest (cddr args)))
-                    (cond
-                     ;; For carriage-traffic-log: (dir fmt &rest)
-                     ((eq kind 'global)
-                      (string-bytes (apply #'format (or fmt "%s") rest)))
-                     ;; For carriage-traffic-log-local: (origin type fmt &rest)
-                     ((eq kind 'local)
-                      (let ((fmt2 (nth 2 args))
-                            (rest2 (nthcdr 3 args)))
-                        (string-bytes (apply #'format (or fmt2 "%s") rest2))))
-                     (t 0))))
-                0)))
-  (push (list :kind kind :fn orig-fn :args args :bytes bytes)
-        carriage-traffic-batch--queue)
-  (cl-incf carriage-traffic-batch--queued-bytes bytes)
-  (when (and carriage-traffic-batch-bytes-threshold
-             (numberp carriage-traffic-batch-bytes-threshold)
-             (>= carriage-traffic-batch--queued-bytes carriage-traffic-batch-bytes-threshold))
-    ;; Flush early on size threshold
-    (carriage-traffic-batch--flush))
-  (carriage-traffic-batch--schedule))
+  (let* ((bytes (or (ignore-errors
+                      (let ((fmt (and args (cadr args)))
+                            (rest (cddr args)))
+                        (cond
+                         ;; For carriage-traffic-log: (dir fmt &rest)
+                         ((eq kind 'global)
+                          (string-bytes (apply #'format (or fmt "%s") rest)))
+                         ;; For carriage-traffic-log-local: (origin type fmt &rest)
+                         ((eq kind 'local)
+                          (let ((fmt2 (nth 2 args))
+                                (rest2 (nthcdr 3 args)))
+                            (string-bytes (apply #'format (or fmt2 "%s") rest2))))
+                         (t 0))))
+                    0)))
+    (push (list :kind kind :fn orig-fn :args args :bytes bytes)
+          carriage-traffic-batch--queue)
+    (cl-incf carriage-traffic-batch--queued-bytes bytes)
+    (when (and carriage-traffic-batch-bytes-threshold
+               (numberp carriage-traffic-batch-bytes-threshold)
+               (>= carriage-traffic-batch--queued-bytes carriage-traffic-batch-bytes-threshold))
+      ;; Flush early on size threshold
+      (carriage-traffic-batch--flush))
+    (carriage-traffic-batch--schedule)))
 
 (defun carriage-traffic-batch--flush ()
   "Flush pending traffic log entries."

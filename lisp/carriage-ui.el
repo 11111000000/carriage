@@ -811,7 +811,9 @@ reflects toggle state (muted when off, bright when on)."
         (user-error "Нет доступного отчёта для Ediff")))))
 
 (defun carriage-ui--modeline ()
-  "Build Carriage modeline segment (M3: icons optional + spinner + extended actions)."
+  "Build Carriage modeline segment (M3: icons optional + spinner + refined actions).
+- Removed heavy action buttons (Diff/Ediff/WIP/Commit/Reset) — use C-c e menu.
+- Added a compact context badge [Ctx:N] showing an estimated number of files to include."
   (let* ((use-icons (carriage-ui--icons-available-p))
          ;; Intent and Suite
          (intent-label
@@ -898,17 +900,67 @@ reflects toggle state (muted when off, bright when on)."
                          ('error 'carriage-ui-state-error-face)
                          (_ nil))))
             (if face (propertize txt 'face face) txt)))
-         ;; Actions (icon fallback to text)
+         ;; Quick context badge (fast: union of candidate paths + approximate total size via file-attributes)
+         (ctx-label
+          (let* ((inc-doc (and (boundp 'carriage-mode-include-doc-context)
+                               carriage-mode-include-doc-context))
+                 (inc-gpt (and (boundp 'carriage-mode-include-gptel-context)
+                               carriage-mode-include-gptel-context)))
+            (if (not (or inc-doc inc-gpt))
+                ""
+              (let ((cnt 0)
+                    (bytes 0))
+                (condition-case _e
+                    (progn
+                      (require 'carriage-context nil t)
+                      (let* ((set (make-hash-table :test 'equal))
+                             (root (or (carriage-project-root) default-directory)))
+                        ;; Gather candidates (no content reads)
+                        (when (and inc-doc (fboundp 'carriage-context--doc-paths))
+                          (dolist (p (or (ignore-errors (carriage-context--doc-paths (current-buffer))) '()))
+                            (let* ((abs (if (file-name-absolute-p p) p (expand-file-name p root)))
+                                   (tru (ignore-errors (file-truename abs))))
+                              (when tru (puthash tru t set)))))
+                        (when (and inc-gpt (fboundp 'carriage-context--maybe-gptel-files))
+                          (dolist (p (or (ignore-errors (carriage-context--maybe-gptel-files)) '()))
+                            (let* ((abs (if (file-name-absolute-p p) p (expand-file-name p root)))
+                                   (tru (ignore-errors (file-truename abs))))
+                              (when tru (puthash tru t set)))))
+                        ;; Count and approximate total size (existing files only)
+                        (maphash
+                         (lambda (tru _v)
+                           (setq cnt (1+ cnt))
+                           (let* ((attrs (ignore-errors (file-attributes tru 'string)))
+                                  (sz (and attrs (file-attribute-size attrs))))
+                             (when (numberp sz) (setq bytes (+ bytes sz)))))
+                         set)))
+                  (error (setq cnt 0 bytes 0)))
+                (let* ((sizestr
+                        (cond
+                         ((>= bytes (* 1024 1024))
+                          (format "%.1fMB" (/ (float bytes) 1048576.0)))
+                         ((>= bytes 1024)
+                          (format "%.1fKB" (/ (float bytes) 1024.0)))
+                         ((> bytes 0)
+                          (format "%dB" bytes))
+                         (t "")))
+                       (lbl (if (> cnt 0)
+                                (if (string-empty-p sizestr)
+                                    (format "[Ctx:%d]" cnt)
+                                  (format "[Ctx:%d ~%s]" cnt sizestr))
+                              "[Ctx:0]"))
+                       (hint (format "Контекст: файлов=%d, размер~%s — источники: doc=%s, gptel=%s"
+                                     cnt
+                                     (if (string-empty-p sizestr) "≈0" sizestr)
+                                     (if inc-doc "on" "off")
+                                     (if inc-gpt "on" "off"))))
+                  (propertize lbl 'help-echo hint))))))
+         ;; Actions (icon fallback to text; trimmed)
          (dry-label    (or (and use-icons (carriage-ui--icon 'dry))    "[Dry]"))
          (apply-label  (or (and use-icons (carriage-ui--icon 'apply))  "[Apply]"))
          (all-label    (or (and use-icons (carriage-ui--icon 'all))    "[All]"))
          (abort-label  (or (and use-icons (carriage-ui--icon 'abort))  "[Abort]"))
          (report-label (or (and use-icons (carriage-ui--icon 'report)) "[Report]"))
-         (diff-label   (or (and use-icons (carriage-ui--icon 'diff))   "[Diff]"))
-         (ediff-label  (or (and use-icons (carriage-ui--icon 'ediff))  "[Ediff]"))
-         (wip-label    (or (and use-icons (carriage-ui--icon 'wip))    "[WIP]"))
-         (commit-label (or (and use-icons (carriage-ui--icon 'commit)) "[Commit]"))
-         (reset-label  (or (and use-icons (carriage-ui--icon 'reset))  "[Reset]"))
          ;; Engine indicator and selector
          (engine-str (let ((e (and (boundp 'carriage-apply-engine) carriage-apply-engine)))
                        (cond
@@ -950,16 +1002,6 @@ reflects toggle state (muted when off, bright when on)."
          (all    (carriage-ui--ml-button all-label    #'carriage-apply-last-iteration  "Apply last iteration"))
          (abort  (carriage-ui--ml-button abort-label  #'carriage-abort-current         "Abort current request"))
          (report (carriage-ui--ml-button report-label #'carriage-report-open           "Open report buffer"))
-         (diff   (carriage-ui--ml-button diff-label   #'carriage-ui--diff-button       "Show diff (report)"))
-         (ediff  (carriage-ui--ml-button ediff-label  #'carriage-ui--ediff-button      "Open Ediff (report)"))
-         (wip    (carriage-ui--ml-button wip-label    #'carriage-wip-checkout          "Switch to WIP branch"))
-         (commit
-          (let* ((_ (require 'carriage-i18n nil t))
-                 (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                           (carriage-i18n :commit-tooltip)
-                         "Commit changes")))
-            (carriage-ui--ml-button commit-label #'carriage-commit-changes help)))
-         (reset  (carriage-ui--ml-button reset-label  #'carriage-wip-reset-soft        "Soft reset last commit"))
          ;; Toggles (v1.1: add [Ctx]/[Files])
          (t-ctx
           (carriage-ui--toggle
@@ -984,8 +1026,8 @@ reflects toggle state (muted when off, bright when on)."
          (t-all   (carriage-ui--toggle "[ConfirmAll]" 'carriage-mode-confirm-apply-all  #'carriage-toggle-confirm-apply-all "Toggle confirm apply-all" 'confirm))
          (t-icons (carriage-ui--toggle "[Icons]"      'carriage-mode-use-icons          #'carriage-toggle-use-icons         "Toggle icons in UI" 'icons)))
     (mapconcat #'identity
-               (list suite-btn engine backend-model-btn intent-btn state
-                     dry apply all abort report diff ediff wip  commit reset
+               (list suite-btn engine backend-model-btn intent-btn state ctx-label
+                     dry apply all abort report
                      t-ctx t-files t-auto t-diffs t-all t-icons)
                " ")))
 
