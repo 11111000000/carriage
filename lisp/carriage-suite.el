@@ -181,8 +181,7 @@ Return STRING (empty string when not found)."
       ('sre
        (when (or (string-match-p "^---\\s-+a/" system-str)
                  (string-match-p "^\\+\\+\\+\\s-+b/" system-str)
-                 (string-match-p "^diff --git" system-str)
-                 (string-match-p "unified diff" system-str))
+                 (string-match-p "^diff --git" system-str))
          (signal (carriage-error-symbol 'MODE_E_DISPATCH)
                  (list "Suite 'sre' must not include unified diff markers"))))
       ('udiff

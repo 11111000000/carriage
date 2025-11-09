@@ -252,10 +252,13 @@ Negative values move icons up; positive move them down."
         (concat left "…" right)))))
 
 (defun carriage-ui--project-name ()
-  "Return project name (directory name of project root) or \"-\"."
-  (let* ((root (or (carriage-project-root) default-directory))
-         (dir  (file-name-nondirectory (directory-file-name root))))
-    (or (and dir (not (string-empty-p dir)) dir) "-")))
+  "Return cached project name (directory name of project root) or \"-\"."
+  (or carriage-ui--project-name-cached
+      (let* ((root (or (carriage-project-root) default-directory))
+             (dir  (file-name-nondirectory (directory-file-name root)))
+             (name (or (and dir (not (string-empty-p dir)) dir) "-")))
+        (setq carriage-ui--project-name-cached name)
+        name)))
 
 (defun carriage-ui--org-outline-path ()
   "Return org outline path (A › B › C) at point, or nil if not available.
@@ -280,14 +283,19 @@ Do NOT use Org's outline path cache to avoid stale values while moving."
         (goto-char pos)
         (recenter 1)))))
 
+(defvar carriage-ui--icons-lib-available (featurep 'all-the-icons)
+  "Cached availability of all-the-icons library.")
+
 (defun carriage-ui--icons-available-p ()
   "Return non-nil when icons can be used in modeline."
   (let* ((use-flag (and (boundp 'carriage-mode-use-icons) carriage-mode-use-icons))
-         (gui (display-graphic-p))
-         (ok (and use-flag gui (require 'all-the-icons nil t))))
-    (carriage-ui--dbg "icons-available-p: use=%S gui=%S all-the-icons=%S => %S"
-                      use-flag gui (featurep 'all-the-icons) ok)
-    ok))
+         (gui (display-graphic-p)))
+    (unless carriage-ui--icons-lib-available
+      (setq carriage-ui--icons-lib-available (require 'all-the-icons nil t)))
+    (let ((ok (and use-flag gui carriage-ui--icons-lib-available)))
+      (carriage-ui--dbg "icons-available-p: use=%S gui=%S all-the-icons=%S => %S"
+                        use-flag gui (featurep 'all-the-icons) ok)
+      ok)))
 
 (defun carriage-ui--accent-hex (face)
   "Return final hexadecimal foreground color for FACE."
@@ -501,7 +509,7 @@ Keeps icon color intact when icon is at the head of S."
 
 (defun carriage-ui--hl-show-outline-p (tty outline avail)
   "Return non-nil when OUTLINE should be shown given TTY flag and AVAIL width."
-  (and (not tty) outline (> avail 30)))
+  (and carriage-mode-headerline-show-outline (not tty) outline (> avail 30)))
 
 (defun carriage-ui--hl-fit (pseg bseg oseg show-outline avail sep)
   "Truncate segments to fit AVAIL width. Returns list (P B O).
@@ -531,7 +539,7 @@ Truncation order: outline → buffer → project."
 - Visuals: all text sections except the last are muted gray; icons keep their colors."
   (let* ((project (carriage-ui--project-name))
          (bufname (buffer-name))
-         (outline (carriage-ui--org-outline-path))
+         (outline (and carriage-mode-headerline-show-outline (or carriage-ui--last-outline-path-str "")))
          (use-icons (carriage-ui--icons-available-p))
          (p-icon (and use-icons (carriage-ui--icon 'project)))
          (f-icon (and use-icons (carriage-ui--icon 'file)))
@@ -563,12 +571,20 @@ Truncation order: outline → buffer → project."
             base))))))
 
 ;; Cache and refresh outline segment on cursor move to ensure timely header updates.
+(defvar-local carriage-ui--project-name-cached nil
+  "Cached project name for header-line; computed once per buffer.")
+
 (defvar-local carriage-ui--last-outline-path-str nil
   "Cached outline path string for the current buffer's header-line refresh.")
 (defvar-local carriage-ui--last-outline-level nil
   "Cached outline level at point for fast header-line refresh.")
 (defvar-local carriage-ui--last-outline-title nil
   "Cached outline heading title at point for fast header-line refresh.")
+
+(defcustom carriage-mode-headerline-show-outline t
+  "When non-nil, show org outline segment in header-line. Turning it off reduces overhead in large Org files."
+  :type 'boolean
+  :group 'carriage-ui)
 
 (defcustom carriage-mode-headerline-idle-interval 0.12
   "Idle interval in seconds before refreshing header-line after cursor/scroll changes."

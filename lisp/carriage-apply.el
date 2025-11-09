@@ -16,10 +16,10 @@
   (when (and engines-dir (file-directory-p engines-dir))
     (add-to-list 'load-path engines-dir)))
 (require 'carriage-apply-engine)
-;; Load default Git apply engine so it registers itself in the engine registry.
-(require 'carriage-engine-git)
 ;; Also load the 'emacs engine to expose it in the registry (patch unsupported in v1).
 (ignore-errors (require 'carriage-engine-emacs))
+;; Load default Git apply engine so it registers itself in the engine registry.
+(require 'carriage-engine-git)
 
 ;; Register abort handler provided by async apply pipeline (declared in carriage-mode).
 (declare-function carriage-register-abort-handler "carriage-mode" (fn))

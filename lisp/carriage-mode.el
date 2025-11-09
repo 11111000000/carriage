@@ -1113,7 +1113,7 @@ May include :context-text and :context-target per v1.1."
             ('create (setq created (1+ created)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
             ('delete (setq deleted (1+ deleted)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
             ('rename (setq renamed (1+ renamed)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
-            ((or 'patch 'sre 'aibo) (setq modified (1+ modified)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+            ((or 'patch 'sre 'aibo 'replace) (setq modified (1+ modified)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
             (_ (push (or (plist-get it :file) (plist-get it :path) "-") files)))))
       (let* ((total (length oks))
              (files-str (mapconcat #'identity (nreverse (delete-dups (delq nil files))) ", ")))
@@ -1246,7 +1246,8 @@ May include :context-text and :context-target per v1.1."
   "Dry-run → подтверждение → применение всех блоков «последней итерации» (strict; без метки — отказ)."
   (interactive)
   (let* ((root (or (carriage-project-root) default-directory))
-         (plan (carriage-collect-last-iteration-blocks-strict root)))
+         (plan (or (ignore-errors (carriage-collect-last-iteration-blocks-strict root))
+                   nil))
     (when (or (null plan) (zerop (length plan)))
       (let* ((id (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id))
              (total 0) (marked 0))
