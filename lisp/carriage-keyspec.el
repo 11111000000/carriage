@@ -227,6 +227,9 @@ and therefore cannot also serve as a prefix for longer sequences."
        (if (eq mp 'carriage-report-mode-map)
            '(global report)
          '(global log traffic)))))
+  ;; Legacy alias: C-c ! applies last iteration (UI v1 legacy)
+  (ignore-errors
+    (global-set-key (kbd "C-c !") #'carriage-apply-last-iteration))
   t)
 
 (defun carriage-keys-first-key (id)
