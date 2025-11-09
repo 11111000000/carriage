@@ -91,6 +91,7 @@
 - carriage-perf-cache-icons (boolean) — t; кэшировать иконки и доступность иконок для modeline/header-line.
 - carriage-perf-cache-outline (boolean) — t; кэшировать строку outline в буфере (обновление вне hot-path).
 - carriage-perf-cache-project (boolean) — t; кэшировать project root/name буферно-локально.
+- carriage-ui-context-cache-ttl (number or nil) — 0.4; TTL кэша вычисления индикатора контекста (0 — отключить, nil — без ограничения).
 - carriage-mode-include-reasoning (symbol) — 'block | 'ignore — политика вставки reasoning в исходный буфер (по умолчанию 'block: #+begin_reasoning/#+end_reasoning)
 - carriage-mode-allow-patch-binary (boolean) — nil (v1)
 - carriage-mode-max-batch-pairs (integer) — лимит пар в SRE-блоке

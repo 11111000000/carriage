@@ -970,12 +970,17 @@ May include :context-text and :context-target per v1.1."
          (suite   carriage-mode-suite)
          (srcbuf  (current-buffer))
          (origin-marker (copy-marker (point) t))
-         (ctx     (carriage--build-context 'buffer srcbuf))
+         (ctx     (progn
+                    (carriage-ui-set-state 'context)
+                    (carriage--build-context 'buffer srcbuf)))
          (built nil) (sys nil) (pr nil))
 
+    (carriage-ui-set-state 'prompt)
+    (carriage-ui-set-state 'prompt)
     (setq built (carriage-build-prompt intent suite ctx)
           sys   (plist-get built :system)
           pr    (plist-get built :prompt))
+    (carriage-ui-set-state 'dispatch)
     (carriage-log "send-buffer: intent=%s suite=%s backend=%s model=%s"
                   intent suite backend model)
     (when (and carriage-mode-auto-open-log (not (bound-and-true-p noninteractive)))
@@ -1017,12 +1022,15 @@ May include :context-text and :context-target per v1.1."
          (suite   carriage-mode-suite)
          (srcbuf  (current-buffer))
          (origin-marker (copy-marker (point) t))
-         (ctx     (carriage--build-context 'subtree srcbuf))
+         (ctx     (progn
+                    (carriage-ui-set-state 'context)
+                    (carriage--build-context 'subtree srcbuf)))
          (built nil) (sys nil) (pr nil))
 
     (setq built (carriage-build-prompt intent suite ctx)
           sys   (plist-get built :system)
           pr    (plist-get built :prompt))
+    (carriage-ui-set-state 'dispatch)
     (carriage-log "send-subtree: intent=%s suite=%s backend=%s model=%s"
                   intent suite backend model)
     ;; Best-effort derive a small payload boundary for logs
@@ -1786,6 +1794,8 @@ FN must be a zero-argument function that cancels the ongoing activity."
   "Toggle including gptel-context (buffers/files) into the request context."
   (interactive)
   (setq carriage-mode-include-gptel-context (not carriage-mode-include-gptel-context))
+  (when (fboundp 'carriage-ui--reset-context-cache)
+    (carriage-ui--reset-context-cache))
   (message "Include gptel-context: %s" (if carriage-mode-include-gptel-context "on" "off"))
   (force-mode-line-update t))
 
@@ -1794,6 +1804,8 @@ FN must be a zero-argument function that cancels the ongoing activity."
   "Toggle including file contents from the nearest #+begin_context block in the document."
   (interactive)
   (setq carriage-mode-include-doc-context (not carriage-mode-include-doc-context))
+  (when (fboundp 'carriage-ui--reset-context-cache)
+    (carriage-ui--reset-context-cache))
   (message "Include #+begin_context files: %s" (if carriage-mode-include-doc-context "on" "off"))
   (force-mode-line-update t))
 

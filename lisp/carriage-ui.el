@@ -220,10 +220,12 @@ Negative values move icons up; positive move them down."
 
 (defun carriage-ui-set-state (state)
   "Set UI STATE symbol for mode-line visuals and manage spinner."
-  (setq carriage--ui-state state)
-  (pcase state
-    ((or 'sending 'streaming)
+  (setq carriage--ui-state (or state 'idle))
+  (pcase carriage--ui-state
+    ((or 'sending 'streaming 'dispatch 'waiting)
      (carriage-ui--spinner-start))
+    ((or 'prompt 'context)
+     (carriage-ui--spinner-stop nil))
     (_
      (carriage-ui--spinner-stop t))))
 
@@ -231,12 +233,131 @@ Negative values move icons up; positive move them down."
   "Return a short lighter suffix for current =carriage--ui-state'."
   (pcase carriage--ui-state
     ('idle "")
+    ('context " ctx")
+    ('prompt " prm")
+    ('dispatch " req")
+    ('waiting " wait")
     ('sending " snd")
     ('streaming " str")
     ('dry-run " dry")
     ('apply " apl")
     ('error " ERR")
     (_ "")))
+
+(defun carriage-ui--state-label (state)
+  "Return human-readable label for STATE."
+  (pcase state
+    ('idle "Idle")
+    ('context "Context")
+    ('prompt "Prompt")
+    ('dispatch "Request")
+    ('waiting "Waiting")
+    ('sending "Sending")
+    ('streaming "Streaming")
+    ('dry-run "Dry-run")
+    ('apply "Apply")
+    ('error "Error")
+    (_ (capitalize (symbol-name (or state 'idle))))))
+
+(defcustom carriage-ui-context-cache-ttl 0.4
+  "Maximum age in seconds for cached context badge computations in the mode-line.
+Set to 0 to recompute on every redisplay; set to nil to keep values until other cache
+keys change (buffer content, point position, toggle states)."
+  :type '(choice (const :tag "Disable caching" 0)
+                 (number :tag "TTL (seconds)")
+                 (const :tag "Unlimited (until buffer changes)" nil))
+  :group 'carriage-ui)
+
+(defvar-local carriage-ui--ctx-cache nil
+  "Buffer-local cache for context badge computation.
+Plist keys: :doc :gpt :tick :point :time :value.")
+
+(defun carriage-ui--reset-context-cache (&optional buffer)
+  "Clear cached context badge for BUFFER or the current buffer."
+  (if buffer
+      (with-current-buffer buffer
+        (setq carriage-ui--ctx-cache nil))
+    (setq carriage-ui--ctx-cache nil)))
+
+(defun carriage-ui--compute-context-badge (inc-doc inc-gpt)
+  "Compute context badge (LABEL . HINT) for INC-DOC / INC-GPT toggles."
+  (if (not (or inc-doc inc-gpt))
+      nil
+    (let ((cnt 0)
+          (bytes 0))
+      (condition-case _e
+          (progn
+            (require 'carriage-context nil t)
+            (let* ((set (make-hash-table :test 'equal))
+                   (root (or (carriage-project-root) default-directory)))
+              (when (and inc-doc (fboundp 'carriage-context--doc-paths))
+                (dolist (p (or (ignore-errors (carriage-context--doc-paths (current-buffer))) '()))
+                  (let* ((abs (if (file-name-absolute-p p) p (expand-file-name p root)))
+                         (tru (ignore-errors (file-truename abs))))
+                    (when tru (puthash tru t set)))))
+              (when (and inc-gpt (fboundp 'carriage-context--maybe-gptel-files))
+                (dolist (p (or (ignore-errors (carriage-context--maybe-gptel-files)) '()))
+                  (let* ((abs (if (file-name-absolute-p p) p (expand-file-name p root)))
+                         (tru (ignore-errors (file-truename abs))))
+                    (when tru (puthash tru t set)))))
+              (maphash
+               (lambda (tru _v)
+                 (setq cnt (1+ cnt))
+                 (let* ((attrs (ignore-errors (file-attributes tru 'string)))
+                        (sz (and attrs (file-attribute-size attrs))))
+                   (when (numberp sz)
+                     (setq bytes (+ bytes sz)))))
+               set)))
+        (error
+         (setq cnt 0 bytes 0)))
+      (let* ((sizestr (cond
+                       ((>= bytes (* 1024 1024)) (format "%.1fMB" (/ (float bytes) 1048576.0)))
+                       ((>= bytes 1024) (format "%.1fKB" (/ (float bytes) 1024.0)))
+                       ((> bytes 0) (format "%dB" bytes))
+                       (t "")))
+             (lbl (if (> cnt 0)
+                      (if (string-empty-p sizestr)
+                          (format "[Ctx:%d]" cnt)
+                        (format "[Ctx:%d ~%s]" cnt sizestr))
+                    "[Ctx:0]"))
+             (hint (format "Контекст: файлов=%d, размер~%s — источники: doc=%s, gptel=%s"
+                           cnt
+                           (if (string-empty-p sizestr) "≈0" sizestr)
+                           (if inc-doc "on" "off")
+                           (if inc-gpt "on" "off"))))
+        (cons lbl hint)))))
+
+(defun carriage-ui--context-badge ()
+  "Return cached or freshly computed context badge cons cell (LABEL . HINT)."
+  (let* ((inc-doc (and (boundp 'carriage-mode-include-doc-context)
+                       carriage-mode-include-doc-context))
+         (inc-gpt (and (boundp 'carriage-mode-include-gptel-context)
+                       carriage-mode-include-gptel-context))
+         (tick (buffer-chars-modified-tick))
+         (pt (point))
+         (now (float-time))
+         (ttl carriage-ui-context-cache-ttl)
+         (cache carriage-ui--ctx-cache)
+         (ttl-ok (or (null ttl)
+                     (and (numberp ttl) (> ttl 0)
+                          cache
+                          (< (- now (or (plist-get cache :time) 0)) ttl)))))
+    (if (and cache
+             (eq inc-doc (plist-get cache :doc))
+             (eq inc-gpt (plist-get cache :gpt))
+             (= tick (plist-get cache :tick))
+             (= pt (plist-get cache :point))
+             ttl-ok)
+        (plist-get cache :value)
+      (let ((value (carriage-ui--compute-context-badge inc-doc inc-gpt)))
+        (setq carriage-ui--ctx-cache
+              (list :doc inc-doc
+                    :gpt inc-gpt
+                    :tick tick
+                    :point pt
+                    :time now
+                    :value value))
+        value))))
 
 ;; -------------------------------------------------------------------
 ;; Header-line and Mode-line builders (M3: icons (optional) + outline click)
@@ -628,6 +749,62 @@ Truncation order: outline → buffer → project."
 (defvar-local carriage-ui--last-outline-title nil
   "Cached outline heading title at point for fast header-line refresh.")
 
+(defvar-local carriage-ui--patch-count-cache nil
+  "Cached count of #+begin_patch blocks in the current buffer.")
+(defvar-local carriage-ui--patch-count-tick nil
+  "Buffer tick corresponding to `carriage-ui--patch-count-cache'.")
+
+(defun carriage-ui--patch-count ()
+  "Return the number of #+begin_patch blocks in the current buffer."
+  (if (not (derived-mode-p 'org-mode))
+      0
+    (let ((tick (buffer-chars-modified-tick)))
+      (if (and carriage-ui--patch-count-cache
+               carriage-ui--patch-count-tick
+               (= tick carriage-ui--patch-count-tick))
+          carriage-ui--patch-count-cache
+        (let ((count 0))
+          (save-excursion
+            (goto-char (point-min))
+            (let ((case-fold-search t))
+              (while (re-search-forward "^[ \t]*#\\+begin_patch\\b" nil t)
+                (setq count (1+ count)))))
+          (setq carriage-ui--patch-count-cache count
+                carriage-ui--patch-count-tick tick)
+          count)))))
+
+(defun carriage-ui--point-in-patch-block-p ()
+  "Return non-nil when point is inside a #+begin_patch … #+end_patch block."
+  (when (derived-mode-p 'org-mode)
+    (save-excursion
+      (let ((pos (point))
+            (case-fold-search t))
+        (when (re-search-backward "^[ \t]*#\\+begin_patch\\b" nil t)
+          (let ((beg (match-beginning 0)))
+            (when (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
+              (let ((end (match-beginning 0)))
+                (and (<= beg pos) (< pos end))))))))))
+
+(defun carriage-ui--region-has-patch-p ()
+  "Return non-nil when the active region contains a patch block."
+  (when (use-region-p)
+    (save-excursion
+      (let ((beg (region-beginning))
+            (end (region-end))
+            (case-fold-search t))
+        (goto-char beg)
+        (re-search-forward "^[ \t]*#\\+begin_patch\\b" end t)))))
+
+(defun carriage-ui--show-apply-buttons-p ()
+  "Return non-nil when modeline should show Dry/Apply actions."
+  (or (carriage-ui--point-in-patch-block-p)
+      (carriage-ui--region-has-patch-p)))
+
+(defun carriage-ui--last-iteration-present-p ()
+  "Return current last iteration id or nil when absent."
+  (and (boundp 'carriage--last-iteration-id)
+       carriage--last-iteration-id))
+
 (defcustom carriage-mode-headerline-show-outline t
   "When non-nil, show org outline segment in header-line. Turning it off reduces overhead in large Org files."
   :type 'boolean
@@ -889,72 +1066,26 @@ reflects toggle state (muted when off, bright when on)."
          (st (let ((s (and (boundp 'carriage--ui-state) carriage--ui-state)))
                (if (symbolp s) s 'idle)))
          (state
-          (let* ((txt (format "[%s%s]"
-                              (symbol-name st)
-                              (if (memq st '(sending streaming))
+          (let* ((label (carriage-ui--state-label st))
+                 (txt (format "[%s%s]"
+                              label
+                              (if (memq st '(sending streaming dispatch waiting))
                                   (concat " " (carriage-ui--spinner-char))
                                 "")))
                  (face (pcase st
                          ('idle 'carriage-ui-state-idle-face)
-                         ((or 'sending 'streaming) 'carriage-ui-state-sending-face)
+                         ((or 'sending 'streaming 'dispatch 'waiting) 'carriage-ui-state-sending-face)
                          ('error 'carriage-ui-state-error-face)
                          (_ nil))))
             (if face (propertize txt 'face face) txt)))
          ;; Quick context badge (fast: union of candidate paths + approximate total size via file-attributes)
          (ctx-label
-          (let* ((inc-doc (and (boundp 'carriage-mode-include-doc-context)
-                               carriage-mode-include-doc-context))
-                 (inc-gpt (and (boundp 'carriage-mode-include-gptel-context)
-                               carriage-mode-include-gptel-context)))
-            (if (not (or inc-doc inc-gpt))
-                ""
-              (let ((cnt 0)
-                    (bytes 0))
-                (condition-case _e
-                    (progn
-                      (require 'carriage-context nil t)
-                      (let* ((set (make-hash-table :test 'equal))
-                             (root (or (carriage-project-root) default-directory)))
-                        ;; Gather candidates (no content reads)
-                        (when (and inc-doc (fboundp 'carriage-context--doc-paths))
-                          (dolist (p (or (ignore-errors (carriage-context--doc-paths (current-buffer))) '()))
-                            (let* ((abs (if (file-name-absolute-p p) p (expand-file-name p root)))
-                                   (tru (ignore-errors (file-truename abs))))
-                              (when tru (puthash tru t set)))))
-                        (when (and inc-gpt (fboundp 'carriage-context--maybe-gptel-files))
-                          (dolist (p (or (ignore-errors (carriage-context--maybe-gptel-files)) '()))
-                            (let* ((abs (if (file-name-absolute-p p) p (expand-file-name p root)))
-                                   (tru (ignore-errors (file-truename abs))))
-                              (when tru (puthash tru t set)))))
-                        ;; Count and approximate total size (existing files only)
-                        (maphash
-                         (lambda (tru _v)
-                           (setq cnt (1+ cnt))
-                           (let* ((attrs (ignore-errors (file-attributes tru 'string)))
-                                  (sz (and attrs (file-attribute-size attrs))))
-                             (when (numberp sz) (setq bytes (+ bytes sz)))))
-                         set)))
-                  (error (setq cnt 0 bytes 0)))
-                (let* ((sizestr
-                        (cond
-                         ((>= bytes (* 1024 1024))
-                          (format "%.1fMB" (/ (float bytes) 1048576.0)))
-                         ((>= bytes 1024)
-                          (format "%.1fKB" (/ (float bytes) 1024.0)))
-                         ((> bytes 0)
-                          (format "%dB" bytes))
-                         (t "")))
-                       (lbl (if (> cnt 0)
-                                (if (string-empty-p sizestr)
-                                    (format "[Ctx:%d]" cnt)
-                                  (format "[Ctx:%d ~%s]" cnt sizestr))
-                              "[Ctx:0]"))
-                       (hint (format "Контекст: файлов=%d, размер~%s — источники: doc=%s, gptel=%s"
-                                     cnt
-                                     (if (string-empty-p sizestr) "≈0" sizestr)
-                                     (if inc-doc "on" "off")
-                                     (if inc-gpt "on" "off"))))
-                  (propertize lbl 'help-echo hint))))))
+          (let ((badge (carriage-ui--context-badge)))
+            (if badge
+                (let ((lbl (car badge))
+                      (hint (cdr badge)))
+                  (if hint (propertize lbl 'help-echo hint) lbl))
+              "")))
          ;; Actions (icon fallback to text; trimmed)
          (dry-label    (or (and use-icons (carriage-ui--icon 'dry))    "[Dry]"))
          (apply-label  (or (and use-icons (carriage-ui--icon 'apply))  "[Apply]"))

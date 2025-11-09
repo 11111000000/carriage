@@ -2,6 +2,10 @@
 
 (require 'cl-lib)
 
+;; Ensure generation var is bound before any :set runs (Custom setters may call carriage-perf-reset).
+(defvar carriage-perf--gen 0
+  "Global generation used to invalidate cached values on theme/frame changes.")
+
 (defgroup carriage-perf nil
   "Performance helpers for Carriage UI: caching icons, outline and project root."
   :group 'carriage)
@@ -11,30 +15,32 @@
   :type 'boolean :group 'carriage-perf
   :set (lambda (sym val)
          (set-default sym val)
-         (carriage-perf-reset))))
+         (when (fboundp 'carriage-perf-reset)
+           (carriage-perf-reset))))
 
 (defcustom carriage-perf-cache-outline t
   "Cache org outline string used in header-line to avoid repeated parsing during redisplay."
   :type 'boolean :group 'carriage-perf
   :set (lambda (sym val)
          (set-default sym val)
-         (carriage-perf-reset))))
+         (when (fboundp 'carriage-perf-reset)
+           (carriage-perf-reset))))
 
 (defcustom carriage-perf-cache-project t
   "Cache project root/name buffer-locally to avoid expensive detection during redisplay."
   :type 'boolean :group 'carriage-perf
   :set (lambda (sym val)
          (set-default sym val)
-         (carriage-perf-reset))))
+         (when (fboundp 'carriage-perf-reset)
+           (carriage-perf-reset))))
 
 ;; Global generation for theme/frame changes to invalidate caches.
-(defvar carriage-perf--gen 0
-  "Global generation used to invalidate cached values on theme/frame changes.")
 
 (defun carriage-perf-reset ()
   "Invalidate cached values across buffers."
   (interactive)
-  (cl-incf carriage-perf--gen))
+  (setq carriage-perf--gen
+        (1+ (if (boundp 'carriage-perf--gen) carriage-perf--gen 0))))
 
 ;; Invalidate caches on theme enable/disable and new frame creation.
 (advice-add 'enable-theme :after (lambda (&rest _ignore) (carriage-perf-reset)))
