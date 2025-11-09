@@ -170,7 +170,7 @@ support minimal create-from-/dev/null udiff; otherwise, unsupported."
                (run-at-time 0 nil
                             (lambda ()
                               (when (functionp on-done)
-                                (funcall on-done (list :engine 'emacs :exit 0 :op 'patch :path "-" :stdout "" :stderr "")))))))))))
+                                (funcall on-done (list :engine 'emacs :exit 0 :op 'patch :path "-" :stdout "" :stderr ""))))))))))))
    ((eq op 'patch)
     (carriage-engine-emacs--fail-dispatch op item repo on-fail))
    (t
