@@ -286,16 +286,57 @@ Do NOT use Org's outline path cache to avoid stale values while moving."
 (defvar carriage-ui--icons-lib-available (featurep 'all-the-icons)
   "Cached availability of all-the-icons library.")
 
+(defvar-local carriage-ui--icon-cache nil
+  "Buffer-local cache of generated icon strings keyed by KEY or (toggle KEY ONP).")
+
+(defvar-local carriage-ui--icon-cache-env nil
+  "Environment snapshot for the icon cache to detect invalidation.
+List of (gui use-icons height v-adjust themes).")
+
+(defun carriage-ui--icon-cache-env-current ()
+  "Return current environment signature for icon rendering."
+  (list (display-graphic-p)
+        (and (boundp 'carriage-mode-use-icons) carriage-mode-use-icons)
+        carriage-mode-icon-height
+        carriage-mode-icon-v-adjust
+        custom-enabled-themes))
+
+(defun carriage-ui--invalidate-icon-cache ()
+  "Invalidate icon cache for the current buffer."
+  (setq carriage-ui--icon-cache nil)
+  (setq carriage-ui--icon-cache-env (carriage-ui--icon-cache-env-current)))
+
+(defun carriage-ui--maybe-refresh-icon-cache-env ()
+  "Ensure icon cache environment matches current UI; reset cache if not."
+  (let ((cur (carriage-ui--icon-cache-env-current)))
+    (unless (equal cur carriage-ui--icon-cache-env)
+      (setq carriage-ui--icon-cache (make-hash-table :test 'equal))
+      (setq carriage-ui--icon-cache-env cur))))
+
+(defun carriage-ui--invalidate-icon-cache-all-buffers ()
+  "Invalidate icon caches in all live buffers."
+  (dolist (buf (buffer-list))
+    (when (buffer-live-p buf)
+      (with-current-buffer buf
+        (when (boundp 'carriage-ui--icon-cache-env)
+          (setq carriage-ui--icon-cache nil)
+          (setq carriage-ui--icon-cache-env nil))))))
+
+(defvar carriage-ui--icon-theme-hook-installed nil
+  "Internal flag to install theme-change advice once.")
+
+(unless carriage-ui--icon-theme-hook-installed
+  (setq carriage-ui--icon-theme-hook-installed t)
+  (advice-add 'load-theme :after (lambda (&rest _)
+                                   (carriage-ui--invalidate-icon-cache-all-buffers))))
+
 (defun carriage-ui--icons-available-p ()
   "Return non-nil when icons can be used in modeline."
   (let* ((use-flag (and (boundp 'carriage-mode-use-icons) carriage-mode-use-icons))
          (gui (display-graphic-p)))
     (unless carriage-ui--icons-lib-available
       (setq carriage-ui--icons-lib-available (require 'all-the-icons nil t)))
-    (let ((ok (and use-flag gui carriage-ui--icons-lib-available)))
-      (carriage-ui--dbg "icons-available-p: use=%S gui=%S all-the-icons=%S => %S"
-                        use-flag gui (featurep 'all-the-icons) ok)
-      ok)))
+    (and use-flag gui carriage-ui--icons-lib-available)))
 
 (defun carriage-ui--accent-hex (face)
   "Return final hexadecimal foreground color for FACE."
@@ -304,162 +345,168 @@ Do NOT use Org's outline path cache to avoid stale values while moving."
       "#aaaaaa"))
 (defun carriage-ui--icon (key)
   "Return icon string for KEY using all-the-icons, or nil if unavailable.
-Emits debug logs with the resulting face property/foreground."
+Results are cached per-buffer and invalidated when theme or UI parameters change."
   (when (carriage-ui--icons-available-p)
-    (let ((res
-           (pcase key
-             ;; Intent
-             ('ask  (when (fboundp 'all-the-icons-material)
-                      (all-the-icons-material "chat"
-                                              :height carriage-mode-icon-height
-                                              :v-adjust (- carriage-mode-icon-v-adjust 0.1)
-                                              :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face)))))
-             ('patch (when (fboundp 'all-the-icons-material)
-                       (all-the-icons-material "code"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust (- carriage-mode-icon-v-adjust 0.1)
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
-             ('hybrid (when (fboundp 'all-the-icons-material)
-                        (all-the-icons-material "merge_type"
-                                                :height carriage-mode-icon-height
-                                                :v-adjust (- carriage-mode-icon-v-adjust 0.1)
-                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
-             ;; Model/backend (prefer Material; fallback to Octicon CPU)
-             ('model (cond
-                      ((fboundp 'all-the-icons-material)
-                       (all-the-icons-material "memory"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust (- carriage-mode-icon-v-adjust 0.1)
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face))))
-                      ((fboundp 'all-the-icons-octicon)
-                       (all-the-icons-octicon "cpu"
-                                              :height carriage-mode-icon-height
-                                              :v-adjust carriage-mode-icon-v-adjust
-                                              :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face))))
-                      (t nil)))
-             ;; Header-line sections
-             ('project (cond
-                        ((fboundp 'all-the-icons-octicon)
-                         (all-the-icons-octicon "repo"
-                                                :height carriage-mode-icon-height
-                                                :v-adjust carriage-mode-icon-v-adjust
-                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
-                        ((fboundp 'all-the-icons-material)
-                         (all-the-icons-material "folder"
-                                                 :height carriage-mode-icon-height
-                                                 :v-adjust carriage-mode-icon-v-adjust
-                                                 :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
-                        (t nil)))
-             ('file    (cond
-                        ((fboundp 'all-the-icons-octicon)
-                         (all-the-icons-octicon "file-text"
-                                                :height carriage-mode-icon-height
-                                                :v-adjust carriage-mode-icon-v-adjust
-                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face))))
-                        ((fboundp 'all-the-icons-material)
-                         (all-the-icons-material "description"
-                                                 :height carriage-mode-icon-height
-                                                 :v-adjust carriage-mode-icon-v-adjust
-                                                 :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face))))
-                        (t nil)))
-             ('heading (cond
-                        ((fboundp 'all-the-icons-material)
-                         (all-the-icons-material "chevron_right"
-                                                 :height carriage-mode-icon-height
-                                                 :v-adjust carriage-mode-icon-v-adjust
-                                                 :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-yellow-face))))
-                        ((fboundp 'all-the-icons-octicon)
-                         (all-the-icons-octicon "bookmark"
-                                                :height carriage-mode-icon-height
-                                                :v-adjust carriage-mode-icon-v-adjust
-                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-yellow-face))))
-                        (t nil)))
-             ('suite (cond
-                      ((fboundp 'all-the-icons-octicon)
-                       (all-the-icons-octicon "package"
-                                              :height carriage-mode-icon-height
-                                              :v-adjust carriage-mode-icon-v-adjust
-                                              :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
-                      ((fboundp 'all-the-icons-material)
-                       (all-the-icons-material "category"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
-                      (t nil)))
-             ('engine (cond
-                       ((fboundp 'all-the-icons-octicon)
-                        (all-the-icons-octicon "gear"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face))))
-                       ((fboundp 'all-the-icons-material)
-                        (all-the-icons-material "build"
-                                                :height carriage-mode-icon-height
-                                                :v-adjust carriage-mode-icon-v-adjust
-                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face))))
-                       (t nil)))
-             ;; Actions
-             ('dry    (when (fboundp 'all-the-icons-faicon)
-                        (all-the-icons-faicon "flask"
-                                              :height carriage-mode-icon-height
-                                              :v-adjust carriage-mode-icon-v-adjust
-                                              :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-orange-face)))))
-             ('apply  (when (fboundp 'all-the-icons-material)
-                        (all-the-icons-material "check_circle"
-                                                :height carriage-mode-icon-height
-                                                :v-adjust carriage-mode-icon-v-adjust
-                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-green-face)))))
-             ('all    (cond
-                       ((fboundp 'all-the-icons-octicon)
-                        (all-the-icons-octicon "rocket"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
-                       ((fboundp 'all-the-icons-material)
-                        (all-the-icons-material "play_arrow"
-                                                :height carriage-mode-icon-height
-                                                :v-adjust carriage-mode-icon-v-adjust
-                                                :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
-                       (t nil)))
-             ('abort  (when (fboundp 'all-the-icons-octicon)
-                        (all-the-icons-octicon "stop"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-red-face)))))
-             ('report (when (fboundp 'all-the-icons-octicon)
-                        (all-the-icons-octicon "file-text"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
-             ('diff   (when (fboundp 'all-the-icons-octicon)
-                        (all-the-icons-octicon "git-compare"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-orange-face)))))
-             ('ediff  (when (fboundp 'all-the-icons-octicon)
-                        (all-the-icons-octicon "diff"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
-             ('wip    (when (fboundp 'all-the-icons-octicon)
-                        (all-the-icons-octicon "git-branch"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-yellow-face)))))
-             ('commit (when (fboundp 'all-the-icons-octicon)
-                        (all-the-icons-octicon "git-commit"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
-             ('reset  (when (fboundp 'all-the-icons-octicon)
-                        (all-the-icons-octicon "history"
-                                               :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
-                                               :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face)))))
-             (_ nil))))
-      (when (and carriage-ui-debug res)
-        (carriage-ui--log-face-of-string (format "icon:%s" key) res))
-      res)))
+    (carriage-ui--maybe-refresh-icon-cache-env)
+    (let* ((cache (or carriage-ui--icon-cache
+                      (setq carriage-ui--icon-cache (make-hash-table :test 'equal))))
+           (hit (gethash key cache)))
+      (if (stringp hit)
+          hit
+        (let ((res
+               (pcase key
+                 ;; Intent
+                 ('ask  (when (fboundp 'all-the-icons-material)
+                          (all-the-icons-material "chat"
+                                                  :height carriage-mode-icon-height
+                                                  :v-adjust (- carriage-mode-icon-v-adjust 0.1)
+                                                  :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face)))))
+                 ('patch (when (fboundp 'all-the-icons-material)
+                           (all-the-icons-material "code"
+                                                   :height carriage-mode-icon-height
+                                                   :v-adjust (- carriage-mode-icon-v-adjust 0.1)
+                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
+                 ('hybrid (when (fboundp 'all-the-icons-material)
+                            (all-the-icons-material "merge_type"
+                                                    :height carriage-mode-icon-height
+                                                    :v-adjust (- carriage-mode-icon-v-adjust 0.1)
+                                                    :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
+                 ;; Model/backend (prefer Material; fallback to Octicon CPU)
+                 ('model (cond
+                          ((fboundp 'all-the-icons-material)
+                           (all-the-icons-material "memory"
+                                                   :height carriage-mode-icon-height
+                                                   :v-adjust (- carriage-mode-icon-v-adjust 0.1)
+                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face))))
+                          ((fboundp 'all-the-icons-octicon)
+                           (all-the-icons-octicon "cpu"
+                                                  :height carriage-mode-icon-height
+                                                  :v-adjust carriage-mode-icon-v-adjust
+                                                  :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face))))
+                          (t nil)))
+                 ;; Header-line sections
+                 ('project (cond
+                            ((fboundp 'all-the-icons-octicon)
+                             (all-the-icons-octicon "repo"
+                                                    :height carriage-mode-icon-height
+                                                    :v-adjust carriage-mode-icon-v-adjust
+                                                    :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
+                            ((fboundp 'all-the-icons-material)
+                             (all-the-icons-material "folder"
+                                                     :height carriage-mode-icon-height
+                                                     :v-adjust carriage-mode-icon-v-adjust
+                                                     :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
+                            (t nil)))
+                 ('file    (cond
+                            ((fboundp 'all-the-icons-octicon)
+                             (all-the-icons-octicon "file-text"
+                                                    :height carriage-mode-icon-height
+                                                    :v-adjust carriage-mode-icon-v-adjust
+                                                    :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face))))
+                            ((fboundp 'all-the-icons-material)
+                             (all-the-icons-material "description"
+                                                     :height carriage-mode-icon-height
+                                                     :v-adjust carriage-mode-icon-v-adjust
+                                                     :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face))))
+                            (t nil)))
+                 ('heading (cond
+                            ((fboundp 'all-the-icons-material)
+                             (all-the-icons-material "chevron_right"
+                                                     :height carriage-mode-icon-height
+                                                     :v-adjust carriage-mode-icon-v-adjust
+                                                     :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-yellow-face))))
+                            ((fboundp 'all-the-icons-octicon)
+                             (all-the-icons-octicon "bookmark"
+                                                    :height carriage-mode-icon-height
+                                                    :v-adjust carriage-mode-icon-v-adjust
+                                                    :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-yellow-face))))
+                            (t nil)))
+                 ('suite (cond
+                          ((fboundp 'all-the-icons-octicon)
+                           (all-the-icons-octicon "package"
+                                                  :height carriage-mode-icon-height
+                                                  :v-adjust carriage-mode-icon-v-adjust
+                                                  :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
+                          ((fboundp 'all-the-icons-material)
+                           (all-the-icons-material "category"
+                                                   :height carriage-mode-icon-height
+                                                   :v-adjust carriage-mode-icon-v-adjust
+                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
+                          (t nil)))
+                 ('engine (cond
+                           ((fboundp 'all-the-icons-octicon)
+                            (all-the-icons-octicon "gear"
+                                                   :height carriage-mode-icon-height
+                                                   :v-adjust carriage-mode-icon-v-adjust
+                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face))))
+                           ((fboundp 'all-the-icons-material)
+                            (all-the-icons-material "build"
+                                                    :height carriage-mode-icon-height
+                                                    :v-adjust carriage-mode-icon-v-adjust
+                                                    :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face))))
+                           (t nil)))
+                 ;; Actions
+                 ('dry    (when (fboundp 'all-the-icons-faicon)
+                            (all-the-icons-faicon "flask"
+                                                  :height carriage-mode-icon-height
+                                                  :v-adjust carriage-mode-icon-v-adjust
+                                                  :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-orange-face)))))
+                 ('apply  (when (fboundp 'all-the-icons-material)
+                            (all-the-icons-material "check_circle"
+                                                    :height carriage-mode-icon-height
+                                                    :v-adjust carriage-mode-icon-v-adjust
+                                                    :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-green-face)))))
+                 ('all    (cond
+                           ((fboundp 'all-the-icons-octicon)
+                            (all-the-icons-octicon "rocket"
+                                                   :height carriage-mode-icon-height
+                                                   :v-adjust carriage-mode-icon-v-adjust
+                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
+                           ((fboundp 'all-the-icons-material)
+                            (all-the-icons-material "play_arrow"
+                                                    :height carriage-mode-icon-height
+                                                    :v-adjust carriage-mode-icon-v-adjust
+                                                    :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-blue-face))))
+                           (t nil)))
+                 ('abort  (when (fboundp 'all-the-icons-octicon)
+                            (all-the-icons-octicon "stop"
+                                                   :height carriage-mode-icon-height
+                                                   :v-adjust carriage-mode-icon-v-adjust
+                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-red-face)))))
+                 ('report (when (fboundp 'all-the-icons-octicon)
+                            (all-the-icons-octicon "file-text"
+                                                   :height carriage-mode-icon-height
+                                                   :v-adjust carriage-mode-icon-v-adjust
+                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
+                 ('diff   (when (fboundp 'all-the-icons-octicon)
+                            (all-the-icons-octicon "git-compare"
+                                                   :height carriage-mode-icon-height
+                                                   :v-adjust carriage-mode-icon-v-adjust
+                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-orange-face)))))
+                 ('ediff  (when (fboundp 'all-the-icons-octicon)
+                            (all-the-icons-octicon "diff"
+                                                   :height carriage-mode-icon-height
+                                                   :v-adjust carriage-mode-icon-v-adjust
+                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
+                 ('wip    (when (fboundp 'all-the-icons-octicon)
+                            (all-the-icons-octicon "git-branch"
+                                                   :height carriage-mode-icon-height
+                                                   :v-adjust carriage-mode-icon-v-adjust
+                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-yellow-face)))))
+                 ('commit (when (fboundp 'all-the-icons-octicon)
+                            (all-the-icons-octicon "git-commit"
+                                                   :height carriage-mode-icon-height
+                                                   :v-adjust carriage-mode-icon-v-adjust
+                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
+                 ('reset  (when (fboundp 'all-the-icons-octicon)
+                            (all-the-icons-octicon "history"
+                                                   :height carriage-mode-icon-height
+                                                   :v-adjust carriage-mode-icon-v-adjust
+                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face)))))
+                 (_ nil))))
+          (when (stringp res)
+            (puthash key res cache))
+          res)))))
 
 ;; Header-line helpers (split from carriage-ui--header-line)
 
@@ -586,7 +633,7 @@ Truncation order: outline → buffer → project."
   :type 'boolean
   :group 'carriage-ui)
 
-(defcustom carriage-mode-headerline-idle-interval 0.12
+(defcustom carriage-mode-headerline-idle-interval 0.2
   "Idle interval in seconds before refreshing header-line after cursor/scroll changes."
   :type 'number
   :group 'carriage-ui)
@@ -654,66 +701,77 @@ Updates on any change of outline path, heading level, or heading title."
       s)))
 
 (defun carriage-ui--toggle-icon (key onp)
-  "Return colored icon for toggle KEY based on ONP."
+  "Return colored icon for toggle KEY based on ONP, with caching."
   (when (carriage-ui--icons-available-p)
-    (let* ((face (if onp
-                     (pcase key
-                       ('auto    'carriage-ui-accent-blue-face)
-                       ('diffs   'carriage-ui-accent-orange-face)
-                       ('confirm 'carriage-ui-accent-purple-face)
-                       ('icons   'carriage-ui-accent-cyan-face)
-                       ('ctx     'carriage-ui-accent-blue-face)
-                       ('files   'carriage-ui-accent-purple-face)
-                       (_        'carriage-ui-accent-blue-face))
-                   'carriage-ui-muted-face))
-           (fg (carriage-ui--accent-hex face))
-           (fplist (list :inherit nil :foreground fg)))
-      (pcase key
-        ('auto
-         (when (fboundp 'all-the-icons-material)
-           (all-the-icons-material "autorenew"
-                                   :height carriage-mode-icon-height
-                                   :v-adjust carriage-mode-icon-v-adjust
-                                   :face fplist)))
-        ('diffs
-         (cond
-          ((fboundp 'all-the-icons-octicon)
-           (all-the-icons-octicon "diff"
-                                  :height carriage-mode-icon-height
-                                  :v-adjust carriage-mode-icon-v-adjust
-                                  :face fplist))
-          ((fboundp 'all-the-icons-material)
-           (all-the-icons-material "difference"
-                                   :height carriage-mode-icon-height
-                                   :v-adjust carriage-mode-icon-v-adjust
-                                   :face fplist))
-          (t nil)))
-        ('confirm
-         (when (fboundp 'all-the-icons-material)
-           (all-the-icons-material "done_all"
-                                   :height carriage-mode-icon-height
-                                   :v-adjust carriage-mode-icon-v-adjust
-                                   :face fplist)))
-        ('icons
-         (when (fboundp 'all-the-icons-material)
-           (all-the-icons-material "image"
-                                   :height carriage-mode-icon-height
-                                   :v-adjust carriage-mode-icon-v-adjust
-                                   :face fplist)))
-        ('ctx
-         (when (fboundp 'all-the-icons-material)
-           (ignore-errors
-             (all-the-icons-material "toc"
-                                     :height carriage-mode-icon-height
-                                     :v-adjust carriage-mode-icon-v-adjust
-                                     :face fplist))))
-        ('files
-         (when (fboundp 'all-the-icons-material)
-           (all-the-icons-material "description"
-                                   :height carriage-mode-icon-height
-                                   :v-adjust carriage-mode-icon-v-adjust
-                                   :face fplist)))
-        (_ nil)))))
+    (carriage-ui--maybe-refresh-icon-cache-env)
+    (let* ((cache (or carriage-ui--icon-cache
+                      (setq carriage-ui--icon-cache (make-hash-table :test 'equal))))
+           (ckey (list 'toggle key (if onp t nil)))
+           (hit (gethash ckey cache)))
+      (if (stringp hit)
+          hit
+        (let* ((face (if onp
+                         (pcase key
+                           ('auto    'carriage-ui-accent-blue-face)
+                           ('diffs   'carriage-ui-accent-orange-face)
+                           ('confirm 'carriage-ui-accent-purple-face)
+                           ('icons   'carriage-ui-accent-cyan-face)
+                           ('ctx     'carriage-ui-accent-blue-face)
+                           ('files   'carriage-ui-accent-purple-face)
+                           (_        'carriage-ui-accent-blue-face))
+                       'carriage-ui-muted-face))
+               (fg (carriage-ui--accent-hex face))
+               (fplist (list :inherit nil :foreground fg))
+               (res
+                (pcase key
+                  ('auto
+                   (when (fboundp 'all-the-icons-material)
+                     (all-the-icons-material "autorenew"
+                                             :height carriage-mode-icon-height
+                                             :v-adjust carriage-mode-icon-v-adjust
+                                             :face fplist)))
+                  ('diffs
+                   (cond
+                    ((fboundp 'all-the-icons-octicon)
+                     (all-the-icons-octicon "diff"
+                                            :height carriage-mode-icon-height
+                                            :v-adjust carriage-mode-icon-v-adjust
+                                            :face fplist))
+                    ((fboundp 'all-the-icons-material)
+                     (all-the-icons-material "difference"
+                                             :height carriage-mode-icon-height
+                                             :v-adjust carriage-mode-icon-v-adjust
+                                             :face fplist))
+                    (t nil)))
+                  ('confirm
+                   (when (fboundp 'all-the-icons-material)
+                     (all-the-icons-material "done_all"
+                                             :height carriage-mode-icon-height
+                                             :v-adjust carriage-mode-icon-v-adjust
+                                             :face fplist)))
+                  ('icons
+                   (when (fboundp 'all-the-icons-material)
+                     (all-the-icons-material "image"
+                                             :height carriage-mode-icon-height
+                                             :v-adjust carriage-mode-icon-v-adjust
+                                             :face fplist)))
+                  ('ctx
+                   (when (fboundp 'all-the-icons-material)
+                     (ignore-errors
+                       (all-the-icons-material "toc"
+                                               :height carriage-mode-icon-height
+                                               :v-adjust carriage-mode-icon-v-adjust
+                                               :face fplist))))
+                  ('files
+                   (when (fboundp 'all-the-icons-material)
+                     (all-the-icons-material "description"
+                                             :height carriage-mode-icon-height
+                                             :v-adjust carriage-mode-icon-v-adjust
+                                             :face fplist)))
+                  (_ nil))))
+          (when (stringp res)
+            (puthash ckey res cache))
+          res)))))
 
 (defun carriage-ui--toggle (label var-sym fn help &optional icon-key)
   "Build a toggle button with LABEL; highlight when VAR-SYM is non-nil.
