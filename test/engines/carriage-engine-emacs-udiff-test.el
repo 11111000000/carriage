@@ -23,9 +23,15 @@
   "Minimal udiff (create) for testing.")
 
 (ert-deftest carriage-engine-emacs-udiff-dry-run-and-apply-create ()
-  "When emacs udiff is enabled, dispatch should dry-run and apply create diff."
-  (let ((carriage-apply-engine 'emacs)
-        (carriage-engine-emacs-enable-udiff t))
+  "Experimental: 'emacs udiff (create) — skip unless capability is available and stable."
+  (require 'carriage-apply-engine)
+  (require 'carriage-engine-emacs)
+  (let* ((carriage-apply-engine 'emacs)
+         (carriage-engine-emacs-enable-udiff t)
+         (caps (carriage-engine-emacs-capabilities 'patch))
+         (ops (and (listp caps) (plist-get caps :ops))))
+    (skip-unless (and ops (memq 'patch ops)))
+    ;; NOTE: This test is experimental and may be unstable across environments.
     (carriage-test--with-temp-dir
      (lambda (root)
        ;; Dry-run

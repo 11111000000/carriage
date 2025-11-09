@@ -11,7 +11,9 @@
     (should (string-match-p "git:in-place" joined))
     (should (string-match-p "git:wip" joined))
     (should (string-match-p "git:ephemeral" joined))
-    (should-not (string-match-p "^git\\b" joined))))
+    ;; No bare 'git' entry and no line starting with 'git —'
+    (should-not (member "git" lst))
+    (should-not (cl-some (lambda (s) (string-match-p "\\`git\\s-+—" s)) lst))))
 
 (ert-deftest carriage-select-apply-engine-git-policy-combo ()
   (require 'carriage-apply-engine)

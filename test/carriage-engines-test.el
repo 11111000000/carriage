@@ -5,8 +5,8 @@
 (ert-deftest carriage-engines-hide-bare-git ()
   "Engine list must hide bare 'git' and show only git:POLICY combos."
   (let ((lst (carriage-available-apply-engines)))
-    (should (cl-some (lambda (s) (string-match-p "\\=git:\\(in-place\\|wip\\|ephemeral\\)" s)) lst))
-    (should-not (cl-some (lambda (s) (string-match-p "\\=git\\s-+—" s)) lst))
+    (should (cl-some (lambda (s) (string-match-p "\\`git:\\(in-place\\|wip\\|ephemeral\\)\\b" s)) lst))
+    (should-not (cl-some (lambda (s) (string-match-p "\\`git\\s-+—" s)) lst))
     (should-not (member "git" lst))))
 
 (ert-deftest carriage-engine-dispatch-patch-guarded-when-emacs ()
