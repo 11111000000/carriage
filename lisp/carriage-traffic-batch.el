@@ -22,7 +22,6 @@ Set to nil to disable early flush based on size."
   :type '(choice (const :tag "Disabled" nil) integer)
   :group 'carriage-traffic-batch)
 
-;; Internal queue and timer
 (defvar carriage-traffic-batch--queue nil
   "Queue of pending traffic log entries.
 Each entry is a plist: (:kind 'global|'local :fn ORIG :args LIST :bytes N).")
@@ -87,7 +86,6 @@ Each entry is a plist: (:kind 'global|'local :fn ORIG :args LIST :bytes N).")
             (apply (plist-get it :fn) (plist-get it :args))
           (error nil))))))
 
-;; Around advices that enqueue instead of immediate logging
 (defun carriage-traffic-batch--around-global (orig-fn dir fmt &rest args)
   "Around advice for `carriage-traffic-log'."
   (if carriage-traffic-batch-enabled

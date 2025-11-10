@@ -192,10 +192,7 @@ If ERRORP non-nil, set state to 'error; otherwise flash 'done then return to 'id
     (ignore-errors (carriage--preloader-stop)))
   (if errorp
       (carriage-ui-set-state 'error)
-    (carriage-ui-set-state 'done)
-    (run-at-time 0.6 nil (lambda ()
-                           (when (fboundp 'carriage-ui-set-state)
-                             (carriage-ui-set-state 'idle)))))
+    (carriage-ui-set-state 'idle))
   (carriage-log "Transport: complete (status=%s)" (if errorp "error" "ok"))
   t)
 

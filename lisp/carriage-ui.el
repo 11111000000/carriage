@@ -929,8 +929,7 @@ Respects `carriage-ui-branch-cache-ttl'."
 
 (defun carriage-ui--show-apply-buttons-p ()
   "Return non-nil when modeline should show Dry/Apply actions."
-  (or (carriage-ui--point-in-patch-block-p)
-      (carriage-ui--region-has-patch-p)))
+  t)
 
 (defun carriage-ui--last-iteration-present-p ()
   "Return current last iteration id or nil when absent."

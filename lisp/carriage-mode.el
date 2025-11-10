@@ -1914,5 +1914,31 @@ Creates an org-mode buffer with carriage-mode enabled and default-directory boun
                  (setq carriage--ui-pre-transient-state nil)
                  (when st (ignore-errors (carriage-ui-set-state st))))))))))))
 
+;; Batch-friendly success announcement on report open
+(with-eval-after-load 'carriage-report
+  (defun carriage--announce--after-report-open (report &rest _ignore)
+    (condition-case _e
+        (let* ((sum (plist-get report :summary))
+               (fails (or (plist-get sum :fail) 0))
+               (items (or (plist-get report :items) '()))
+               (oks (cl-remove-if-not (lambda (it) (eq (plist-get it :status) 'ok)) items)))
+          (when (and (numberp fails) (zerop fails) (> (length oks) 0))
+            (let ((created 0) (deleted 0) (renamed 0) (modified 0)
+                  (files '()))
+              (dolist (it oks)
+                (let ((op (plist-get it :op)))
+                  (pcase op
+                    ('create (setq created (1+ created)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+                    ('delete (setq deleted (1+ deleted)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+                    ('rename (setq renamed (1+ renamed)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+                    ((or 'patch 'sre 'aibo 'replace) (setq modified (1+ modified)) (push (or (plist-get it :file) (plist-get it :path) "-") files))
+                    (_ (push (or (plist-get it :file) (plist-get it :path) "-") files)))))
+              (let* ((total (length oks))
+                     (files-str (mapconcat #'identity (nreverse (delete-dups (delq nil files))) ", ")))
+                (message "Carriage: applied OK (%d items) — created:%d modified:%d deleted:%d renamed:%d — %s"
+                         total created modified deleted renamed files-str)))))
+      (error nil)))
+  (advice-add 'carriage-report-open :after #'carriage--announce--after-report-open))
+
 (provide 'carriage-mode)
 ;;; carriage-mode.el ends here
