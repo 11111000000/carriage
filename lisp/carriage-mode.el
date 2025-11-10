@@ -103,7 +103,13 @@ When non-nil, the [AutoRpt] toggle appears ON (meaning 'always)."
   :type 'boolean :group 'carriage)
 
 (defcustom carriage-mode-confirm-apply nil
-  "Ask for confirmation before applying a single block or a region/group."
+  "Ask for confirmation before applying a single block or a region."
+  :type 'boolean :group 'carriage)
+
+(defcustom carriage-mode-replace-applied-blocks t
+  "When non-nil, replace successfully applied #+begin_patch … #+end_patch blocks
+with a compact \"#+patch_done ( … )\" marker that summarizes the operation.
+Applies to patch/sre/aibo and file ops (create/delete/rename)."
   :type 'boolean :group 'carriage)
 
 (defcustom carriage-mode-apply-all-require-last-iteration t

@@ -304,8 +304,10 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
                    (files-str (mapconcat #'identity (nreverse (delete-dups (delq nil files))) ", ")))
               (when (> total 0)
                 (message "Carriage: applied OK (%d items) — created:%d modified:%d deleted:%d renamed:%d — %s"
-                         total created modified deleted renamed files-str))))))
-      report)))
+                         total created modified deleted renamed files-str)))))
+        ;; Replace successfully applied blocks with #+patch_done markers when enabled (sync path; also on partial success)
+        (ignore-errors (carriage--replace-applied-blocks-in-report report))
+        report))))
 
 (defun carriage--make-apply-state (queue repo-root)
   "Create initial async apply STATE plist."
@@ -383,6 +385,78 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
           (when (> total 0)
             (message "Carriage: applied OK (%d items) — created:%d modified:%d deleted:%d renamed:%d — %s"
                      total created modified deleted renamed files-str)))))))
+
+(defun carriage--replace-applied-blocks-in-report (report)
+  "Replace successfully applied patch blocks in their source buffers with #+patch_done markers.
+Respects per-buffer toggle `carriage-mode-replace-applied-blocks' when available."
+  (condition-case err
+      (let* ((items (or (plist-get report :items) '()))
+             (by-buf (make-hash-table :test 'eq)))
+        ;; Collect replacements grouped by buffer
+        (dolist (row items)
+          (when (eq (plist-get row :status) 'ok)
+            (let* ((plan (plist-get row :_plan))
+                   (buf  (and (listp plan) (plist-get plan :_buffer)))
+                   (mb   (and (listp plan) (plist-get plan :_beg-marker)))
+                   (me   (and (listp plan) (plist-get plan :_end-marker))))
+              (when (and (bufferp buf) (markerp mb) (markerp me)
+                         (eq (marker-buffer mb) buf)
+                         (eq (marker-buffer me) buf))
+                (let* ((op (plist-get row :op))
+                       (opstr (if (symbolp op) (symbol-name op) (format "%s" op)))
+                       (file (or (plist-get row :file) (plist-get row :path)))
+                       (from (or (and plan (alist-get :from plan)) nil))
+                       (to   (or (and plan (alist-get :to plan)) nil))
+                       (matches (plist-get row :matches))
+                       (bytes   (plist-get row :changed-bytes))
+                       (ts (format-time-string "%Y-%m-%d %H:%M"))
+                       (details (or (plist-get row :details) "Applied"))
+                       (plist (list :op opstr
+                                    ;; Prefer from/to for rename, path for patch, file otherwise
+                                    ))
+                       (plist (cond
+                               ((string= opstr "rename")
+                                (append plist (list :from (or from "") :to (or to ""))))
+                               ((string= opstr "patch")
+                                (append plist (list :path (or (plist-get row :path) (or file "")))))
+                               (t
+                                (append plist (list :file (or file ""))))))
+                       (plist (if (and (memq op '(sre aibo)) (numberp matches))
+                                  (append plist (list :matches matches))
+                                plist))
+                       (plist (if (and (numberp bytes) (> bytes 0))
+                                  (append plist (list :bytes bytes))
+                                plist))
+                       (plist (append plist (list :ts ts :details details)))
+                       (line (concat "#+patch_done " (prin1-to-string plist) "\n"))
+                       (beg (marker-position mb))
+                       (end (marker-position me))
+                       (cell (gethash buf by-buf '())))
+                  (puthash buf (cons (list :beg beg :end end :text line) cell) by-buf))))))
+        ;; Apply replacements in each buffer (from bottom to top)
+        (maphash
+         (lambda (buf lst)
+           (with-current-buffer buf
+             ;; Check per-buffer toggle, default to t when not bound.
+             (let* ((enabled (if (boundp 'carriage-mode-replace-applied-blocks)
+                                 carriage-mode-replace-applied-blocks
+                               t)))
+               (when enabled
+                 (let ((inhibit-read-only t))
+                   (dolist (it (sort lst (lambda (a b) (> (plist-get a :beg) (plist-get b :beg)))))
+                     (let ((b (plist-get it :beg))
+                           (e (plist-get it :end))
+                           (txt (plist-get it :text)))
+                       (when (and (numberp b) (numberp e) (<= b e) (<= e (point-max)))
+                         (save-excursion
+                           (delete-region b e)
+                           (goto-char b)
+                           (insert txt))))))))))
+         by-buf)
+        t)
+    (error
+     (carriage-log "replace-applied-blocks error: %s" (error-message-string err))
+     nil)))
 
 (defun carriage--apply-run-callback (callback report)
   "Invoke CALLBACK with REPORT on the main thread, if CALLBACK is callable."
