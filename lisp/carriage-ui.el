@@ -299,6 +299,15 @@ keys change (buffer content, toggle states)."
   '(suite engine branch model intent state context patch dry apply all abort report toggle-ctx toggle-files settings)
   "Default order of Carriage modeline blocks.")
 
+(defun carriage-ui--invalidate-icon-cache-all-buffers ()
+  "Invalidate icon caches in all live buffers."
+  (dolist (buf (buffer-list))
+    (when (buffer-live-p buf)
+      (with-current-buffer buf
+        (when (boundp 'carriage-ui--icon-cache-env)
+          (setq carriage-ui--icon-cache nil)
+          (setq carriage-ui--icon-cache-env nil))))))
+
 (defun carriage-ui--set-modeline-blocks (sym val)
   "Setter for `carriage-ui-modeline-blocks' that refreshes modelines everywhere."
   (set-default sym val)
@@ -503,14 +512,7 @@ List of (gui use-icons height v-adjust themes).")
       (setq carriage-ui--icon-cache (make-hash-table :test 'equal))
       (setq carriage-ui--icon-cache-env cur))))
 
-(defun carriage-ui--invalidate-icon-cache-all-buffers ()
-  "Invalidate icon caches in all live buffers."
-  (dolist (buf (buffer-list))
-    (when (buffer-live-p buf)
-      (with-current-buffer buf
-        (when (boundp 'carriage-ui--icon-cache-env)
-          (setq carriage-ui--icon-cache nil)
-          (setq carriage-ui--icon-cache-env nil))))))
+
 
 (defvar carriage-ui--icon-theme-hook-installed nil
   "Internal flag to install theme-change advice once.")
