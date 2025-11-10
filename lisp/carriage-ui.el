@@ -808,6 +808,52 @@ Truncation order: outline → buffer → project."
 (defvar-local carriage-ui--patch-count-tick nil
   "Buffer tick corresponding to `carriage-ui--patch-count-cache'.")
 
+;; Branch name cache (to avoid heavy VC/git calls on every modeline render)
+(defcustom carriage-ui-branch-cache-ttl 3.0
+  "TTL in seconds for cached VCS branch name used in the modeline.
+When nil, the cache is considered always valid (until explicitly invalidated)."
+  :type '(choice (const :tag "Unlimited (never auto-refresh)" nil) number)
+  :group 'carriage-ui)
+
+(defvar-local carriage-ui--branch-cache-string nil
+  "Cached branch name for current buffer modeline (or nil).")
+
+(defvar-local carriage-ui--branch-cache-time 0
+  "Timestamp of the last branch cache refresh (float seconds).")
+
+(defun carriage-ui--branch-name-cached ()
+  "Return VCS branch name for the current buffer using a lightweight cache.
+Prefers parsing `vc-mode' when available; falls back to git helper rarely.
+Respects `carriage-ui-branch-cache-ttl'."
+  (let* ((ttl carriage-ui-branch-cache-ttl)
+         (now (float-time))
+         (valid (or (null ttl)
+                    (< (- now (or carriage-ui--branch-cache-time 0)) (or ttl 0)))))
+    (if (and carriage-ui--branch-cache-string valid)
+        carriage-ui--branch-cache-string
+      (let* ((br
+              (or
+               ;; Try to parse from vc-mode string to avoid processes
+               (let* ((s (and (boundp 'vc-mode) vc-mode)))
+                 (when (stringp s)
+                   (cond
+                    ((string-match "[: -]\\([^: -]+\\)\\'" s) (match-string 1 s))
+                    (t nil))))
+               ;; Optionally query VC, but guard to avoid expensive calls
+               (when (require 'vc-git nil t)
+                 (ignore-errors
+                   (when (fboundp 'vc-git--symbolic-branch)
+                     (vc-git--symbolic-branch default-directory))))
+               ;; Fallback to our git helper (single process)
+               (condition-case _e
+                   (progn
+                     (require 'carriage-git)
+                     (carriage-git-current-branch default-directory))
+                 (error nil)))))
+        (setq carriage-ui--branch-cache-string br
+              carriage-ui--branch-cache-time now)
+        br))))
+
 (defun carriage-ui--patch-count ()
   "Return the number of #+begin_patch blocks in the current buffer."
   (if (not (derived-mode-p 'org-mode))
@@ -1180,15 +1226,8 @@ reflects toggle state (muted when off, bright when on)."
                    (hint (cdr ctx-badge)))
                (if hint (propertize lbl 'help-echo hint) lbl))))
          (branch-block ()
-           (let* ((br (or (and (require 'vc-git nil t)
-                               (fboundp 'vc-git--symbolic-branch)
-                               (ignore-errors (vc-git--symbolic-branch default-directory)))
-                          (let* ((s (and (boundp 'vc-mode) vc-mode)))
-                            (when (stringp s)
-                              (cond
-                               ((string-match "[: -]\\([^: -]+\\)\\'" s) (match-string 1 s))
-                               (t nil))))))
-                  (txt (and br (format "[%s]" br))))
+           (let* ((br (carriage-ui--branch-name-cached))
+                  (txt (and (stringp br) (not (string-empty-p br)) (format "[%s]" br))))
              (when txt
                (if (and uicons (fboundp 'all-the-icons-octicon))
                    (let* ((ic (all-the-icons-octicon "git-branch"
