@@ -1888,5 +1888,30 @@ Creates an org-mode buffer with carriage-mode enabled and default-directory boun
         (carriage-mode 1)))
     buf))
 
+;; Freeze Carriage UI during transient menus to reduce redisplay churn.
+(when (fboundp 'transient--recursive-edit)
+  (defvar-local carriage--ui-pre-transient-state nil
+    "Saved UI state before entering transient for this buffer.")
+
+  (advice-add
+   'transient--recursive-edit :around
+   (lambda (orig &rest args)
+     (let ((srcbuf (current-buffer))
+           (saved-state (and (boundp 'carriage--ui-state) carriage--ui-state)))
+       (when (bound-and-true-p carriage-mode)
+         (setq carriage--ui-pre-transient-state saved-state)
+         (when (fboundp 'carriage-ui--spinner-stop)
+           (ignore-errors (carriage-ui--spinner-stop t)))
+         (when (fboundp 'carriage--preloader-stop)
+           (ignore-errors (carriage--preloader-stop))))
+       (unwind-protect
+           (apply orig args)
+         (when (buffer-live-p srcbuf)
+           (with-current-buffer srcbuf
+             (when (bound-and-true-p carriage-mode)
+               (let ((st carriage--ui-pre-transient-state))
+                 (setq carriage--ui-pre-transient-state nil)
+                 (when st (ignore-errors (carriage-ui-set-state st))))))))))))
+
 (provide 'carriage-mode)
 ;;; carriage-mode.el ends here
