@@ -296,7 +296,22 @@ keys change (buffer content, toggle states)."
   :group 'carriage-ui)
 
 (defconst carriage-ui--modeline-default-blocks
-  '(suite engine branch model intent state context patch dry apply all abort report toggle-ctx toggle-files settings)
+  '(intent
+    model
+    state
+    abort
+    apply
+    all
+    dry
+    toggle-ctx
+    toggle-files
+    context
+    patch
+    suite
+    engine
+    branch
+    report
+    settings)
   "Default order of Carriage modeline blocks.")
 
 (defun carriage-ui--invalidate-icon-cache-all-buffers ()
@@ -342,7 +357,7 @@ Recognized block symbols:
 - `toggle-ctx' — GPT context toggle.
 - `toggle-files' — doc context toggle.
 - `settings' — settings/menu button.
-
+carriage-ui--set-modeline-blocks
 Unknown symbols are ignored."
   :type '(repeat (choice (const :tag "Suite selector" suite)
                          (const :tag "Engine selector" engine)
