@@ -37,6 +37,7 @@
 ;; Do not require adapters by default here.
 
 (require 'carriage-announce)
+(require 'carriage-perf nil t)
 
 (provide 'carriage)
 ;;; carriage.el ends here

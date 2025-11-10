@@ -991,178 +991,189 @@ reflects toggle state (muted when off, bright when on)."
   "Build Carriage modeline segment (M3: icons optional + spinner + refined actions).
 - Removed heavy action buttons (Diff/Ediff/WIP/Commit/Reset) — use C-c e menu.
 - Added a compact context badge [Ctx:N] showing an estimated number of files to include."
-  (let* ((use-icons (carriage-ui--icons-available-p))
-         ;; Intent and Suite
-         (intent-label
-          (if use-icons
-              (cond
-               ((and (boundp 'carriage-mode-intent) (eq carriage-mode-intent 'Ask))
-                (or (carriage-ui--icon 'ask) "[Ask]"))
-               ((eq carriage-mode-intent 'Code)
-                (or (carriage-ui--icon 'patch) "[Code]"))
-               (t
-                (or (carriage-ui--icon 'hybrid) "[Hybrid]")))
-            (format "[%s]"
-                    (pcase (and (boundp 'carriage-mode-intent) carriage-mode-intent)
-                      ('Ask "Ask")
-                      ('Code "Code")
-                      (_ "Hybrid")))))
-         (intent-btn (carriage-ui--ml-button intent-label
-                                             #'carriage-toggle-intent
-                                             "Toggle Ask/Code/Hybrid intent"))
-
-         (suite-str (let ((s (and (boundp 'carriage-mode-suite) carriage-mode-suite)))
-                      (cond
-                       ((symbolp s) (symbol-name s))
-                       ((stringp s) s)
-                       (t "udiff"))))
-         (suite-label
-          (let ((ic (and use-icons
-                         (boundp 'carriage-mode-use-suite-icon) carriage-mode-use-suite-icon
-                         (carriage-ui--icon 'suite))))
-            (if ic
-                (format "%s [%s]" ic suite-str)
-              (let* ((_ (require 'carriage-i18n nil t))
-                     (name (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                               (carriage-i18n :suite)
-                             "Suite")))
-                (format "%s: [%s]" name suite-str)))))
-         (suite-btn
-          (let* ((_ (require 'carriage-i18n nil t))
-                 (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                           (carriage-i18n :suite-tooltip)
-                         "Select Suite (sre|udiff)")))
-            (carriage-ui--ml-button suite-label #'carriage-select-suite help)))
-         ;; Model (basename only)
-         (model-str (or (and (boundp 'carriage-mode-model) carriage-mode-model) "model"))
-         (b-backend (let ((b (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
-                      (if (symbolp b) (symbol-name b) (or b ""))))
-         (display-model-base
-          (let* ((m (if (symbolp model-str) (symbol-name model-str) model-str)))
-            (if (and (stringp m) (string= m "gptel-default")
-                     (require 'carriage-llm-registry nil t))
-                (let* ((bcur (if (symbolp carriage-mode-backend)
-                                 (symbol-name carriage-mode-backend)
-                               (or carriage-mode-backend "")))
-                       (pairs (ignore-errors (carriage-llm-candidates)))
-                       (cand (ignore-errors (carriage-llm-default-candidate bcur m pairs carriage-mode-provider))))
-                  (carriage-llm-basename (or cand m)))
-              (or (car (last (split-string m ":" t))) m))))
-         (bm-text (format "[%s]" display-model-base))
-         (bm-label (if use-icons
-                       (let* ((ic (carriage-ui--icon 'model)))
-                         (if ic (concat ic " " bm-text) bm-text))
-                     bm-text))
-         (provider (and (boundp 'carriage-mode-provider) carriage-mode-provider))
-         (full-id (if (and (stringp b-backend) (not (string-empty-p b-backend)))
-                      (if (and provider (stringp provider) (not (string-empty-p provider)))
-                          (format "%s:%s:%s" b-backend provider model-str)
-                        (format "%s:%s" b-backend model-str))
-                    model-str))
-         (backend-model-btn (carriage-ui--ml-button bm-label
-                                                    #'carriage-select-model
-                                                    (format "Модель: %s (клик — выбрать)" full-id)))
-         ;; State + spinner (textual; spinner already handled)
-         (st (let ((s (and (boundp 'carriage--ui-state) carriage--ui-state)))
-               (if (symbolp s) s 'idle)))
-         (state
-          (let* ((label (carriage-ui--state-label st))
-                 (txt (format "[%s%s]"
-                              label
-                              (if (memq st '(sending streaming dispatch waiting))
-                                  (concat " " (carriage-ui--spinner-char))
-                                "")))
-                 (face (pcase st
-                         ('idle 'carriage-ui-state-idle-face)
-                         ((or 'sending 'streaming 'dispatch 'waiting) 'carriage-ui-state-sending-face)
-                         ('error 'carriage-ui-state-error-face)
-                         (_ nil))))
-            (if face (propertize txt 'face face) txt)))
-         ;; Quick context badge (fast: union of candidate paths + approximate total size via file-attributes)
-         (ctx-label
-          (let ((badge (carriage-ui--context-badge)))
-            (if badge
-                (let ((lbl (car badge))
-                      (hint (cdr badge)))
-                  (if hint (propertize lbl 'help-echo hint) lbl))
-              "")))
-         ;; Actions (icon fallback to text; trimmed)
-         (dry-label    (or (and use-icons (carriage-ui--icon 'dry))    "[Dry]"))
-         (apply-label  (or (and use-icons (carriage-ui--icon 'apply))  "[Apply]"))
-         (all-label    (or (and use-icons (carriage-ui--icon 'all))    "[All]"))
-         (abort-label  (or (and use-icons (carriage-ui--icon 'abort))  "[Abort]"))
-         (report-label (or (and use-icons (carriage-ui--icon 'report)) "[Report]"))
-         ;; Engine indicator and selector
-         (engine-str (let ((e (and (boundp 'carriage-apply-engine) carriage-apply-engine)))
+  (let ((uicons (carriage-ui--icons-available-p)))
+    (cl-labels
+        ((intent-btn ()
+           (let* ((intent-label
+                   (if uicons
                        (cond
-                        ((eq e 'git)
-                         (let ((pol (and (boundp 'carriage-git-branch-policy)
-                                         carriage-git-branch-policy)))
-                           (format "git:%s" (if (symbolp pol) (symbol-name pol) ""))))
-                        ((symbolp e) (symbol-name e))
-                        ((stringp e) e)
-                        (t "git"))))
-         (engine-label
-          (let ((ic (and use-icons
-                         (boundp 'carriage-mode-use-engine-icon) carriage-mode-use-engine-icon
-                         (carriage-ui--icon 'engine))))
-            (if ic
-                (format "%s [%s]" ic engine-str)
-              (let* ((_ (require 'carriage-i18n nil t))
-                     (name (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                               (carriage-i18n :engine-label)
-                             "Engine")))
-                (format "%s: [%s]" name engine-str)))))
-         (engine
-          (let* ((_ (require 'carriage-i18n nil t))
-                 (eng (and (boundp 'carriage-apply-engine) carriage-apply-engine))
-                 (policy (and (eq eng 'git)
-                              (boundp 'carriage-git-branch-policy)
-                              (symbol-name carriage-git-branch-policy)))
-                 (help (cond
-                        ((and (eq eng 'git)
-                              (featurep 'carriage-i18n) (fboundp 'carriage-i18n)
-                              (stringp policy))
-                         (carriage-i18n :engine-tooltip-branch engine-str policy))
-                        ((and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                         (carriage-i18n :engine-tooltip))
-                        (t "Select apply engine"))))
-            (carriage-ui--ml-button engine-label #'carriage-select-apply-engine help)))
-         (dry    (carriage-ui--ml-button dry-label    #'carriage-dry-run-at-point      "Dry-run at point"))
-         (apply  (carriage-ui--ml-button apply-label  #'carriage-apply-at-point-or-region "Apply at point or region"))
-         (all    (carriage-ui--ml-button all-label    #'carriage-apply-last-iteration  "Apply last iteration"))
-         (abort  (carriage-ui--ml-button abort-label  #'carriage-abort-current         "Abort current request"))
-         (report (carriage-ui--ml-button report-label #'carriage-report-open           "Open report buffer"))
-         ;; Toggles (v1.1: add [Ctx]/[Files])
-         (t-ctx
-          (carriage-ui--toggle
-           "[Ctx]" 'carriage-mode-include-gptel-context
-           #'carriage-toggle-include-gptel-context
-           (let* ((_ (require 'carriage-i18n nil t)))
-             (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                 (carriage-i18n :ctx-tooltip)
-               "Toggle including gptel-context (buffers/files)"))
-           'ctx))
-         (t-files
-          (carriage-ui--toggle
-           "[Files]" 'carriage-mode-include-doc-context
-           #'carriage-toggle-include-doc-context
-           (let* ((_ (require 'carriage-i18n nil t)))
-             (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                 (carriage-i18n :files-tooltip)
-               "Toggle including files from #+begin_context"))
-           'files))
-         (t-auto  (carriage-ui--toggle "[AutoRpt]"    'carriage-mode-auto-open-report   #'carriage-toggle-auto-open-report   "Toggle auto-open report" 'auto))
-         (t-diffs (carriage-ui--toggle "[ShowDiffs]"  'carriage-mode-show-diffs         #'carriage-toggle-show-diffs        "Toggle show diffs before apply" 'diffs))
-         (t-all   (carriage-ui--toggle "[ConfirmAll]" 'carriage-mode-confirm-apply-all  #'carriage-toggle-confirm-apply-all "Toggle confirm apply-all" 'confirm))
-         (t-icons (carriage-ui--toggle "[Icons]"      'carriage-mode-use-icons          #'carriage-toggle-use-icons         "Toggle icons in UI" 'icons)))
-    (mapconcat #'identity
-               (list suite-btn engine backend-model-btn intent-btn state ctx-label
-                     dry apply all abort report
-                     t-ctx t-files t-auto t-diffs t-all t-icons)
-               " ")))
+                        ((and (boundp 'carriage-mode-intent) (eq carriage-mode-intent 'Ask))
+                         (or (carriage-ui--icon 'ask) "[Ask]"))
+                        ((eq carriage-mode-intent 'Code)
+                         (or (carriage-ui--icon 'patch) "[Code]"))
+                        (t
+                         (or (carriage-ui--icon 'hybrid) "[Hybrid]")))
+                     (format "[%s]"
+                             (pcase (and (boundp 'carriage-mode-intent) carriage-mode-intent)
+                               ('Ask "Ask")
+                               ('Code "Code")
+                               (_ "Hybrid"))))))
+             (carriage-ui--ml-button intent-label
+                                     #'carriage-toggle-intent
+                                     "Toggle Ask/Code/Hybrid intent")))
+         (suite-btn ()
+           (let* ((suite-str
+                   (let ((s (and (boundp 'carriage-mode-suite) carriage-mode-suite)))
+                     (cond
+                      ((symbolp s) (symbol-name s))
+                      ((stringp s) s)
+                      (t "udiff"))))
+                  (suite-label
+                   (let ((ic (and uicons
+                                  (boundp 'carriage-mode-use-suite-icon) carriage-mode-use-suite-icon
+                                  (carriage-ui--icon 'suite))))
+                     (if ic
+                         (format "%s [%s]" ic suite-str)
+                       (let* ((_ (require 'carriage-i18n nil t))
+                              (name (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                                        (carriage-i18n :suite)
+                                      "Suite")))
+                         (format "%s: [%s]" name suite-str)))))
+                  (_ (require 'carriage-i18n nil t))
+                  (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                            (carriage-i18n :suite-tooltip)
+                          "Select Suite (sre|udiff)")))
+             (carriage-ui--ml-button suite-label #'carriage-select-suite help)))
+         (backend-model-btn ()
+           (let* ((model-str (or (and (boundp 'carriage-mode-model) carriage-mode-model) "model"))
+                  (b-backend (let ((b (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
+                               (if (symbolp b) (symbol-name b) (or b ""))))
+                  (display-model-base
+                   (let* ((m (if (symbolp model-str) (symbol-name model-str) model-str)))
+                     (if (and (stringp m) (string= m "gptel-default")
+                              (require 'carriage-llm-registry nil t))
+                         (let* ((bcur (if (symbolp carriage-mode-backend)
+                                          (symbol-name carriage-mode-backend)
+                                        (or carriage-mode-backend "")))
+                                (pairs (ignore-errors (carriage-llm-candidates)))
+                                (cand (ignore-errors (carriage-llm-default-candidate bcur m pairs carriage-mode-provider))))
+                           (carriage-llm-basename (or cand m)))
+                       (or (car (last (split-string m ":" t))) m))))
+                  (bm-text (format "[%s]" display-model-base))
+                  (bm-label (if uicons
+                                (let* ((ic (carriage-ui--icon 'model)))
+                                  (if ic (concat ic " " bm-text) bm-text))
+                              bm-text))
+                  (provider (and (boundp 'carriage-mode-provider) carriage-mode-provider))
+                  (full-id (if (and (stringp b-backend) (not (string-empty-p b-backend)))
+                               (if (and provider (stringp provider) (not (string-empty-p provider)))
+                                   (format "%s:%s:%s" b-backend provider model-str)
+                                 (format "%s:%s" b-backend model-str))
+                             model-str)))
+             (carriage-ui--ml-button bm-label
+                                     #'carriage-select-model
+                                     (format "Модель: %s (клик — выбрать)" full-id))))
+         (engine-btn ()
+           (let* ((engine-str
+                   (let ((e (and (boundp 'carriage-apply-engine) carriage-apply-engine)))
+                     (cond
+                      ((eq e 'git)
+                       (let ((pol (and (boundp 'carriage-git-branch-policy)
+                                       carriage-git-branch-policy)))
+                         (format "git:%s" (if (symbolp pol) (symbol-name pol) ""))))
+                      ((symbolp e) (symbol-name e))
+                      ((stringp e) e)
+                      (t "git"))))
+                  (engine-label
+                   (let ((ic (and uicons
+                                  (boundp 'carriage-mode-use-engine-icon) carriage-mode-use-engine-icon
+                                  (carriage-ui--icon 'engine))))
+                     (if ic
+                         (format "%s [%s]" ic engine-str)
+                       (let* ((_ (require 'carriage-i18n nil t))
+                              (name (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                                        (carriage-i18n :engine-label)
+                                      "Engine")))
+                         (format "%s: [%s]" name engine-str)))))
+                  (_ (require 'carriage-i18n nil t))
+                  (eng (and (boundp 'carriage-apply-engine) carriage-apply-engine))
+                  (policy (and (eq eng 'git)
+                               (boundp 'carriage-git-branch-policy)
+                               (symbol-name carriage-git-branch-policy)))
+                  (help (cond
+                         ((and (eq eng 'git)
+                               (featurep 'carriage-i18n) (fboundp 'carriage-i18n)
+                               (stringp policy))
+                          (carriage-i18n :engine-tooltip-branch engine-str policy))
+                         ((and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                          (carriage-i18n :engine-tooltip))
+                         (t "Select apply engine"))))
+             (carriage-ui--ml-button engine-label #'carriage-select-apply-engine help)))
+         (state-segment ()
+           (let* ((st (let ((s (and (boundp 'carriage--ui-state) carriage--ui-state)))
+                        (if (symbolp s) s 'idle)))
+                  (label (carriage-ui--state-label st))
+                  (txt (format "[%s%s]"
+                               label
+                               (if (memq st '(sending streaming dispatch waiting))
+                                   (concat " " (carriage-ui--spinner-char))
+                                 "")))
+                  (face (pcase st
+                          ('idle 'carriage-ui-state-idle-face)
+                          ((or 'sending 'streaming 'dispatch 'waiting) 'carriage-ui-state-sending-face)
+                          ('error 'carriage-ui-state-error-face)
+                          (_ nil))))
+             (if face (propertize txt 'face face) txt)))
+         (context-badge ()
+           (let ((badge (carriage-ui--context-badge)))
+             (if badge
+                 (let ((lbl (car badge))
+                       (hint (cdr badge)))
+                   (if hint (propertize lbl 'help-echo hint) lbl))
+               "")))
+         (btn-dry ()
+           (let ((label (or (and uicons (carriage-ui--icon 'dry)) "[Dry]")))
+             (carriage-ui--ml-button label #'carriage-dry-run-at-point "Dry-run at point")))
+         (btn-apply ()
+           (let ((label (or (and uicons (carriage-ui--icon 'apply)) "[Apply]")))
+             (carriage-ui--ml-button label #'carriage-apply-at-point-or-region "Apply at point or region")))
+         (btn-all ()
+           (let ((label (or (and uicons (carriage-ui--icon 'all)) "[All]")))
+             (carriage-ui--ml-button label #'carriage-apply-last-iteration "Apply last iteration")))
+         (btn-abort ()
+           (let ((label (or (and uicons (carriage-ui--icon 'abort)) "[Abort]")))
+             (carriage-ui--ml-button label #'carriage-abort-current "Abort current request")))
+         (btn-report ()
+           (let ((label (or (and uicons (carriage-ui--icon 'report)) "[Report]")))
+             (carriage-ui--ml-button label #'carriage-report-open "Open report buffer")))
+         (btn-toggle-ctx ()
+           (carriage-ui--toggle
+            "[Ctx]" 'carriage-mode-include-gptel-context
+            #'carriage-toggle-include-gptel-context
+            (let* ((_ (require 'carriage-i18n nil t)))
+              (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                  (carriage-i18n :ctx-tooltip)
+                "Toggle including gptel-context (buffers/files)"))
+            'ctx))
+         (btn-toggle-files ()
+           (carriage-ui--toggle
+            "[Files]" 'carriage-mode-include-doc-context
+            #'carriage-toggle-include-doc-context
+            (let* ((_ (require 'carriage-i18n nil t)))
+              (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                  (carriage-i18n :files-tooltip)
+                "Toggle including files from #+begin_context"))
+            'files)))
+      (let* ((show-patch (carriage-ui--show-apply-buttons-p))
+             (has-last   (carriage-ui--last-iteration-present-p))
+             (segments (append
+                        (list (suite-btn) (engine-btn) (backend-model-btn) (intent-btn) (state-segment) (context-badge))
+                        (and show-patch (list (btn-dry) (btn-apply)))
+                        (and has-last (list (btn-all)))
+                        (list (btn-abort) (btn-report) (btn-toggle-ctx) (btn-toggle-files) (carriage-ui--settings-btn)))))
+        (mapconcat #'identity (delq nil segments) " ")))))
 
-;; Code style: см. spec/code-style-v1.org (The Tao of Emacs Lisp Programming for LLMs)
+;; -- Optional: settings "gear" button to open the menu directly.
+(defun carriage-ui--settings-btn ()
+  "Return a clickable gear settings button for the modeline."
+  (let* ((use-icons (carriage-ui--icons-available-p))
+         (ic (and use-icons (fboundp 'all-the-icons-octicon)
+                  (all-the-icons-octicon "gear" :height carriage-mode-icon-height :v-adjust carriage-mode-icon-v-adjust
+                                         :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face)))))
+         (label (or ic "[Menu]"))
+         (btn (carriage-ui--ml-button label #'carriage-keys-open-menu "Открыть меню Carriage (C-c e)")))
+    btn))
+(defalias 'settings-btn 'carriage-ui--settings-btn)
 
 (defvar carriage--icon-intent-ask "A"
   "Modeline marker for Ask intent.")

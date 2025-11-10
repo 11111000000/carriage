@@ -19,8 +19,6 @@ When nil, the global Carriage prefix acts as a prefix key with suffixes from :co
   "Global prefix keymap installed by carriage-global-mode when
 carriage-global-use-transient is nil. Holds suffixes from :contexts (global).")
 
-
-;;;###autoload
 ;;;###autoload
 (define-minor-mode carriage-global-mode
   "Global minor mode enabling the Carriage prefix/menu for :contexts (global).
