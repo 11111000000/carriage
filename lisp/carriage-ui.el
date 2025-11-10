@@ -222,9 +222,11 @@ Negative values move icons up; positive move them down."
   "Set UI STATE symbol for mode-line visuals and manage spinner."
   (setq carriage--ui-state (or state 'idle))
   (pcase carriage--ui-state
+    ;; spinner for active network phases
     ((or 'sending 'streaming 'dispatch 'waiting)
      (carriage-ui--spinner-start))
-    ((or 'prompt 'context)
+    ;; no spinner for preparation/reasoning/done/others
+    ((or 'prompt 'context 'reasoning 'done)
      (carriage-ui--spinner-stop nil))
     (_
      (carriage-ui--spinner-stop t))))
@@ -233,12 +235,14 @@ Negative values move icons up; positive move them down."
   "Return a short lighter suffix for current =carriage--ui-state'."
   (pcase carriage--ui-state
     ('idle "")
-    ('context " ctx")
-    ('prompt " prm")
+    ('context " prep")
+    ('prompt " prep")
     ('dispatch " req")
     ('waiting " wait")
     ('sending " snd")
+    ('reasoning " rzn")
     ('streaming " str")
+    ('done " done")
     ('dry-run " dry")
     ('apply " apl")
     ('error " ERR")
@@ -248,12 +252,19 @@ Negative values move icons up; positive move them down."
   "Return human-readable label for STATE."
   (pcase state
     ('idle "Idle")
-    ('context "Context")
-    ('prompt "Prompt")
+    ;; Preparation phases
+    ('context "Prepare")
+    ('prompt "Prepare")
+    ;; Network phases
     ('dispatch "Request")
     ('waiting "Waiting")
     ('sending "Sending")
+    ;; Reasoning/stream phases
+    ('reasoning "Reasoning")
     ('streaming "Streaming")
+    ;; Completion
+    ('done "Done")
+    ;; Local ops
     ('dry-run "Dry-run")
     ('apply "Apply")
     ('error "Error")

@@ -174,6 +174,9 @@ On backend mismatch, logs and completes with error."
                                       :context (plist-get args :context))
         (carriage-traffic-log 'out "gptel request: model=%s source=%s bytes=%d"
                               gptel-model source (length prompt))
+        ;; Explicit waiting phase until the first chunk arrives
+        (with-current-buffer gptel-buffer
+          (carriage-ui-set-state 'waiting))
         (gptel-request prompt
           :system system
           :stream t
@@ -189,7 +192,7 @@ On backend mismatch, logs and completes with error."
                  (when first-event
                    (setq first-event nil)
                    (with-current-buffer gptel-buffer
-                     (carriage-transport-streaming)))
+                     (carriage-ui-set-state 'reasoning)))
                  (if any-text-seen
                      (carriage-traffic-log 'in "[reasoning] %s" (or text ""))
                    (with-current-buffer gptel-buffer
@@ -200,7 +203,7 @@ On backend mismatch, logs and completes with error."
                  (when first-event
                    (setq first-event nil)
                    (with-current-buffer gptel-buffer
-                     (carriage-transport-streaming)))
+                     (carriage-ui-set-state 'reasoning)))
                  ;; Print thinking only until we see first text
                  (when (and (stringp thinking) (not any-text-seen))
                    (with-current-buffer gptel-buffer
@@ -208,6 +211,10 @@ On backend mismatch, logs and completes with error."
                    (carriage-traffic-log 'in "[reasoning] %s" thinking))
                  ;; Then print main text (auto-closes reasoning if needed)
                  (when (stringp text)
+                   ;; transition to streaming on first text
+                   (when (not any-text-seen)
+                     (with-current-buffer gptel-buffer
+                       (carriage-transport-streaming)))
                    (with-current-buffer gptel-buffer
                      (carriage-insert-stream-chunk text 'text))
                    ;; Accumulate response summary head/tail

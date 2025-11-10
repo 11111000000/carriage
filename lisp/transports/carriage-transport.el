@@ -184,12 +184,17 @@ Returns an unregister lambda that clears the handler when called."
 ;;;###autoload
 (defun carriage-transport-complete (&optional errorp)
   "Signal completion of an async request: clear abort handler and set UI state.
-If ERRORP non-nil, set state to 'error; otherwise set 'idle."
+If ERRORP non-nil, set state to 'error; otherwise flash 'done then return to 'idle."
   (carriage-clear-abort-handler)
   ;; Ensure preloader is stopped on finalize.
   (when (fboundp 'carriage--preloader-stop)
     (ignore-errors (carriage--preloader-stop)))
-  (carriage-ui-set-state (if errorp 'error 'idle))
+  (if errorp
+      (carriage-ui-set-state 'error)
+    (carriage-ui-set-state 'done)
+    (run-at-time 0.6 nil (lambda ()
+                           (when (fboundp 'carriage-ui-set-state)
+                             (carriage-ui-set-state 'idle)))))
   (carriage-log "Transport: complete (status=%s)" (if errorp "error" "ok"))
   t)
 
