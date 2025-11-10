@@ -341,7 +341,7 @@ Unknown symbols are ignored."
 
 (defvar-local carriage-ui--ctx-cache nil
   "Buffer-local cache for context badge computation.
-Plist keys: :doc :gpt :tick :point :time :value.")
+Plist keys: :doc :gpt :tick :time :value.")
 
 (defun carriage-ui--reset-context-cache (&optional buffer)
   "Clear cached context badge for BUFFER or the current buffer."
