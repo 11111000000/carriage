@@ -105,87 +105,73 @@ REPORT shape:
    :items ((:op OP :file PATH :status STATUS :details STR :diff PREVIEW :_plan PLAN-ITEM) ...))"
   (let* ((buf (carriage-report-buffer)))
     (with-current-buffer buf
-      (read-only-mode -1)
-      (erase-buffer)
-      (insert (carriage--report-summary-line report))
-      ;; Render top-level messages if present
-      (let* ((msgs (plist-get report :messages))
-             (fpr  (plist-get report :fingerprint))
-             (msgs2 (if (and (stringp fpr) (> (length fpr) 0))
-                        (append (list (list :severity 'info :code 'FINGERPRINT :details fpr)) msgs)
-                      msgs)))
-        (when (and msgs2 (listp msgs2))
-          (insert "messages:\n")
-          (dolist (m msgs2)
-            (let* ((sev (or (plist-get m :severity) 'info))
-                   (code (or (plist-get m :code) 'UNKNOWN))
-                   (file (or (plist-get m :file) (plist-get m :path)))
-                   (details (or (plist-get m :details) "")))
-              (insert (format "- [%s] %s — %s%s\n"
-                              sev code details
-                              (if file (format " (file %s)" file) "")))))
-          (insert "\n")))
-      (carriage--report-insert-header)
-      (let* ((items (or (plist-get report :items) '()))
-             (i 0))
-        (dolist (it items)
-          (setq i (1+ i))
-          (let* ((op          (plist-get it :op))
-                 (file        (or (plist-get it :file) (plist-get it :path)))
-                 (status      (plist-get it :status))
-                 (matches     (plist-get it :matches))
-                 (details     (or (plist-get it :details) ""))
-                 ;; Append changed-bytes to details when present
-                 (dummy-cb (let ((cb (plist-get it :changed-bytes)))
-                             (when (numberp cb)
-                               (setq details (format "%s (Δbytes=%d)" details cb)))
-                             nil))
-                 (preview-raw  (or (plist-get it :diff) ""))
-                 (has-preview  (and (stringp preview-raw) (> (length preview-raw) 0)))
-                 (preview-flat (if has-preview
-                                   (string-trim (replace-regexp-in-string "[\n\r]+" " " preview-raw))
-                                 ""))
-                 (preview-short (if has-preview
-                                    (truncate-string-to-width preview-flat 60 nil nil t)
-                                  ""))
-                 (matches-str (cond
-                               ((numberp matches) (number-to-string matches))
-                               ((stringp matches) matches)
-                               ((null matches) "")
-                               (t (format "%s" matches))))
-                 (action (concat (if has-preview "[Diff]" "") " [Ediff] [Apply]")))
-            (carriage--report-insert-line
-             (list i op file status matches-str details preview-short action)
-             nil))))
-      ;; Align Org table columns for readability
-      (save-excursion
+      (let ((inhibit-read-only t)
+            (inhibit-modification-hooks t))
+        (read-only-mode -1)
+        (erase-buffer)
+        (insert (carriage--report-summary-line report))
+        ;; Render top-level messages if present
+        (let* ((msgs (plist-get report :messages))
+               (fpr  (plist-get report :fingerprint))
+               (msgs2 (if (and (stringp fpr) (> (length fpr) 0))
+                          (append (list (list :severity 'info :code 'FINGERPRINT :details fpr)) msgs)
+                        msgs)))
+          (when (and msgs2 (listp msgs2))
+            (insert "messages:\n")
+            (dolist (m msgs2)
+              (let* ((sev (or (plist-get m :severity) 'info))
+                     (code (or (plist-get m :code) 'UNKNOWN))
+                     (file (or (plist-get m :file) (plist-get m :path)))
+                     (details (or (plist-get m :details) "")))
+                (insert (format "- [%s] %s — %s%s\n"
+                                sev code details
+                                (if file (format " (file %s)" file) "")))))
+            (insert "\n")))
+        (carriage--report-insert-header)
+        ;; Items
+        (let* ((items (or (plist-get report :items) '()))
+               (i 0))
+          (dolist (it items)
+            (setq i (1+ i))
+            (let* ((op          (plist-get it :op))
+                   (file        (or (plist-get it :file) (plist-get it :path)))
+                   (status      (plist-get it :status))
+                   (matches     (plist-get it :matches))
+                   (details     (or (plist-get it :details) ""))
+                   ;; Append changed-bytes to details when present
+                   (_dummy-cb (let ((cb (plist-get it :changed-bytes)))
+                                (when (numberp cb)
+                                  (setq details (format "%s (Δbytes=%d)" details cb)))))
+                   (preview-raw  (or (plist-get it :diff) ""))
+                   (has-preview  (and (stringp preview-raw) (> (length preview-raw) 0)))
+                   (preview-flat (if has-preview
+                                     (string-trim (replace-regexp-in-string "[\n\r]+" " " preview-raw))
+                                   ""))
+                   (preview-short (if has-preview
+                                      (truncate-string-to-width preview-flat 60 nil nil t)
+                                    ""))
+                   (matches-str (cond
+                                 ((numberp matches) (number-to-string matches))
+                                 ((stringp matches) matches)
+                                 ((null matches) "")
+                                 (t (format "%s" matches))))
+                   (action (concat (if has-preview "[Diff]" "") " [Ediff] [Apply]"))
+                   (row-face (carriage--report-row-face status))
+                   (row-beg (point)))
+              ;; Insert row
+              (carriage--report-insert-line
+               (list i op file status matches-str details preview-short action)
+               row-face)
+              ;; Attach properties and buttons to the just inserted row
+              (let ((row-end (save-excursion
+                               (forward-line -1)
+                               (line-end-position))))
+                (add-text-properties row-beg row-end (list 'carriage-report-item it))
+                (carriage--report-attach-row row-beg row-end it has-preview)))))
+        ;; Finalize buffer
         (goto-char (point-min))
-        (when (re-search-forward "^| " nil t)
-          (beginning-of-line)
-          (ignore-errors (require 'org-table))
-          (condition-case _ (org-table-align) (error nil))))
-      ;; Reattach row properties and buttons after alignment
-      (save-excursion
-        (goto-char (point-min))
-        (when (re-search-forward "^|---" nil t)
-          (forward-line 1)
-          (let ((cur (or (plist-get report :items) '())))
-            (while (and cur (looking-at "^|"))
-              (let* ((it (car cur))
-                     (status (plist-get it :status))
-                     (diff   (or (plist-get it :diff) ""))
-                     (has-preview (and (stringp diff) (> (length diff) 0)))
-                     (row-beg (line-beginning-position))
-                     (row-end (line-end-position)))
-                (add-text-properties row-beg row-end (list 'carriage-report-item it
-                                                           'face (carriage--report-row-face status)))
-                (carriage--report-attach-row row-beg row-end it has-preview)
-                (setq cur (cdr cur))
-                (forward-line 1))))))
-
-      (goto-char (point-min))
-      (carriage-report-mode)
-      (read-only-mode 1))
+        (carriage-report-mode)
+        (read-only-mode 1)))
     buf))
 
 ;;;###autoload
