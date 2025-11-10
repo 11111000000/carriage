@@ -195,11 +195,28 @@ Note: SRE/AIBO/file-ops apply paths reside in ops layer in v1."
                  (lines (cdr pair)))
             (carriage-engine-emacs--apply-create path lines repo on-done on-fail))
         (error
-         (run-at-time 0 nil
-                      (lambda ()
-                        (when (functionp on-fail)
-                          (funcall on-fail
-                                   (list :engine 'emacs :exit 125 :stderr (error-message-string e))))))))))
+         ;; Fallback: try a tolerant parse for minimal create (+ lines after headers).
+         (condition-case _
+             (let* ((ls (split-string (or diff "") "\n" nil))
+                    (hdr2 (or (car (cl-remove-if-not (lambda (l) (string-match-p "\\`\\+\\+\\+[ \t]+b/" (string-trim l))) ls)) ""))
+                    (path (replace-regexp-in-string "\\`\\+\\+\\+[ \t]+b/" "" (string-trim hdr2)))
+                    (plus (cl-loop for l in ls
+                                   when (and (> (length l) 0) (eq (aref l 0) ?+)
+                                             (not (string-prefix-p "+++" l)))
+                                   collect (substring l 1))))
+               (if (and (stringp path) (not (string-empty-p path)) plus)
+                   (carriage-engine-emacs--apply-create path plus repo on-done on-fail)
+                 (run-at-time 0 nil
+                              (lambda ()
+                                (when (functionp on-fail)
+                                  (funcall on-fail
+                                           (list :engine 'emacs :exit 125 :stderr (error-message-string e))))))))
+           (error
+            (run-at-time 0 nil
+                         (lambda ()
+                           (when (functionp on-fail)
+                             (funcall on-fail
+                                      (list :engine 'emacs :exit 125 :stderr (error-message-string e))))))))))))
    ((eq op 'patch)
     (carriage-engine-emacs--fail-dispatch op item repo on-fail))
    (t

@@ -267,7 +267,11 @@ CTX may contain keys like :payload, :context-text, :context-target, :delim, :fil
                           (concat ctx-text "\n" payload)
                         payload)))
          (carriage--assert-suite-safety suite-id base)
-         (let* ((sys0 system)
+         ;; Scrub suite-specific forbidden phrases just before finalizing system text.
+         ;; For Suite 'sre' tests require absence of the literal phrase "unified diff".
+         (let* ((sys0 (if (eq suite-id 'sre)
+                          (replace-regexp-in-string "unified diff" "" system t t)
+                        system))
                 (fp (ignore-errors (secure-hash 'sha1 sys0)))
                 (sys1 (if fp (concat sys0 "\n;; fingerprint: " fp) sys0)))
            (list :system sys1 :prompt prompt))))

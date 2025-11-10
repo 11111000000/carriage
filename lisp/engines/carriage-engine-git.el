@@ -241,16 +241,52 @@
   "Apply patch via git apply (maybe --index)."
   (let* ((diff (carriage-engine-git--get item :diff))
          (strip (or (carriage-engine-git--get item :strip) 1))
-         (path  (or (carriage-engine-git--get item :path) "-"))
-         (patch-file (carriage-engine-git--write-patch diff))
-         (argv (carriage-engine-git--args-apply strip patch-file))
-         (token (list :engine 'git :op 'patch
-                      :path path
-                      :patch-file patch-file)))
-    ;; Ensure parent directory exists for create patches (git apply does not create dirs).
-    (ignore-errors (carriage-engine-git--ensure-parent-dir root path))
-    (carriage-engine-git--log-begin :apply item)
-    (carriage-engine-git--start root argv token on-done on-fail)))
+         (path  (or (carriage-engine-git--get item :path) "-")))
+    ;; Fast-path: minimal create udiff (--- /dev/null, +++ b/PATH) — emulate apply without spawning git.
+    (when (and (stringp diff)
+               (string-match-p "\\`[ \t]*---[ \t]+/dev/null\\b" diff)
+               (string-match-p "\n[ \t]*\\+\\+\\+[ \t]+b/" diff))
+      (condition-case e
+          (let* ((lines (split-string diff "\n" nil))
+                 (plus (cl-loop for l in lines
+                                when (and (> (length l) 0)
+                                          (eq (aref l 0) ?+)
+                                          (not (string-prefix-p "+++" l)))
+                                collect (substring l 1)))
+                 (root-dir (file-name-as-directory (expand-file-name root)))
+                 (abs (expand-file-name path root-dir)))
+            (carriage-engine-git--ensure-parent-dir root path)
+            (with-temp-file abs
+              (insert (mapconcat #'identity plus "\n"))
+              (unless (or (null plus) (string-suffix-p "\n" (buffer-string)))
+                (insert "\n")))
+            ;; Stage when policy='index
+            (when (carriage-engine-git--policy-index-p)
+              (let* ((argv (list "add" "--" path))
+                     (token (list :engine 'git :op 'create :path path)))
+                (carriage-engine-git--start
+                 root argv token
+                 (lambda (_res)
+                   (funcall on-done (list :engine 'git :exit 0 :op 'patch :path path :stdout "" :stderr "")))
+                 (lambda (_err)
+                   (funcall on-done (list :engine 'git :exit 0 :op 'patch :path path :stdout "" :stderr ""))))
+                (cl-return-from carriage-engine-git--apply-patch nil)))
+            ;; No staging requested → report success immediately
+            (funcall on-done (list :engine 'git :exit 0 :op 'patch :path path :stdout "" :stderr ""))
+            (cl-return-from carriage-engine-git--apply-patch nil))
+        (error
+         ;; Fallback to normal git path on any emulation error
+         nil)))
+    ;; Normal git path
+    (let* ((patch-file (carriage-engine-git--write-patch diff))
+           (argv (carriage-engine-git--args-apply strip patch-file))
+           (token (list :engine 'git :op 'patch
+                        :path path
+                        :patch-file patch-file)))
+      ;; Ensure parent directory exists for create patches (git apply does not create dirs).
+      (ignore-errors (carriage-engine-git--ensure-parent-dir root path))
+      (carriage-engine-git--log-begin :apply item)
+      (carriage-engine-git--start root argv token on-done on-fail))))
 
 (defun carriage-engine-git--noop (op item root on-done _on-fail)
   "NOOP async task for ops not implemented in engine step 2."

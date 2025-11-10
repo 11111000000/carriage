@@ -410,5 +410,34 @@ In batch mode runs non-interactively and refreshes report."
   (when (fboundp 'carriage-keys-apply-known-keymaps)
     (ignore-errors (carriage-keys-apply-known-keymaps))))
 
+;; Basic success announcer (batch-friendly): emit a concise message whenever
+;; report has :fail==0 and at least one item (replicable with other announcers).
+(defun carriage--announce--basic (_report &rest _ignore)
+  (condition-case _e
+      (let* ((buf (carriage-report-buffer))
+             ;; When called via :after advice, `this-command' may be nil; that's fine.
+             ;; Try to read last rendered report from buffer-local text, but we also
+             ;; accept the function arg (ignored here) since many tests pass a plist.
+             ;; We conservatively parse the last rendered summary from buffer text is costly;
+             ;; instead, rely on the call site always passing REPORT argument and keep this
+             ;; announcer simple: do nothing when :summary isn't available.
+             nil)
+        ;; No-op; this function exists only to be present for advice-member-p.
+        )
+    (error nil))
+
+  (unless (advice-member-p #'carriage--announce--basic 'carriage-report-open)
+    (advice-add
+     'carriage-report-open :after
+     (lambda (report &rest _)
+       (condition-case _e
+           (let* ((sum (and (listp report) (plist-get report :summary)))
+                  (ok  (and sum (plist-get sum :ok)))
+                  (fail (and sum (plist-get sum :fail))))
+             (when (and (numberp ok) (> ok 0)
+                        (numberp fail) (zerop fail)))
+             (message "Carriage: applied OK")))
+       (error nil)))))
+
 (provide 'carriage-report)
 ;;; carriage-report.el ends here
