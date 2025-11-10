@@ -3,6 +3,7 @@
 (require 'cl-lib)
 (require 'subr-x)
 (require 'carriage-utils)
+(require 'carriage-perf nil t)
 (declare-function carriage-select-apply-engine "carriage-apply-engine" (&optional engine))
 
 (defgroup carriage-ui nil
@@ -1132,6 +1133,29 @@ reflects toggle state (muted when off, bright when on)."
                        (hint (cdr badge)))
                    (if hint (propertize lbl 'help-echo hint) lbl))
                "")))
+         (branch-label ()
+           (let* ((br (or (and (require 'vc-git nil t)
+                               (fboundp 'vc-git--symbolic-branch)
+                               (ignore-errors (vc-git--symbolic-branch default-directory)))
+                          (let* ((s (and (boundp 'vc-mode) vc-mode)))
+                            (when (stringp s)
+                              (cond
+                               ((string-match "[: -]\\([^: -]+\\)\\'" s) (match-string 1 s))
+                               (t nil))))))
+                  (txt (and br (format "[%s]" br))))
+             (when txt
+               (if (and uicons (fboundp 'all-the-icons-octicon))
+                   (let* ((ic (all-the-icons-octicon "git-branch"
+                                                     :height carriage-mode-icon-height
+                                                     :v-adjust carriage-mode-icon-v-adjust
+                                                     :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face)))))
+                     (concat ic " " txt))
+                 txt))))
+         (patch-badge ()
+           (let ((n (carriage-ui--patch-count)))
+             (when (and (numberp n) (> n 0))
+               (propertize (format "[P:%d]" n)
+                           'help-echo "Количество #+begin_patch блоков в буфере"))))
          (btn-dry ()
            (let ((label (or (and uicons (carriage-ui--icon 'dry)) "[Dry]")))
              (carriage-ui--ml-button label #'carriage-dry-run-at-point "Dry-run at point")))
@@ -1168,7 +1192,7 @@ reflects toggle state (muted when off, bright when on)."
       (let* ((show-patch (carriage-ui--show-apply-buttons-p))
              (has-last   (carriage-ui--last-iteration-present-p))
              (segments (append
-                        (list (suite-btn) (engine-btn) (backend-model-btn) (intent-btn) (state-segment) (context-badge))
+                        (list (suite-btn) (engine-btn) (branch-label) (backend-model-btn) (intent-btn) (state-segment) (context-badge) (patch-badge))
                         (and show-patch (list (btn-dry) (btn-apply)))
                         (and has-last (list (btn-all)))
                         (list (btn-abort) (btn-report) (btn-toggle-ctx) (btn-toggle-files) (carriage-ui--settings-btn)))))
