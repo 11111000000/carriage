@@ -299,6 +299,20 @@ keys change (buffer content, toggle states)."
   '(suite engine branch model intent state context patch dry apply all abort report toggle-ctx toggle-files settings)
   "Default order of Carriage modeline blocks.")
 
+(defun carriage-ui--set-modeline-blocks (sym val)
+  "Setter for `carriage-ui-modeline-blocks' that refreshes modelines everywhere."
+  (set-default sym val)
+  (carriage-ui--invalidate-icon-cache-all-buffers)
+  (dolist (buf (buffer-list))
+    (when (buffer-live-p buf)
+      (with-current-buffer buf
+        (force-mode-line-update t)))))
+
+(defun carriage-ui-reset-modeline-blocks ()
+  "Reset `carriage-ui-modeline-blocks' to defaults and refresh modelines."
+  (interactive)
+  (customize-set-variable 'carriage-ui-modeline-blocks carriage-ui--modeline-default-blocks))
+
 (defcustom carriage-ui-modeline-blocks carriage-ui--modeline-default-blocks
   "List of symbols describing the Carriage modeline blocks and their order.
 
@@ -337,6 +351,7 @@ Unknown symbols are ignored."
                          (const :tag "GPT context toggle" toggle-ctx)
                          (const :tag "Doc context toggle" toggle-files)
                          (const :tag "Settings button" settings)))
+  :set #'carriage-ui--set-modeline-blocks
   :group 'carriage-ui)
 
 (defvar-local carriage-ui--ctx-cache nil
@@ -938,18 +953,25 @@ Respects `carriage-ui-branch-cache-ttl'."
 (defun carriage-ui--headerline-post-command ()
   "Post-command hook: refresh header-line instantly when Org outline context changes.
 Updates on any change of outline path, heading level, or heading title."
-  (when (derived-mode-p 'org-mode)
-    (let* ((cur-path (or (carriage-ui--org-outline-path) ""))
-           (info (ignore-errors
-                   (save-excursion
-                     (org-back-to-heading t)
-                     (cons (org-outline-level)
-                           (org-get-heading 'no-tags 'no-todo 'no-priority 'no-comment)))))
-           (lvl (car info))
-           (ttl (cdr info)))
-      (when (or (not (equal cur-path carriage-ui--last-outline-path-str))
-                (not (equal lvl carriage-ui--last-outline-level))
-                (not (equal ttl carriage-ui--last-outline-title)))
+  (when (and carriage-mode-headerline-show-outline
+             (derived-mode-p 'org-mode)
+             (get-buffer-window (current-buffer) t))
+    (let* ((win (get-buffer-window (current-buffer) t))
+           (w (ignore-errors (and (window-live-p win) (window-total-width win))))
+           (wide (or (null w) (>= w 40)))
+           (cur-path (and wide (or (carriage-ui--org-outline-path) "")))
+           (info (and wide
+                      (ignore-errors
+                        (save-excursion
+                          (org-back-to-heading t)
+                          (cons (org-outline-level)
+                                (org-get-heading 'no-tags 'no-todo 'no-priority 'no-comment))))))
+           (lvl (and info (car info)))
+           (ttl (and info (cdr info))))
+      (when (and wide
+                 (or (not (equal cur-path carriage-ui--last-outline-path-str))
+                     (not (equal lvl carriage-ui--last-outline-level))
+                     (not (equal ttl carriage-ui--last-outline-title))))
         (setq carriage-ui--last-outline-path-str cur-path)
         (setq carriage-ui--last-outline-level lvl)
         (setq carriage-ui--last-outline-title ttl)
