@@ -129,7 +129,8 @@ Move point is not changed. Return nil if not found."
     (unless bounds
       (signal (carriage-error-symbol 'MODE_E_DISPATCH) (list "No patch block at point")))
     (let* ((beg (car bounds))
-           (end (cdr bounds))
+           (end-bol (cdr bounds))
+           (end-eol (save-excursion (goto-char end-bol) (line-end-position)))
            (header-plist (save-excursion
                            (goto-char beg)
                            (carriage--read-patch-header-at beg)))
@@ -137,10 +138,18 @@ Move point is not changed. Return nil if not found."
                    (goto-char beg)
                    (forward-line 1)
                    (let ((body-beg (point)))
-                     (goto-char end)
-                     ;; end points to beginning of #+end_patch line
-                     (buffer-substring-no-properties body-beg (line-beginning-position))))))
-      (carriage-parse (plist-get header-plist :op) header-plist body repo-root))))
+                     (goto-char end-bol)
+                     ;; end-bol points to beginning of #+end_patch line
+                     (buffer-substring-no-properties body-beg (line-beginning-position)))))
+           (plan (carriage-parse (plist-get header-plist :op) header-plist body repo-root)))
+      ;; Attach buffer and live markers for later replacement (# +patch_done)
+      (let ((mb (copy-marker beg))
+            (me (copy-marker end-eol)))
+        (if (listp plan)
+            (append plan (list (cons :_buffer (current-buffer))
+                               (cons :_beg-marker mb)
+                               (cons :_end-marker me)))
+          plan)))))
 
 ;;;; Region/group parsing
 
@@ -274,7 +283,14 @@ If REPO-ROOT is nil, detect via =carriage-project-root' or use =default-director
 (defun carriage-collect-last-iteration-blocks-strict (&optional repo-root)
   "Collect blocks of the last iteration strictly; return nil when no id is present.
 Unlike =carriage-collect-last-iteration-blocks', this function NEVER falls back to
-collecting all blocks in the buffer when the last-iteration id is missing."
+collecting all blocks in the buffer when the last-iteration id is missing.
+
+Behavior:
+- If an inline marker \"#+CARRIAGE_ITERATION_ID: <id>\" is present, collect all
+  patch blocks AFTER the last such marker line (covers the common case when
+  text properties are lost after reopening a file).
+- Otherwise, fall back to collecting blocks whose begin lines carry the
+  text property 'carriage-iteration-id equal to the current id."
   (let* ((root (or repo-root (carriage-project-root) default-directory))
          (id   (or (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id)
                    (ignore-errors (carriage-iteration-read-id)))))
@@ -284,6 +300,21 @@ collecting all blocks in the buffer when the last-iteration id is missing."
     (unless id
       (carriage-log "no last-iteration id; strict collector returns nil")
       (cl-return-from carriage-collect-last-iteration-blocks-strict nil))
+    ;; 1) Prefer inline marker position: collect blocks after the last marker line.
+    (let* ((case-fold-search t)
+           (rx (format "^[ \t]*#\\+CARRIAGE_ITERATION_ID:[ \t]+%s[ \t]*$"
+                       (regexp-quote (downcase id))))
+           (last-pos nil))
+      (save-excursion
+        (goto-char (point-min))
+        (while (re-search-forward rx nil t)
+          ;; Position after the marker line
+          (setq last-pos (line-end-position))))
+      (when (numberp last-pos)
+        (carriage-log "collect-last-iteration STRICT: using region after inline marker @%d" last-pos)
+        (cl-return-from carriage-collect-last-iteration-blocks-strict
+          (carriage-parse-blocks-in-region last-pos (point-max) root))))
+    ;; 2) Fallback: collect blocks tagged via text property (works within the same session).
     (save-excursion
       (goto-char (point-min))
       (let ((plan '()))

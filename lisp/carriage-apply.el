@@ -394,6 +394,8 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
   (let* ((report (carriage--apply-build-report plan state)))
     (carriage--apply-log-summary report)
     (carriage--apply-announce-success report)
+    ;; Replace successfully applied blocks with #+patch_done markers when enabled
+    (ignore-errors (carriage--replace-applied-blocks-in-report report))
     (carriage--apply-run-callback callback report)
     report))
 

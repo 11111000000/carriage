@@ -129,25 +129,28 @@ When optional ID is non-nil, reuse it instead of generating a new one."
   :group 'carriage)
 
 (defun carriage-iteration--write-inline-marker (pos id)
-  "Insert a blank line and an inline iteration marker line at POS:
+  "Insert an inline iteration marker line at the beginning of the current line:
 \"#+CARRIAGE_ITERATION_ID: ID\".
-Does nothing if ID is nil or empty. Returns position after insertion."
+
+Always inserts the marker at BOL to avoid splitting any existing text
+(e.g., Org #+begin_patch headers). If the previous line is not blank,
+a blank separator line is inserted above the marker to keep it visually
+separate. Returns buffer position after insertion."
   (when (and (stringp id) (> (length (string-trim id)) 0)
              (numberp pos))
     (save-excursion
+      ;; Anchor to beginning of line to prevent cutting current line in half.
       (goto-char pos)
-      ;; Ensure marker is on a separate line and visually separated by a blank line
-      (unless (bolp) (insert "\n"))
-      ;; If previous line is not blank, add a blank separator line
-      (save-excursion
-        (forward-line -1)
-        (unless (looking-at-p "^[ \t]*$")
-          (goto-char pos)
-          (insert "\n")
-          (setq pos (1+ pos))))
-      (goto-char pos)
-      (insert (format "#+CARRIAGE_ITERATION_ID: %s\n" (downcase id)))
-      (point))))
+      (let ((bol (line-beginning-position)))
+        (goto-char bol)
+        ;; Ensure a visual blank line above the marker (when not at bob or prev non-blank).
+        (unless (or (bobp)
+                    (save-excursion
+                      (forward-line -1)
+                      (looking-at-p "^[ \t]*$")))
+          (insert "\n"))
+        (insert (format "#+CARRIAGE_ITERATION_ID: %s\n" (downcase id)))
+        (point)))))
 
 (defun carriage-iteration-read-id ()
   "Read iteration id for the current buffer.

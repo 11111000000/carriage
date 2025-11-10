@@ -161,7 +161,7 @@ Negative values move icons up; positive move them down."
 
 ;; carriage-mode-map moved to carriage-mode.el (UI must not define keymaps; keys go via keyspec)
 
-(defvar carriage--ui-state 'idle
+(defvar-local carriage--ui-state 'idle
   "Current UI state: one of 'idle 'sending 'streaming 'dry-run 'apply 'error.")
 
 ;; Spinner state (buffer-local)
@@ -271,7 +271,7 @@ Negative values move icons up; positive move them down."
     ('error "Error")
     (_ (capitalize (symbol-name (or state 'idle))))))
 
-(defcustom carriage-ui-context-cache-ttl 0.4
+(defcustom carriage-ui-context-cache-ttl 1.5
   "Maximum age in seconds for cached context badge computations in the mode-line.
 Set to 0 to recompute on every redisplay; set to nil to keep values until other cache
 keys change (buffer content, point position, toggle states)."
