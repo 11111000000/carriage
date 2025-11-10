@@ -1255,81 +1255,84 @@ May include :context-text and :context-target per v1.1."
   (interactive)
   (let* ((root (or (carriage-project-root) default-directory))
          (plan (or (ignore-errors (carriage-collect-last-iteration-blocks-strict root))
-                   nil))
-         (when (or (null plan) (zerop (length plan)))
-           (let* ((id (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id))
-                  (total 0) (marked 0))
-             (save-excursion
-               (goto-char (point-min))
-               (while (search-forward "#+begin_patch" nil t)
-                 (when (save-excursion
-                         (beginning-of-line)
-                         (looking-at-p "^[ \t]*#\\+begin_patch"))
-                   (setq total (1+ total))
-                   (let ((lb (line-beginning-position)))
-                     (when (equal (get-text-property lb 'carriage-iteration-id) id)
-                       (setq marked (1+ marked))))
-                   (forward-line 1))))
-             (user-error (format "Нет последней итерации (CARRIAGE_ITERATION_ID). Blocks=%d, marked=%d%s"
-                                 total marked
-                                 (if id (format ", id=%s" (substring id 0 (min 8 (length id)))) "")))))
-         (when (and carriage-mode-confirm-apply-all
-                    (not (y-or-n-p (format "Применить все блоки (%d)? " (length plan)))))
-           (user-error "Отменено"))
-         ;; Early Suite↔Engine guard: if any 'patch present but engine != 'git
-         (let ((has-patch nil))
-           (dolist (it plan)
-             (when (eq (or (alist-get :op it) (and (listp it) (plist-get it :op))) 'patch)
-               (setq has-patch t)))
-           (when (and has-patch (not (carriage--engine-supports-op-p 'patch)))
-             (carriage-ui-set-state 'error)
-             (user-error "Patch unsupported by %s engine; switch to git" (carriage-apply-engine))))
-         ;; Guard: forbid applying on WIP/ephemeral branches unless explicitly allowed
-         (let* ((cur-br (ignore-errors (and (fboundp 'carriage-git-current-branch)
-                                            (carriage-git-current-branch root))))
-                (epref (or (and (boundp 'carriage-git-ephemeral-prefix)
-                                carriage-git-ephemeral-prefix)
-                           "carriage/tmp"))
-                (wip (string= cur-br "carriage/WIP"))
-                (eph (and (stringp cur-br) (string-prefix-p epref cur-br))))
-           (when (and (or wip eph)
-                      (not (and (boundp 'carriage-allow-apply-on-wip) carriage-allow-apply-on-wip)))
-             (carriage-ui-set-state 'error)
-             (user-error "Нельзя применять патчи на ветке %s (не слита с основной)" (or cur-br ""))))
-         ;; Dry-run
-         (carriage-ui-set-state 'dry-run)
-         (let* ((dry (carriage-dry-run-plan plan root)))
-           (when (not noninteractive)
-             (carriage--report-open-maybe dry))
-           (let* ((sum (plist-get dry :summary))
-                  (fails (or (plist-get sum :fail) 0)))
-             (if (> fails 0)
-                 (progn
-                   (carriage-ui-set-state 'error)
-                   (user-error "Dry-run провалился для части блоков; смотрите отчёт"))
-               ;; Apply
-               (when (or (not carriage-mode-confirm-apply-all)
-                         (y-or-n-p "Применить группу блоков? "))
-                 (carriage-ui-set-state 'apply)
-                 ;; Safety belt: force synchronous apply for apply-all to avoid process/timer races
-                 (let ((carriage-apply-async nil))
-                   (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
-                       (progn
-                         (carriage-log "apply-all: async apply scheduled (%d items)" (length plan))
-                         (carriage-apply-plan-async
-                          plan root
-                          (lambda (rep)
-                            (when (not noninteractive)
-                              (carriage--report-open-maybe rep))
-                            (carriage-ui-set-state 'idle))))
-                     (let ((ap (carriage-apply-plan plan root)))
+                   nil)))
+    ;; Strict: no plan → helpful diagnostics and user-error
+    (when (or (null plan) (zerop (length plan)))
+      (let* ((id (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id))
+             (total 0) (marked 0))
+        (save-excursion
+          (goto-char (point-min))
+          (while (search-forward "#+begin_patch" nil t)
+            (when (save-excursion
+                    (beginning-of-line)
+                    (looking-at-p "^[ \t]*#\\+begin_patch"))
+              (setq total (1+ total))
+              (let ((lb (line-beginning-position)))
+                (when (equal (get-text-property lb 'carriage-iteration-id) id)
+                  (setq marked (1+ marked))))
+              (forward-line 1))))
+        (user-error (format "Нет последней итерации (CARRIAGE_ITERATION_ID). Blocks=%d, marked=%d%s"
+                            total marked
+                            (if id (format ", id=%s" (substring id 0 (min 8 (length id)))) "")))))
+    (when (and carriage-mode-confirm-apply-all
+               (not (y-or-n-p (format "Применить все блоки (%d)? " (length plan)))))
+      (user-error "Отменено"))
+    ;; Early Suite↔Engine guard: if any 'patch present but engine lacks support
+    (let ((has-patch (seq-some
+                      (lambda (it)
+                        (eq (or (alist-get :op it)
+                                (and (listp it) (plist-get it :op)))
+                            'patch))
+                      plan)))
+      (when (and has-patch (not (carriage--engine-supports-op-p 'patch)))
+        (carriage-ui-set-state 'error)
+        (user-error "Patch unsupported by %s engine; switch to git" (carriage-apply-engine))))
+    ;; Guard: forbid applying on WIP/ephemeral branches unless explicitly allowed
+    (let* ((cur-br (ignore-errors (and (fboundp 'carriage-git-current-branch)
+                                       (carriage-git-current-branch root))))
+           (epref (or (and (boundp 'carriage-git-ephemeral-prefix)
+                           carriage-git-ephemeral-prefix)
+                      "carriage/tmp"))
+           (wip (string= cur-br "carriage/WIP"))
+           (eph (and (stringp cur-br) (string-prefix-p epref cur-br))))
+      (when (and (or wip eph)
+                 (not (and (boundp 'carriage-allow-apply-on-wip) carriage-allow-apply-on-wip)))
+        (carriage-ui-set-state 'error)
+        (user-error "Нельзя применять патчи на ветке %s (не слита с основной)" (or cur-br ""))))
+    ;; Dry-run phase
+    (carriage-ui-set-state 'dry-run)
+    (let* ((dry (carriage-dry-run-plan plan root)))
+      (when (not noninteractive)
+        (carriage--report-open-maybe dry))
+      (let* ((sum (plist-get dry :summary))
+             (fails (or (plist-get sum :fail) 0)))
+        (if (> fails 0)
+            (progn
+              (carriage-ui-set-state 'error)
+              (user-error "Dry-run провалился для части блоков; смотрите отчёт"))
+          ;; Confirm and apply
+          (when (or (not carriage-mode-confirm-apply-all)
+                    (y-or-n-p "Применить группу блоков? "))
+            (carriage-ui-set-state 'apply)
+            ;; Safety belt: force synchronous apply for apply-all to avoid races
+            (let ((carriage-apply-async nil))
+              (if (and (boundp 'carriage-apply-async) carriage-apply-async (not noninteractive))
+                  (progn
+                    (carriage-log "apply-all: async apply scheduled (%d items)" (length plan))
+                    (carriage-apply-plan-async
+                     plan root
+                     (lambda (rep)
                        (when (not noninteractive)
-                         (carriage--report-open-maybe ap))
-                       (when (and (not noninteractive)
-                                  (let* ((sum (plist-get ap :summary)))
-                                    (and sum (zerop (or (plist-get sum :fail) 0)))))
-                         (carriage--announce-apply-success ap))
-                       (carriage-ui-set-state 'idle)))))))))))
+                         (carriage--report-open-maybe rep))
+                       (carriage-ui-set-state 'idle))))
+                (let ((ap (carriage-apply-plan plan root)))
+                  (when (not noninteractive)
+                    (carriage--report-open-maybe ap))
+                  (when (and (not noninteractive)
+                             (let* ((sum2 (plist-get ap :summary)))
+                               (and sum2 (zerop (or (plist-get sum2 :fail) 0)))))
+                    (carriage--announce-apply-success ap))
+                  (carriage-ui-set-state 'idle))))))))))
 
 ;;;###autoload
 (defun carriage-wip-checkout ()
