@@ -230,6 +230,10 @@
          (token (list :engine 'git :op 'patch
                       :path (or (carriage-engine-git--get item :path) "-")
                       :patch-file patch-file)))
+    ;; Best-effort: ensure parent directory exists even for --check when patch creates a new file.
+    (ignore-errors
+      (let ((p (or (carriage-engine-git--get item :path) nil)))
+        (when p (carriage-engine-git--ensure-parent-dir root p))))
     (carriage-engine-git--log-begin :dry-run item)
     (carriage-engine-git--start root argv token on-done on-fail)))
 

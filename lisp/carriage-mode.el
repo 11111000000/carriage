@@ -1277,7 +1277,8 @@ May include :context-text and :context-target per v1.1."
                     (looking-at-p "^[ \t]*#\\+begin_patch"))
               (setq total (1+ total))
               (let ((lb (line-beginning-position)))
-                (when (equal (get-text-property lb 'carriage-iteration-id) id)
+                (when (and (stringp id)
+                           (equal (get-text-property lb 'carriage-iteration-id) id))
                   (setq marked (1+ marked))))
               (forward-line 1))))
         (user-error (format "Нет последней итерации (CARRIAGE_ITERATION_ID). Blocks=%d, marked=%d%s"

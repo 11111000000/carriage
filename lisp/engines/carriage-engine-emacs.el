@@ -156,8 +156,8 @@ support minimal create-from-/dev/null udiff; otherwise, unsupported."
           (run-at-time 0 nil (lambda () (funcall on-fail (list :engine 'emacs :exit 125 :stderr "Only :strip=1 supported in emacs udiff v1"))))
         ;; Be permissive in dry-run: accept minimal create udiff without strict parsing.
         (let ((ok (and (stringp diff)
-                       (string-match-p "^[ \t]*---[ \t]+/dev/null\\b" diff)
-                       (string-match-p "^[ \t]*\\+\\+\\+[ \t]+b/" diff))))
+                       (string-match-p "\\`[ \t]*---[ \t]+/dev/null\\b" diff)
+                       (string-match-p "\n[ \t]*\\+\\+\\+[ \t]+b/" diff))))
           (if ok
               (run-at-time 0 nil
                            (lambda ()

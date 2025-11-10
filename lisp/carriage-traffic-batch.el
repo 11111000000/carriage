@@ -49,27 +49,26 @@ Each entry is a plist: (:kind 'global|'local :fn ORIG :args LIST :bytes N).")
 
 (defun carriage-traffic-batch--enqueue (kind orig-fn &rest args)
   "Enqueue a logging entry of KIND ('global or 'local) with ORIG-FN and ARGS."
-  (let* ((bytes (or (ignore-errors
-                      (let ((fmt (and args (cadr args)))
-                            (rest (cddr args)))
-                        (cond
-                         ;; For carriage-traffic-log: (dir fmt &rest)
-                         ((eq kind 'global)
-                          (string-bytes (apply #'format (or fmt "%s") rest)))
-                         ;; For carriage-traffic-log-local: (origin type fmt &rest)
-                         ((eq kind 'local)
-                          (let ((fmt2 (nth 2 args))
-                                (rest2 (nthcdr 3 args)))
-                            (string-bytes (apply #'format (or fmt2 "%s") rest2))))
-                         (t 0))))
-                    0)))
+  (let* ((bytes (condition-case nil
+                    (cond
+                     ;; carriage-traffic-log signature: (dir fmt &rest args)
+                     ((eq kind 'global)
+                      (let ((fmt (nth 1 args))
+                            (rest (nthcdr 2 args)))
+                        (string-bytes (apply #'format (or fmt "%s") rest))))
+                     ;; carriage-traffic-log-local signature: (origin type fmt &rest args)
+                     ((eq kind 'local)
+                      (let ((fmt (nth 2 args))
+                            (rest (nthcdr 3 args)))
+                        (string-bytes (apply #'format (or fmt "%s") rest))))
+                     (t 0))
+                  (error 0))))
     (push (list :kind kind :fn orig-fn :args args :bytes bytes)
           carriage-traffic-batch--queue)
-    (cl-incf carriage-traffic-batch--queued-bytes bytes)
+    (setq carriage-traffic-batch--queued-bytes (+ carriage-traffic-batch--queued-bytes (or bytes 0)))
     (when (and carriage-traffic-batch-bytes-threshold
                (numberp carriage-traffic-batch-bytes-threshold)
                (>= carriage-traffic-batch--queued-bytes carriage-traffic-batch-bytes-threshold))
-      ;; Flush early on size threshold
       (carriage-traffic-batch--flush))
     (carriage-traffic-batch--schedule)))
 
@@ -80,60 +79,30 @@ Each entry is a plist: (:kind 'global|'local :fn ORIG :args LIST :bytes N).")
           (q (nreverse carriage-traffic-batch--queue)))
       (setq carriage-traffic-batch--queue nil)
       (setq carriage-traffic-batch--queued-bytes 0)
-      (when (timerp carriage-traffic-batch--timer)
-        (cancel-timer carriage-traffic-batch--timer))
       (setq carriage-traffic-batch--timer nil)
       (cl-incf carriage-traffic-batch--flush-count)
+      ;; Call original functions captured at enqueue-time to avoid recursion.
       (dolist (it q)
-        (let ((fn (plist-get it :fn))
-              (args (plist-get it :args)))
-          (condition-case _e
-              (apply fn args)
-            (error nil)))))))
+        (condition-case _e
+            (apply (plist-get it :fn) (plist-get it :args))
+          (error nil))))))
 
-;; Advices
-
-(defun carriage-traffic-batch--around-global (orig dir fmt &rest args)
-  "Around-advice for `carriage-traffic-log' to batch calls."
-  (if (not carriage-traffic-batch-enabled)
-      (apply orig dir fmt args)
-    (carriage-traffic-batch--enqueue 'global orig dir fmt args)
-    nil))
-
-(defun carriage-traffic-batch--around-local (orig origin-buffer type fmt &rest args)
-  "Around-advice for `carriage-traffic-log-local' to batch calls."
-  (if (not carriage-traffic-batch-enabled)
-      (apply orig origin-buffer type fmt args)
-    (carriage-traffic-batch--enqueue 'local orig origin-buffer type fmt args)
-    nil))
-
-(defun carriage-traffic-batch--install ()
-  "Install advices for traffic batching (idempotent)."
-  (ignore-errors
-    (when (fboundp 'carriage-traffic-log)
-      (advice-add 'carriage-traffic-log :around #'carriage-traffic-batch--around-global)))
-  (ignore-errors
-    (when (fboundp 'carriage-traffic-log-local)
-      (advice-add 'carriage-traffic-log-local :around #'carriage-traffic-batch--around-local))))
-
-(defun carriage-traffic-batch--remove ()
-  "Remove advices for traffic batching."
-  (ignore-errors
-    (advice-remove 'carriage-traffic-log #'carriage-traffic-batch--around-global))
-  (ignore-errors
-    (advice-remove 'carriage-traffic-log-local #'carriage-traffic-batch--around-local)))
-
-(defun carriage-traffic-batch-refresh ()
-  "Refresh batching: install or remove advices based on current setting."
+;; Around advices that enqueue instead of immediate logging
+(defun carriage-traffic-batch--around-global (orig-fn dir fmt &rest args)
+  "Around advice for `carriage-traffic-log'."
   (if carriage-traffic-batch-enabled
-      (carriage-traffic-batch--install)
-    (carriage-traffic-batch--remove)))
+      (apply #'carriage-traffic-batch--enqueue 'global orig-fn dir fmt args)
+    (apply orig-fn dir fmt args)))
 
-;; Activate on load according to current setting
-(carriage-traffic-batch-refresh)
+(defun carriage-traffic-batch--around-local (orig-fn origin type fmt &rest args)
+  "Around advice for `carriage-traffic-log-local'."
+  (if carriage-traffic-batch-enabled
+      (apply #'carriage-traffic-batch--enqueue 'local orig-fn origin type fmt args)
+    (apply orig-fn origin type fmt args)))
 
-;; Load performance helpers (safe if feature not found).
-(require 'carriage-perf nil t)
+(with-eval-after-load 'carriage-logging
+  (advice-add 'carriage-traffic-log :around #'carriage-traffic-batch--around-global)
+  (advice-add 'carriage-traffic-log-local :around #'carriage-traffic-batch--around-local))
 
 (provide 'carriage-traffic-batch)
 ;;; carriage-traffic-batch.el ends here

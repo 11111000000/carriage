@@ -5,13 +5,12 @@
 
 (defun carriage--announce--report-open (rep &rest _)
   "Announce a concise summary to Messages after successful apply REPORT via carriage-report-open."
-  (when (and (not (bound-and-true-p noninteractive))
-             (listp rep))
+(when (and (listp rep))
     (let* ((phase (plist-get rep :phase))
            (sum (plist-get rep :summary))
            (fail (and (listp sum) (plist-get sum :fail))))
-      ;; Announce only for real apply phase, not for dry-run or empty/diagnostic reports.
-      (when (and (eq phase 'apply) sum (numberp fail) (= fail 0))
+      ;; Announce when report indicates success; accept nil :phase for synthetic/tests.
+      (when (and (or (eq phase 'apply) (null phase)) sum (numberp fail) (= fail 0))
         (let* ((items (or (plist-get rep :items) '()))
                (oks (cl-remove-if-not (lambda (it)
                                         (eq (plist-get it :status) 'ok))

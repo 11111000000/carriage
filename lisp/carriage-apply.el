@@ -584,6 +584,12 @@ For :op 'patch always force 'git engine (parity with sync path)."
                   (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy))
     (pcase op
       ('patch
+       ;; Best-effort: ensure parent directory exists for created/renamed paths in udiff
+       (let ((p (carriage--plan-get item :path)))
+         (when p
+           (condition-case _e
+               (make-directory (file-name-directory (expand-file-name p repo-root)) t)
+             (error nil))))
        (carriage--apply-run-engine
         state :apply 'patch item repo-root
         (lambda (t0 res) (carriage--apply-done-patch state t0 res plan repo-root callback token))
