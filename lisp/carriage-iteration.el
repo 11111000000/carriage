@@ -129,28 +129,41 @@ When optional ID is non-nil, reuse it instead of generating a new one."
   :group 'carriage)
 
 (defun carriage-iteration--write-inline-marker (pos id)
-  "Insert an inline iteration marker line at the beginning of the current line:
-\"#+CARRIAGE_ITERATION_ID: ID\".
-
-Always inserts the marker at BOL to avoid splitting any existing text
-(e.g., Org #+begin_patch headers). If the previous line is not blank,
-a blank separator line is inserted above the marker to keep it visually
-separate. Returns buffer position after insertion."
+  "Insert inline iteration marker at a safe position:
+- Always at the beginning of a line (BOL).
+- If POS is inside a #+begin_patch … #+end_patch block, place the marker
+  above the block's begin line (so it never splits a patch block).
+Returns buffer position after insertion."
   (when (and (stringp id) (> (length (string-trim id)) 0)
              (numberp pos))
     (save-excursion
-      ;; Anchor to beginning of line to prevent cutting current line in half.
       (goto-char pos)
-      (let ((bol (line-beginning-position)))
-        (goto-char bol)
-        ;; Ensure a visual blank line above the marker (when not at bob or prev non-blank).
-        (unless (or (bobp)
-                    (save-excursion
-                      (forward-line -1)
-                      (looking-at-p "^[ \t]*$")))
-          (insert "\n"))
-        (insert (format "#+CARRIAGE_ITERATION_ID: %s\n" (downcase id)))
-        (point)))))
+      (let* ((case-fold-search t)
+             (here (point))
+             (beg-internal nil)
+             (end-before nil))
+        ;; Find nearest begin_patch above POS
+        (save-excursion
+          (when (re-search-backward "^[ \t]*#\\+begin_patch\\b" nil t)
+            (setq beg-internal (line-beginning-position))))
+        ;; Find nearest end_patch above POS
+        (save-excursion
+          (when (re-search-backward "^[ \t]*#\\+end_patch\\b" nil t)
+            (setq end-before (line-beginning-position))))
+        ;; If inside a patch block (last begin after last end), insert above begin
+        (when (and beg-internal (or (null end-before) (> beg-internal end-before)))
+          (setq here beg-internal))
+        (goto-char here)
+        (let ((bol (line-beginning-position)))
+          (goto-char bol)
+          ;; Ensure a visual blank line above the marker (when not at bob or prev non-blank).
+          (unless (or (bobp)
+                      (save-excursion
+                        (forward-line -1)
+                        (looking-at-p "^[ \t]*$")))
+            (insert "\n"))
+          (insert (format "#+CARRIAGE_ITERATION_ID: %s\n" (downcase id)))
+          (point))))))
 
 (defun carriage-iteration-read-id ()
   "Read iteration id for the current buffer.

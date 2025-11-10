@@ -522,8 +522,11 @@ Consults engine capabilities; safe when registry is not yet loaded."
       (setq carriage--preloader-timer
             (run-at-time 0 interval
                          (lambda ()
-                           (when (overlayp carriage--preloader-overlay)
-                             (carriage--preloader--render (overlay-start carriage--preloader-overlay)))))))))
+                           (let ((ov carriage--preloader-overlay))
+                             (when (and (overlayp ov)
+                                        (get-buffer-window (overlay-buffer ov) t))
+                               (carriage--preloader--render (overlay-start ov))))))))))
+
 
 (defun carriage--preloader-stop ()
   "Stop and remove buffer preloader spinner if active."

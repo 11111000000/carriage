@@ -127,6 +127,17 @@ Negative values move icons up; positive move them down."
   "Mode-line face for error state (red)."
   :group 'carriage-ui)
 
+;; New state faces for refined color mapping
+(defface carriage-ui-state-success-face
+  '((t :inherit nil :foreground "#93c47d"))
+  "Mode-line face for success/idle/done states (green)."
+  :group 'carriage-ui)
+
+(defface carriage-ui-state-active-face
+  '((t :inherit nil :foreground "#f6b26b"))
+  "Mode-line face for active reasoning/waiting/streaming/dispatch states (orange)."
+  :group 'carriage-ui)
+
 ;; Faces for patch block highlighting (spec/ui-v1.org)
 (defface carriage-patch-valid-face
   '((t :inherit nil :background "#203a24"))
@@ -190,11 +201,14 @@ Negative values move icons up; positive move them down."
     (aref frames i)))
 
 (defun carriage-ui--spinner-tick (buf)
-  "Advance spinner in BUF and update mode-line."
-  (when (buffer-live-p buf)
+  "Advance spinner in BUF and update mode-line.
+Update only when BUF is visible to avoid global redisplay churn."
+  (when (and (buffer-live-p buf)
+             (get-buffer-window buf t))
     (with-current-buffer buf
       (setq carriage--ui-spinner-index (1+ carriage--ui-spinner-index))
-      (force-mode-line-update t))))
+      ;; Local refresh only; avoid (force-mode-line-update t) which repaints all windows.
+      (force-mode-line-update))))
 
 (defun carriage-ui--spinner-start ()
   "Start buffer-local spinner timer if not running."
@@ -217,17 +231,18 @@ Negative values move icons up; positive move them down."
   (setq carriage--ui-spinner-timer nil)
   (when reset
     (setq carriage--ui-spinner-index 0))
-  (force-mode-line-update t))
+  ;; Local refresh only; avoid repainting all windows.
+  (force-mode-line-update))
 
 (defun carriage-ui-set-state (state)
   "Set UI STATE symbol for mode-line visuals and manage spinner."
   (setq carriage--ui-state (or state 'idle))
   (pcase carriage--ui-state
-    ;; spinner for active network phases
-    ((or 'sending 'streaming 'dispatch 'waiting)
+    ;; spinner for active phases (include reasoning/waiting/streaming/dispatch/sending)
+    ((or 'sending 'streaming 'dispatch 'waiting 'reasoning)
      (carriage-ui--spinner-start))
-    ;; no spinner for preparation/reasoning/done/others
-    ((or 'prompt 'context 'reasoning 'done)
+    ;; no spinner for preparation/done/others
+    ((or 'prompt 'context 'done)
      (carriage-ui--spinner-stop nil))
     (_
      (carriage-ui--spinner-stop t))))
@@ -274,10 +289,54 @@ Negative values move icons up; positive move them down."
 (defcustom carriage-ui-context-cache-ttl 1.5
   "Maximum age in seconds for cached context badge computations in the mode-line.
 Set to 0 to recompute on every redisplay; set to nil to keep values until other cache
-keys change (buffer content, point position, toggle states)."
+keys change (buffer content, toggle states)."
   :type '(choice (const :tag "Disable caching" 0)
                  (number :tag "TTL (seconds)")
                  (const :tag "Unlimited (until buffer changes)" nil))
+  :group 'carriage-ui)
+
+(defconst carriage-ui--modeline-default-blocks
+  '(suite engine branch model intent state context patch dry apply all abort report toggle-ctx toggle-files settings)
+  "Default order of Carriage modeline blocks.")
+
+(defcustom carriage-ui-modeline-blocks carriage-ui--modeline-default-blocks
+  "List of symbols describing the Carriage modeline blocks and their order.
+
+Recognized block symbols:
+- `suite' — suite selector.
+- `engine' — apply engine selector.
+- `branch' — current VCS branch badge.
+- `model' — model/backend selector.
+- `intent' — Ask/Code/Hybrid intent toggle.
+- `state' — Carriage state indicator with spinner.
+- `context' — context badge.
+- `patch' — patch block counter.
+- `dry' — Dry-run action button.
+- `apply' — Apply action button.
+- `all' — Apply last iteration button.
+- `abort' — Abort button.
+- `report' — Report buffer shortcut.
+- `toggle-ctx' — GPT context toggle.
+- `toggle-files' — doc context toggle.
+- `settings' — settings/menu button.
+
+Unknown symbols are ignored."
+  :type '(repeat (choice (const :tag "Suite selector" suite)
+                         (const :tag "Engine selector" engine)
+                         (const :tag "Branch badge" branch)
+                         (const :tag "Model selector" model)
+                         (const :tag "Intent toggle" intent)
+                         (const :tag "State indicator" state)
+                         (const :tag "Context badge" context)
+                         (const :tag "Patch counter" patch)
+                         (const :tag "Dry-run button" dry)
+                         (const :tag "Apply button" apply)
+                         (const :tag "Apply last iteration button" all)
+                         (const :tag "Abort button" abort)
+                         (const :tag "Report button" report)
+                         (const :tag "GPT context toggle" toggle-ctx)
+                         (const :tag "Doc context toggle" toggle-files)
+                         (const :tag "Settings button" settings)))
   :group 'carriage-ui)
 
 (defvar-local carriage-ui--ctx-cache nil
@@ -292,11 +351,11 @@ Plist keys: :doc :gpt :tick :point :time :value.")
     (setq carriage-ui--ctx-cache nil)))
 
 (defun carriage-ui--compute-context-badge (inc-doc inc-gpt)
-  "Compute context badge (LABEL . HINT) for INC-DOC / INC-GPT toggles."
+  "Compute context badge (LABEL . HINT) for INC-DOC / INC-GPT toggles.
+Lightweight: count unique files only; no filesystem size probing."
   (if (not (or inc-doc inc-gpt))
       nil
-    (let ((cnt 0)
-          (bytes 0))
+    (let ((cnt 0))
       (condition-case _e
           (progn
             (require 'carriage-context nil t)
@@ -312,29 +371,12 @@ Plist keys: :doc :gpt :tick :point :time :value.")
                   (let* ((abs (if (file-name-absolute-p p) p (expand-file-name p root)))
                          (tru (ignore-errors (file-truename abs))))
                     (when tru (puthash tru t set)))))
-              (maphash
-               (lambda (tru _v)
-                 (setq cnt (1+ cnt))
-                 (let* ((attrs (ignore-errors (file-attributes tru 'string)))
-                        (sz (and attrs (file-attribute-size attrs))))
-                   (when (numberp sz)
-                     (setq bytes (+ bytes sz)))))
-               set)))
+              (maphash (lambda (_tru _v) (setq cnt (1+ cnt))) set)))
         (error
-         (setq cnt 0 bytes 0)))
-      (let* ((sizestr (cond
-                       ((>= bytes (* 1024 1024)) (format "%.1fMB" (/ (float bytes) 1048576.0)))
-                       ((>= bytes 1024) (format "%.1fKB" (/ (float bytes) 1024.0)))
-                       ((> bytes 0) (format "%dB" bytes))
-                       (t "")))
-             (lbl (if (> cnt 0)
-                      (if (string-empty-p sizestr)
-                          (format "[Ctx:%d]" cnt)
-                        (format "[Ctx:%d ~%s]" cnt sizestr))
-                    "[Ctx:0]"))
-             (hint (format "Контекст: файлов=%d, размер~%s — источники: doc=%s, gptel=%s"
+         (setq cnt 0)))
+      (let* ((lbl (format "[Ctx:%d]" cnt))
+             (hint (format "Контекст: файлов=%d — источники: doc=%s, gptel=%s"
                            cnt
-                           (if (string-empty-p sizestr) "≈0" sizestr)
                            (if inc-doc "on" "off")
                            (if inc-gpt "on" "off"))))
         (cons lbl hint)))))
@@ -1000,12 +1042,18 @@ reflects toggle state (muted when off, bright when on)."
         (user-error "Нет доступного отчёта для Ediff")))))
 
 (defun carriage-ui--modeline ()
-  "Build Carriage modeline segment (M3: icons optional + spinner + refined actions).
-- Removed heavy action buttons (Diff/Ediff/WIP/Commit/Reset) — use C-c e menu.
-- Added a compact context badge [Ctx:N] showing an estimated number of files to include."
-  (let ((uicons (carriage-ui--icons-available-p)))
+  "Build Carriage modeline segment using `carriage-ui-modeline-blocks'."
+  (let* ((uicons (carriage-ui--icons-available-p))
+         (ctx-badge (carriage-ui--context-badge))
+         (patch-count (carriage-ui--patch-count))
+         (show-patch (carriage-ui--show-apply-buttons-p))
+         (has-last (carriage-ui--last-iteration-present-p))
+         (blocks (if (and (listp carriage-ui-modeline-blocks)
+                          carriage-ui-modeline-blocks)
+                     carriage-ui-modeline-blocks
+                   carriage-ui--modeline-default-blocks)))
     (cl-labels
-        ((intent-btn ()
+        ((intent-block ()
            (let* ((intent-label
                    (if uicons
                        (cond
@@ -1023,7 +1071,7 @@ reflects toggle state (muted when off, bright when on)."
              (carriage-ui--ml-button intent-label
                                      #'carriage-toggle-intent
                                      "Toggle Ask/Code/Hybrid intent")))
-         (suite-btn ()
+         (suite-block ()
            (let* ((suite-str
                    (let ((s (and (boundp 'carriage-mode-suite) carriage-mode-suite)))
                      (cond
@@ -1046,7 +1094,7 @@ reflects toggle state (muted when off, bright when on)."
                             (carriage-i18n :suite-tooltip)
                           "Select Suite (sre|udiff)")))
              (carriage-ui--ml-button suite-label #'carriage-select-suite help)))
-         (backend-model-btn ()
+         (model-block ()
            (let* ((model-str (or (and (boundp 'carriage-mode-model) carriage-mode-model) "model"))
                   (b-backend (let ((b (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
                                (if (symbolp b) (symbol-name b) (or b ""))))
@@ -1075,7 +1123,7 @@ reflects toggle state (muted when off, bright when on)."
              (carriage-ui--ml-button bm-label
                                      #'carriage-select-model
                                      (format "Модель: %s (клик — выбрать)" full-id))))
-         (engine-btn ()
+         (engine-block ()
            (let* ((engine-str
                    (let ((e (and (boundp 'carriage-apply-engine) carriage-apply-engine)))
                      (cond
@@ -1111,29 +1159,27 @@ reflects toggle state (muted when off, bright when on)."
                           (carriage-i18n :engine-tooltip))
                          (t "Select apply engine"))))
              (carriage-ui--ml-button engine-label #'carriage-select-apply-engine help)))
-         (state-segment ()
+         (state-block ()
            (let* ((st (let ((s (and (boundp 'carriage--ui-state) carriage--ui-state)))
                         (if (symbolp s) s 'idle)))
                   (label (carriage-ui--state-label st))
                   (txt (format "[%s%s]"
                                label
-                               (if (memq st '(sending streaming dispatch waiting))
+                               (if (memq st '(sending streaming dispatch waiting reasoning))
                                    (concat " " (carriage-ui--spinner-char))
                                  "")))
                   (face (pcase st
-                          ('idle 'carriage-ui-state-idle-face)
-                          ((or 'sending 'streaming 'dispatch 'waiting) 'carriage-ui-state-sending-face)
+                          ((or 'idle 'done) 'carriage-ui-state-success-face)
+                          ((or 'reasoning 'waiting 'streaming 'dispatch) 'carriage-ui-state-active-face)
                           ('error 'carriage-ui-state-error-face)
                           (_ nil))))
              (if face (propertize txt 'face face) txt)))
-         (context-badge ()
-           (let ((badge (carriage-ui--context-badge)))
-             (if badge
-                 (let ((lbl (car badge))
-                       (hint (cdr badge)))
-                   (if hint (propertize lbl 'help-echo hint) lbl))
-               "")))
-         (branch-label ()
+         (context-block ()
+           (when ctx-badge
+             (let ((lbl (car ctx-badge))
+                   (hint (cdr ctx-badge)))
+               (if hint (propertize lbl 'help-echo hint) lbl))))
+         (branch-block ()
            (let* ((br (or (and (require 'vc-git nil t)
                                (fboundp 'vc-git--symbolic-branch)
                                (ignore-errors (vc-git--symbolic-branch default-directory)))
@@ -1151,27 +1197,29 @@ reflects toggle state (muted when off, bright when on)."
                                                      :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face)))))
                      (concat ic " " txt))
                  txt))))
-         (patch-badge ()
-           (let ((n (carriage-ui--patch-count)))
-             (when (and (numberp n) (> n 0))
-               (propertize (format "[P:%d]" n)
-                           'help-echo "Количество #+begin_patch блоков в буфере"))))
-         (btn-dry ()
-           (let ((label (or (and uicons (carriage-ui--icon 'dry)) "[Dry]")))
-             (carriage-ui--ml-button label #'carriage-dry-run-at-point "Dry-run at point")))
-         (btn-apply ()
-           (let ((label (or (and uicons (carriage-ui--icon 'apply)) "[Apply]")))
-             (carriage-ui--ml-button label #'carriage-apply-at-point-or-region "Apply at point or region")))
-         (btn-all ()
-           (let ((label (or (and uicons (carriage-ui--icon 'all)) "[All]")))
-             (carriage-ui--ml-button label #'carriage-apply-last-iteration "Apply last iteration")))
-         (btn-abort ()
+         (patch-block ()
+           (when (and (numberp patch-count) (> patch-count 0))
+             (propertize (format "[P:%d]" patch-count)
+                         'help-echo "Количество #+begin_patch блоков в буфере")))
+         (dry-block ()
+           (when show-patch
+             (let ((label (or (and uicons (carriage-ui--icon 'dry)) "[Dry]")))
+               (carriage-ui--ml-button label #'carriage-dry-run-at-point "Dry-run at point"))))
+         (apply-block ()
+           (when show-patch
+             (let ((label (or (and uicons (carriage-ui--icon 'apply)) "[Apply]")))
+               (carriage-ui--ml-button label #'carriage-apply-at-point-or-region "Apply at point or region"))))
+         (all-block ()
+           (when has-last
+             (let ((label (or (and uicons (carriage-ui--icon 'all)) "[All]")))
+               (carriage-ui--ml-button label #'carriage-apply-last-iteration "Apply last iteration"))))
+         (abort-block ()
            (let ((label (or (and uicons (carriage-ui--icon 'abort)) "[Abort]")))
              (carriage-ui--ml-button label #'carriage-abort-current "Abort current request")))
-         (btn-report ()
+         (report-block ()
            (let ((label (or (and uicons (carriage-ui--icon 'report)) "[Report]")))
              (carriage-ui--ml-button label #'carriage-report-open "Open report buffer")))
-         (btn-toggle-ctx ()
+         (toggle-ctx-block ()
            (carriage-ui--toggle
             "[Ctx]" 'carriage-mode-include-gptel-context
             #'carriage-toggle-include-gptel-context
@@ -1180,7 +1228,7 @@ reflects toggle state (muted when off, bright when on)."
                   (carriage-i18n :ctx-tooltip)
                 "Toggle including gptel-context (buffers/files)"))
             'ctx))
-         (btn-toggle-files ()
+         (toggle-files-block ()
            (carriage-ui--toggle
             "[Files]" 'carriage-mode-include-doc-context
             #'carriage-toggle-include-doc-context
@@ -1188,15 +1236,35 @@ reflects toggle state (muted when off, bright when on)."
               (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
                   (carriage-i18n :files-tooltip)
                 "Toggle including files from #+begin_context"))
-            'files)))
-      (let* ((show-patch (carriage-ui--show-apply-buttons-p))
-             (has-last   (carriage-ui--last-iteration-present-p))
-             (segments (append
-                        (list (suite-btn) (engine-btn) (branch-label) (backend-model-btn) (intent-btn) (state-segment) (context-badge) (patch-badge))
-                        (and show-patch (list (btn-dry) (btn-apply)))
-                        (and has-last (list (btn-all)))
-                        (list (btn-abort) (btn-report) (btn-toggle-ctx) (btn-toggle-files) (carriage-ui--settings-btn)))))
-        (mapconcat #'identity (delq nil segments) " ")))))
+            'files))
+         (settings-block ()
+           (carriage-ui--settings-btn))
+         (render-block (blk)
+           (pcase blk
+             ('suite (suite-block))
+             ('engine (engine-block))
+             ('branch (branch-block))
+             ('model (model-block))
+             ('intent (intent-block))
+             ('state (state-block))
+             ('context (context-block))
+             ('patch (patch-block))
+             ('dry (dry-block))
+             ('apply (apply-block))
+             ('all (all-block))
+             ('abort (abort-block))
+             ('report (report-block))
+             ('toggle-ctx (toggle-ctx-block))
+             ('toggle-files (toggle-files-block))
+             ('settings (settings-block))
+             (_ nil))))
+      (let* ((segments (cl-loop for blk in blocks
+                                for seg = (render-block blk)
+                                if (stringp seg)
+                                collect seg)))
+        (if segments
+            (mapconcat #'identity segments " ")
+          "")))))
 
 ;; -- Optional: settings "gear" button to open the menu directly.
 (defun carriage-ui--settings-btn ()

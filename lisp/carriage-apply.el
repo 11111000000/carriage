@@ -474,8 +474,10 @@ Respects per-buffer toggle `carriage-mode-replace-applied-blocks' when available
     report))
 
 (defun carriage--apply-acc-row (state row)
-  "Accumulate ROW in STATE."
-  (plist-put state :items (cons row (plist-get state :items))))
+  "Accumulate ROW in STATE, annotating with plan item and repo root for later actions."
+  (let ((aug (append row (list :_plan (plist-get state :pending-item)
+                               :_root (plist-get state :root)))))
+    (plist-put state :items (cons aug (plist-get state :items)))))
 
 (defun carriage--apply-acc-msg (state msg)
   "Accumulate diagnostic MSG in STATE."
@@ -574,6 +576,7 @@ For :op 'patch always force 'git engine (parity with sync path)."
   "Run one ITEM according to its :op, updating STATE and continuing or finishing."
   (let* ((op (carriage--plan-get item :op))
          (target (or (carriage--plan-get item :path) (carriage--plan-get item :file))))
+    (plist-put state :pending-item item)
     (carriage-log "apply-run-item: op=%s target=%s engine=%s stage=%s"
                   op (or target "-")
                   (carriage-apply-engine)
