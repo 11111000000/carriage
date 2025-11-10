@@ -266,7 +266,7 @@ CTX may contain keys like :payload, :context-text, :context-target, :delim, :fil
                                (stringp ctx-text) (not (string-empty-p ctx-text)))
                           (concat ctx-text "\n" payload)
                         payload)))
-         (carriage--assert-suite-safety suite-id system)
+         (carriage--assert-suite-safety suite-id base)
          (let* ((sys0 system)
                 (fp (ignore-errors (secure-hash 'sha1 sys0)))
                 (sys1 (if fp (concat sys0 "\n;; fingerprint: " fp) sys0)))

@@ -1,39 +1,88 @@
-#+title: Карта проекта Carriage-mode v1
+#+title: Обзор проекта Carriage-mode v1 — Структура и карта
+#+author: Carriage Team
 #+language: ru
 #+options: toc:2 num:t
 #+property: header-args :results silent
 
 * Назначение
-- Этот документ дополняет spec/project-structure-v1.org и даёт обзор-«карту» проекта:
-  - Полный список файлов исходников (lisp/*) с краткими описаниями и ключевыми функциями/точками расширения.
-  - Свод правил структурирования проекта (слои, зависимые модули, именование, provide).
-  - Указатели на ключевые спецификации в каталоге spec/.
+- Единый документ-«источник истины» о структуре проекта и карте исходников.
+- Объединяет прежние документы:
+  - Project Structure v1 — слои/каталоги/правила/загрузка/тесты/миграции.
+  - Project Map v1 — обзор модулей (lisp/*) с ключевыми API и указатели на спецификации.
+- Цель: чтобы новые части проекта появлялись в правильных местах и с понятными контрактами.
 
-* Свод правил структурирования (резюме)
-- Слои и зависимости (сверху вниз запрещено):
-  - Core: errors → logging → utils → git
-  - Domain: parser → apply → report
-  - Mode/UI: ui → iteration → mode → entry (carriage.el)
-  - Engines: lisp/engines/* — зависят от logging/utils/git, не от UI
-  - Transports: lisp/transports/* — зависят от logging/utils, не от UI
-- Директории:
-  - lisp/ — код; engines/ — движки; transports/ — адаптеры LLM; ops/ — форматы (:op).
-  - spec/ — спецификации форматов, пайплайна и UI.
-- Именование и provide:
-  - Имена с префиксом carriage-…; внутренние хелперы: carriage--…; (provide 'carriage-…).
-- Регистры/реестры:
-  - Форматов: carriage-format-registry (parse/dry-run/apply/prompt-fragment).
-  - Интентов: carriage-intent-registry.
-  - Моделей/бэкендов: carriage-llm-registry.
-  - Движков применения: carriage-apply-engine (+ реализации в engines/*).
-- Контракты:
-  - Все парсеры возвращают alist/plist план-элементы согласно spec/data-structures-v1.org.
-  - apply/dry-run — чистые отчёты; синхронные «обёртки» поверх async — допустимы.
-- Безопасность:
-  - Пути — только относительные внутри корня; TRAMP — запрещён (v1).
-  - Бинарные патчи — запрещены в v1 (см. spec/security-v1.org).
-- UI:
-  - Клавиши через keyspec (lisp/carriage-keyspec.el); глобальный префикс — carriage-global-mode.
+* Свод правил структурирования (источник истины)
+
+** Слои и зависимости (направление сверху вниз запрещено)
+- Core: errors → logging → utils → git
+- Domain: parser → apply → report
+- Mode/UI: ui → iteration → mode → entry (carriage.el)
+- Engines: lisp/engines/* — зависят от logging/utils/git, не от UI
+- Transports: lisp/transports/* — зависят только от errors/logging/utils; не зависят от UI
+- Правила:
+  - UI не импортируется из parser/apply.
+  - Транспорт не модифицирует глобальные переменные Emacs.
+
+** Директории
+- lisp/ — исходники (ядро и модули):
+  - carriage-*.el — ядро и домен: errors, logging, utils, git, parser, apply, iteration, ui, report, mode, entry.
+  - engines/ — движки применения (реестр и реализации: git, emacs, magit и др.).
+  - transports/ — адаптеры LLM/агентов (например, gptel, JSON-RPC), опционально.
+  - ops/ — оп-модули (:op): один файл на формат; рядом публикуются фрагменты промптов. Suite собирает системный промпт из этих фрагментов.
+  - carriage-intent-registry.el — реестр интентов (фрагменты промптов Intent; CTX → STRING).
+  - carriage-suite.el — компоновщик Suite/Prompt Builder: собирает системный промпт из фрагментов ops и intent; публичная функция carriage-build-prompt (pure).
+  - (удалено в v1.1) — DELIM для :op "create" больше не используется; санитайзер и парсер принимают «сырой» контент тела блока.
+  - ui/ — доп. компоненты UI/виджеты (опционально).
+- spec/ — спецификации (норматив и разъяснения).
+  - prompt-profiles-v1.org — Intent/Suite и композиция промптов (один язык; i18n не применяется к промптам; замены/расширения через overrides/overlays).
+  - extensibility-points-v1.org — точки расширения (ops, транспорты, UI) и правила сборки Suite.
+  - testing-v1.org — план тестов (юниты/интеграция), включая проверки промпт-билдера.
+- test/ — ERT и интеграционные фикстуры (git-репо).
+- scripts/ — batch-скрипты (lint, compile-strict, checkdoc).
+- examples/ — «golden» документы.
+- .context/ — персистентное состояние проекта (например, ".context/carriage/carriage-state.el").
+
+** Именование и provide
+- Имя файла и feature: carriage-foo.el → (provide 'carriage-foo).
+- Публичные API: carriage-foo-bar; внутренние: carriage--foo-bar.
+- defcustom — в одном «владельце» слоя; остальные файлы — declare-variable при необходимости.
+- Интерактивные команды — ;;;###autoload.
+
+** Порядок загрузки
+- carriage.el: require errors→(carriage-define-errors)→logging→utils→git→carriage-format-registry→carriage-intent-registry→carriage-suite→parser→apply→ops→mode.
+- Транспорты подключаются через абстракцию (см. llm-transport-v1), не require-ятся по умолчанию.
+
+** Безопасность
+- Пути — только относительные внутри корня; TRAMP — запрещён (v1).
+- Бинарные патчи — запрещены в v1 (см. spec/security-v1.org).
+
+** Тестирование/CI
+- Юнит: ERT на парсеры/апплаеры/утилиты.
+- Интеграция: тестовый git-репозиторий.
+- Моки транспорта (gptel-mock).
+- CI: byte-compile (строго), checkdoc, package-lint, ert.
+
+* Миграции и дополнения
+
+** Миграция v1→v1.1 (без ломки)
+- Устранить дубли defcustom/defvar.
+- Синхронизировать предупреждения SRE_W_*.
+- Вынести транспорты в lisp/transports/.
+
+** Дополнения v1.1
+- Новые спецификации в каталоге spec/:
+  - context-integration-v1.org — единая модель включения контекста (gptel + блоки документа).
+  - keyspec-v1.org — спецификация централизованной модели биндингов и генераторов which-key/transient/hydra.
+  - i18n-v1.org — слой локализации (переводы ru/en, ключи для UI/which-key/transient).
+
+** Дополнения v1.2 — Ключи и глобальный режим
+- Новые модули (lisp/):
+  - carriage-keys.el — применение keyspec к картам, генерация which-key/transient, линтер коллизий.
+  - carriage-global-mode.el — глобальный минор-режим для префикса C-c e (контекст global).
+- Перенос ответственности:
+  - В carriage-ui.el не должно быть defvar/define-key для основной карты режима; все биндинги — через keyspec и модули выше.
+- Проектный буфер:
+  - Реализация команды carriage-open-buffer (управление уникальностью на проект, маркировка «эфемерности», хук выхода).
 
 * Карта исходников (lisp/*)
 
@@ -158,7 +207,6 @@
 
 * Указатели на спецификации (spec/* — основные)
 - spec/index.org — индекс спецификаций и FREEZE (лимиты).
-- spec/project-structure-v1.org — структура слоёв/директорий/правила (источник истины).
 - spec/apply-engines-v1.org — абстракция движков применения.
 - spec/apply-pipeline-v1.org — конвейер dry-run/подтверждение/apply.
 - spec/patch-unified-diff-v1.org — unified diff (v1).
@@ -192,4 +240,3 @@
   1) carriage-mode.el (send-buffer/subtree) → carriage-transport-begin → carriage-transport-*-dispatch
   2) carriage-transport-*.el → события (text/reasoning/done/abort)
   3) carriage-ui.el → вставка чанков, спиннер, финализация/flash/звук.
-

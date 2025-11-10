@@ -74,10 +74,16 @@ Preference order:
                                              "default")))
                (models (ignore-errors (gptel-backend-models backend))))
           (dolist (m (or models '()))
-            (let ((mstr (if (symbolp m) (symbol-name m) (format "%s" m))))
-              ;; New triple and old double forms
-              (push (format "gptel:%s:%s" prov mstr) acc)
-              (push (format "gptel:%s" mstr) acc)))))
+            (let* ((mstr (if (symbolp m) (symbol-name m) (format "%s" m))))
+              (if (string-match-p ":" mstr)
+                  ;; Model already qualified (e.g., "provider:model" or "gptel:provider:model"):
+                  ;; avoid duplicating segments, only ensure the "gptel:" backend prefix is present once.
+                  (let ((full (if (string-prefix-p "gptel:" mstr) mstr (format "gptel:%s" mstr))))
+                    (push full acc))
+                ;; Unqualified model name: offer both triple and double forms.
+                (progn
+                  (push (format "gptel:%s:%s" prov mstr) acc)
+                  (push (format "gptel:%s" mstr) acc)))))))
       (delete-dups (nreverse acc))))
    (t
     ;; Fallback to internal simple registry
