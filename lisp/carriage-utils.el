@@ -101,15 +101,25 @@ about the lifecycle (spawn, wait ticks, timeout/exit) to help diagnose stalls."
 
 (defun carriage-project-root ()
   "Detect project root directory. Return absolute path or nil."
-  (let* ((root nil))
+  (let* ((default-dir (expand-file-name default-directory))
+         (root nil))
+    (when (file-remote-p default-dir)
+      (signal (carriage-error-symbol 'IO_E_PATH) (list "TRAMP is not supported in v1")))
     (condition-case _e
         (when (require 'project nil t)
           (let* ((proj (project-current nil))
                  (pr (and proj (project-root proj))))
-            (when (and pr (file-directory-p pr)) (setq root (expand-file-name pr)))))
+            (when (and pr (file-directory-p pr))
+              (setq root (expand-file-name pr)))))
       (error nil))
+    (unless root
+      (condition-case _e
+          (let ((found (locate-dominating-file default-dir ".git")))
+            (when (and found (file-directory-p found))
+              (setq root (expand-file-name found))))
+        (error nil)))
     (or root
-        (let* ((res (carriage--call-git default-directory "rev-parse" "--show-toplevel")))
+        (let* ((res (carriage--call-git default-dir "rev-parse" "--show-toplevel")))
           (when (and (eq (plist-get res :exit) 0)
                      (string-match-p ".+" (plist-get res :stdout)))
             (string-trim (plist-get res :stdout)))))))
