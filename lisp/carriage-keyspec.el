@@ -18,6 +18,12 @@
   :type 'string
   :group 'carriage-keyspec)
 
+(defcustom carriage-keys-prefix-alias nil
+  "Optional additional prefix key sequence (e.g., \"C-c C-e \") as an alias for `carriage-keys-prefix'.
+Used for menu binding etc., not for all suffix bindings."
+  :type '(choice (const nil) string)
+  :group 'carriage-keyspec)
+
 (defvar carriage-keys--profile-overlays
   '((classic . nil)
     (vimish  . nil)
