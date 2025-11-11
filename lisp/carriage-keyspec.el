@@ -70,6 +70,31 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
   "Keyspec: list of action plists with :id :cmd :keys :contexts :section :desc-key.
 All keys are relative to carriage-keys-prefix (default \"C-c e \").")
 
+;;;###autoload
+(defun carriage-keys-register-actions (actions)
+  "Register or override keyspec actions.
+
+ACTIONS is a list of plists. Each plist should contain at least:
+  :id SYMBOL     Unique action identifier.
+  :cmd SYMBOL    Interactive command symbol.
+
+Optional keys:
+  :keys (LIST OF STR)   Keys relative to `carriage-keys-prefix' (e.g., (\"n\") not full prefix).
+  :contexts (LIST)      Contexts like (carriage report global org).
+  :section SYMBOL       Grouping for menu (navigate act session tools logs).
+  :desc-key SYMBOL      i18n key for labels/tooltips.
+
+If an :id already exists, its entry is replaced. Otherwise, a new entry is appended."
+  (dolist (pl actions)
+    (let ((id (plist-get pl :id)))
+      (when id
+        (setq carriage-keys--spec
+              (nconc
+               (cl-remove-if (lambda (el) (eq (plist-get el :id) id))
+                             carriage-keys--spec)
+               (list pl))))))
+  t)
+
 (defun carriage-keys--ensure-kbd (key)
   "Return a kbd string for KEY under `carriage-keys-prefix'.
 KEY may be a single token (\"m\") or a space-separated sequence (\"t c\")."
@@ -100,18 +125,20 @@ Earlier contexts in CONTEXTS take precedence over later ones by :id."
 
 (defun carriage-keys--current-contexts ()
   "Detect active contexts in current buffer with priority order.
-- In carriage buffers: (carriage [report|log|traffic?] global)
-- In report/log/traffic buffers: (that-context global)
-- Else: (global) only when =carriage-global-mode' is on."
+- In carriage buffers: (carriage [report|log|traffic?] org global)
+- In report/log/traffic buffers: (that-context org global)
+- Else: include `org' when in Org buffers; add `global' only if `carriage-global-mode' is on."
   (let* ((in-carriage (and (boundp 'carriage-mode) carriage-mode))
          (is-report  (derived-mode-p 'carriage-report-mode))
          (is-log     (string= (buffer-name) "*carriage-log*"))
          (is-traffic (string= (buffer-name) "*carriage-traffic*"))
+         (is-org     (derived-mode-p 'org-mode))
          (ctxs '()))
     (when in-carriage (push 'carriage ctxs))
     (when is-report   (push 'report ctxs))
     (when is-log      (push 'log ctxs))
     (when is-traffic  (push 'traffic ctxs))
+    (when is-org      (push 'org ctxs))
     ;; Global is available always inside carriage-mode; outside only if carriage-global-mode is enabled.
     (when (or in-carriage (bound-and-true-p carriage-global-mode))
       (setq ctxs (append ctxs (list 'global))))
@@ -233,6 +260,9 @@ and therefore cannot also serve as a prefix for longer sequences."
        (if (eq mp 'carriage-report-mode-map)
            '(global report)
          '(global log traffic)))))
+  ;; Org buffers: install org-only actions (e.g., task-new) under the Carriage prefix
+  (when (and (boundp 'org-mode-map) (keymapp org-mode-map))
+    (carriage-keys-apply-to org-mode-map 'org))
   ;; Legacy alias: C-c ! applies last iteration (UI v1 legacy)
   (ignore-errors
     (global-set-key (kbd "C-c !") #'carriage-apply-last-iteration))
@@ -380,6 +410,10 @@ Fallback: completing-read (group prefix in labels)."
            (toggles (if (fboundp 'carriage-i18n) (carriage-i18n :carriage-toggles) "Carriage Toggles")))
       (which-key-add-key-based-replacements base menu)
       (which-key-add-key-based-replacements (concat base " t") toggles)
+      (let ((task (if (fboundp 'carriage-i18n)
+                      (or (carriage-i18n :task-new) "Create task doc")
+                    "Create task doc")))
+        (which-key-add-key-based-replacements (concat base " n") task))
       t)))
 
 ;;;###autoload

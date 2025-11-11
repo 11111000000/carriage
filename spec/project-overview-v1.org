@@ -176,6 +176,9 @@
     carriage-dry-run-at-point, carriage-apply-at-point-or-region, carriage-apply-last-iteration,
     carriage-select-suite, carriage-select-model, carriage-select-backend, carriage-select-apply-engine,
     carriage-commit-changes, carriage-commit-last-iteration, carriage-abort-current, carriage-open-buffer.
+- lisp/carriage-task.el
+  - Создание нумерованного документа задачи из заголовка TODO.org (org/N-<slug>.org), взаимные ссылки с TODO.
+  - Ключевые: carriage-create-task-doc; интеграция клавиши C-c e n через keyspec (только в org).
 - lisp/carriage-keyspec.el
   - Централизованная модель биндингов по контекстам; генерация transient/which-key.
   - Ключевые: carriage-keys-apply-known-keymaps, carriage-keys-open-menu, carriage-keys-lint-collisions.
