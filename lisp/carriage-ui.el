@@ -388,6 +388,12 @@ Unknown symbols are ignored."
 (defvar-local carriage-ui--model-block-cache-key nil
   "Key signature used to compute `carriage-ui--model-block-cache'.")
 
+(defvar-local carriage-ui--model-block-cache nil
+  "Cached (label . help) tuple for the mode-line model segment.")
+
+(defvar-local carriage-ui--model-block-cache-key nil
+  "Key signature used to compute `carriage-ui--model-block-cache'.")
+
 (defvar-local carriage-ui--ctx-cache nil
   "Buffer-local cache for context badge computation.
 Plist keys: :doc :gpt :tick :time :value.")
@@ -1007,21 +1013,19 @@ Updates on any change of outline path, heading level, or heading title."
   (carriage-ui--headerline-queue-refresh))
 
 (defun carriage-ui--ml-button (label fn help)
-  "Return a clickable LABEL that invokes FN, preserving LABEL's text properties."
+  "Return a clickable LABEL that invokes FN, preserving LABEL's text properties.
+Optimized: apply properties in one call to reduce per-redisplay overhead."
   (let ((map (make-sparse-keymap)))
     (define-key map [mode-line mouse-1] fn)
-    (let* ((s (copy-sequence (or label ""))))
-      ;; Ensure mouse/keymap/help properties cover every visible character.
-      ;; Some icon/display properties can cause add-text-properties to not
-      ;; behave as expected for the full visual span; putting properties
-      ;; per-character is robust and preserves existing face fragments.
-      (let ((len (length s))
-            (i 0))
-        (while (< i len)
-          (put-text-property i (1+ i) 'mouse-face 'mode-line-highlight s)
-          (put-text-property i (1+ i) 'help-echo help s)
-          (put-text-property i (1+ i) 'local-map map s)
-          (setq i (1+ i))))
+    (let* ((s (copy-sequence (or label "")))
+           (len (length s)))
+      (when (> len 0)
+        (add-text-properties
+         0 len
+         (list 'mouse-face 'mode-line-highlight
+               'help-echo help
+               'local-map map)
+         s))
       s)))
 
 (defun carriage-ui--toggle-icon (key onp)

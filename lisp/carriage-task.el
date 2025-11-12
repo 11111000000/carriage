@@ -42,7 +42,7 @@
   "Prompt used to start the analysis chat when auto-run is enabled."
   :type 'string :group 'carriage-task)
 
-(defcustom carriage-task-move-subtree-content t
+(defcustom carriage-task-move-subtree-content nil
   "When non-nil, move the subtree content into the new task document, leaving only the heading and backlink in the source."
   :type 'boolean :group 'carriage-task)
 

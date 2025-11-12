@@ -11,11 +11,6 @@
 (require 'carriage-intent-registry)
 (require 'carriage-suite)
 (require 'carriage-global-mode)
-;; Load perf helpers early to ensure caches/advices and globals are present.
-(require 'carriage-perf nil t)
-(ignore-errors (require 'carriage-performance nil t))
-(when (fboundp 'carriage-performance-mode)
-  (carriage-performance-mode 1))
 
 ;; Ensure 'ops' and 'engines' directories are on load-path for requiring modules
 (let* ((this-dir (file-name-directory (or load-file-name buffer-file-name)))
@@ -38,6 +33,7 @@
 (require 'carriage-engine-emacs)
 (require 'carriage-mode)
 (require 'carriage-transport)
+(require 'carriage-task)
 ;; Transports are loaded lazily by carriage-transport-dispatch per spec.
 ;; Do not require adapters by default here.
 
