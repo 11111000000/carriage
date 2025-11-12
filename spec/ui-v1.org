@@ -249,7 +249,7 @@
 - Иконки для контролов модлайна:
   - Commit: иконка octicon "git-commit" (фоллбэк — текст [Commit]).
   - Intent=Hybrid: отдельная иконка material "merge_type" (или octicon "git-merge"); Intent=Code — material "code"; Intent=Ask — material "chat".
-  - Тумблер gptel-context [Ctx]: заменить иконку на material "link"; [Files] оставить текущую (например, material "description").
+  - Тумблер gptel-context [Ctx]: иконкв  material "toc"; 
   - Suite/Engine как лейблы:
       - Формат отображения: ICON [value] при carriage-mode-use-icons=t и включённых переключателях; в текстовом фоллбэке — "Suite: [udiff]" и "Engine: [git:in-place]".
     - Новые переключатели:
@@ -275,27 +275,43 @@
   - Сразу после закрытия reasoning-блока (вставлен "#+end_reasoning") содержимое блока автоматически сворачивается.
   - Норматив: при наличии org-fold — использовать org-fold для скрытия содержимого блока; фоллбэк — overlay 'invisible на теле блока. Повторное раскрытие — стандартным org-cycle.
 
-** I18N integration (UI)
-- All visible labels (buttons, help-echo, headers, which-key hints, transient titles) must be resolved via the i18n layer.
-- Locale switching must update UI labels without global side-effects; buffer-local mode-line refresh required (force-mode-line-update).
+ ** I18N integration (UI)
+ - All visible labels (buttons, help-echo, headers, which-key hints, transient titles) must be resolved via the i18n layer.
+ - Locale switching must update UI labels without global side-effects; buffer-local mode-line refresh required (force-mode-line-update).
 
-** Addendum v1.2 — Префикс C-c e, carriage-global-mode и проектный буфер
-- Норматив ключей и transient:
-  - По умолчанию transient включён (carriage-mode-use-transient=t): в carriage-mode сочетание C-c e сразу открывает меню (без дополнительной «e»).
-  - Если carriage-mode-use-transient=nil — C-c e становится префиксом; под ним действуют keyspec-суффиксы (например, "t c").
-  - Вне carriage-mode C-c e не занят, за исключением включённого carriage-global-mode.
-- carriage-global-mode (глобальный минор-режим):
-  - При включении регистрирует глобальный префикс C-c e и строит меню/префикс только из действий :contexts (global).
-  - В буферах carriage-mode одновременно действуют и global-, и carriage-клавиши; при коллизии приоритет у локального контекста (carriage > report/log/traffic > global).
-  - which-key: "C-c e" — Carriage Menu (global), "C-c e t" — Carriage Toggles (если тумблеры объявлены в global).
-- Источник правды по клавишам:
-  - Любые биндинги настраиваются через keyspec; статический (defvar carriage-mode-map ...) в carriage-ui.el запрещён.
-  - В дочерних спец-буферах (report/log/traffic) клавиши задаются контекстами keyspec; локальные define-key в этих файлах недопустимы.
-- Проектный буфер без файла (carriage-open-buffer):
-  - Действие из :contexts (global), рекомендуемая клавиша "e" под префиксом C-c e в global-меню.
-  - Открывает (или переключает на существующий) уникальный для текущего проекта буфер с включённым carriage-mode и default-directory в корне проекта.
-  - Буфер помечается как «эфемерный проектный»; при попытке выхода из Emacs система должна предложить сохранить такие буферы в файл (через kill-emacs-query-functions).
-  - Поведение в TTY/без transient: fallback-меню через completing-read; пункт :menu исключается из списка.
+ ** Addendum v1.4 — Видимость кнопок модлайна
+ - Abort:
+   - Кнопка [Abort] отображается только при наличии активного обработчика отмены
+     (в буфере установлен carriage--abort-handler).
+ - Apply/Dry-run:
+   - Кнопки [Apply]/[Dry] отображаются, только если:
+     - точка находится внутри блока #+begin_patch … #+end_patch, или
+     - активный регион содержит хотя бы один такой блок.
+ - Apply last iteration:
+   - Кнопка [All] (применить «последнюю итерацию») отображается, только если
+     в буфере присутствуют блоки «последней итерации» (по совпадению text-property
+     'carriage-iteration-id с текущим carriage--last-iteration-id).
+ - Примечание по производительности:
+   - Проверки видимости кэшируются по buffer-chars-modified-tick и идентификатору
+     последней итерации, чтобы не сканировать буфер на каждом кадре модлайна.
+
+ ** Addendum v1.2 — Префикс C-c e, carriage-global-mode и проектный буфер
+ - Норматив ключей и transient:
+   - По умолчанию transient включён (carriage-mode-use-transient=t): в carriage-mode сочетание C-c e сразу открывает меню (без дополнительной «e»).
+   - Если carriage-mode-use-transient=nil — C-c e становится префиксом; под ним действуют keyspec-суффиксы (например, "t c").
+   - Вне carriage-mode C-c e не занят, за исключением включённого carriage-global-mode.
+ - carriage-global-mode (глобальный минор-режим):
+   - При включении регистрирует глобальный префикс C-c e и строит меню/префикс только из действий :contexts (global).
+   - В буферах carriage-mode одновременно действуют и global-, и carriage-клавиши; при коллизии приоритет у локального контекста (carriage > report/log/traffic > global).
+   - which-key: "C-c e" — Carriage Menu (global), "C-c e t" — Carriage Toggles (если тумблеры объявлены в global).
+ - Источник правды по клавишам:
+   - Любые биндинги настраиваются через keyspec; статический (defvar carriage-mode-map ...) в carriage-ui.el запрещён.
+   - В дочерних спец-буферах (report/log/traffic) клавиши задаются контекстами keyspec; локальные define-key в этих файлах недопустимы.
+ - Проектный буфер без файла (carriage-open-buffer):
+   - Действие из :contexts (global), рекомендуемая клавиша "e" под префиксом C-c e в global-меню.
+   - Открывает (или переключает на существующий) уникальный для текущего проекта буфер с включённым carriage-mode и default-directory в корне проекта.
+   - Буфер помечается как «эфемерный проектный»; при попытке выхода из Emacs система должна предложить сохранить такие буферы в файл (через kill-emacs-query-functions).
+   - Поведение в TTY/без transient: fallback-меню через completing-read; пункт :menu исключается из списка.
 
 
 

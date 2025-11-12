@@ -1743,13 +1743,16 @@ If no handler is present, stops UI spinner and reports no active request."
   "Register buffer-local abort handler FN and return an unregister lambda.
 FN must be a zero-argument function that cancels the ongoing activity."
   (setq carriage--abort-handler fn)
+  (force-mode-line-update t)
   (lambda ()
     (when (eq carriage--abort-handler fn)
-      (setq carriage--abort-handler nil))))
+      (setq carriage--abort-handler nil)
+      (force-mode-line-update t))))
 
 (defun carriage-clear-abort-handler ()
   "Clear buffer-local abort handler if any."
-  (setq carriage--abort-handler nil))
+  (setq carriage--abort-handler nil)
+  (force-mode-line-update t))
 
 ;;;###autoload
 (defun carriage-toggle-auto-open-report ()

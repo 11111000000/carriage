@@ -976,12 +976,48 @@ Respects `carriage-ui-branch-cache-ttl'."
         (re-search-forward "^[ \t]*#\\+begin_patch\\b" end t)))))
 
 (defun carriage-ui--show-apply-buttons-p ()
-  "Return non-nil when modeline should show Dry/Apply actions."
-  t)
+  "Return non-nil when modeline should show Dry/Apply actions.
+
+Visible only when point is inside a #+begin_patch … #+end_patch block
+or when the active region contains at least one patch block."
+  (or (carriage-ui--point-in-patch-block-p)
+      (carriage-ui--region-has-patch-p)))
+
+(defvar-local carriage-ui--last-iter-cache-id nil
+  "Cached last iteration id used to detect presence of last-iteration blocks.")
+(defvar-local carriage-ui--last-iter-cache-tick nil
+  "Buffer tick corresponding to `carriage-ui--last-iter-cache-id'.")
+(defvar-local carriage-ui--last-iter-cache-result nil
+  "Cached boolean result for last-iteration presence detection.")
 
 (defun carriage-ui--last-iteration-present-p ()
-  "Return non-nil to always show [All] button in the modeline (tests expect presence)."
-  t)
+  "Return non-nil when there are blocks of the last iteration in the buffer.
+
+Detection strategy:
+- If `carriage--last-iteration-id' is non-nil, scan for any #+begin_patch line
+  with text property 'carriage-iteration-id equal to that id.
+- Results are cached per buffer and invalidated on buffer tick changes
+  or when the last-iteration id changes."
+  (let* ((id (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id))
+         (tick (buffer-chars-modified-tick)))
+    (if (and (equal id carriage-ui--last-iter-cache-id)
+             (eq tick carriage-ui--last-iter-cache-tick))
+        carriage-ui--last-iter-cache-result
+      (let ((found
+             (and id
+                  (save-excursion
+                    (goto-char (point-min))
+                    (let ((ok nil))
+                      (while (and (not ok)
+                                  (re-search-forward "^[ \t]*#\\+begin_patch\\b" nil t))
+                        (let ((lb (line-beginning-position)))
+                          (when (equal (get-text-property lb 'carriage-iteration-id) id)
+                            (setq ok t))))
+                      ok)))))
+        (setq carriage-ui--last-iter-cache-id id
+              carriage-ui--last-iter-cache-tick tick
+              carriage-ui--last-iter-cache-result found)
+        found))))
 
 (defcustom carriage-mode-headerline-show-outline t
   "When non-nil, show org outline segment in header-line. Turning it off reduces overhead in large Org files."
@@ -1046,8 +1082,12 @@ Updates on any change of outline path, heading level, or heading title."
 
 (defun carriage-ui--ml-button (label fn help)
   "Return a clickable LABEL that invokes FN, preserving LABEL's text properties.
-Memoized to avoid per-redisplay keymap/props allocation when LABEL/HELP/FN are unchanged."
-  (let* ((key (list label help fn))
+Memoized to avoid per-redisplay keymap/props allocation.
+
+Important: the cache key includes label's text properties to ensure visual updates
+(e.g. toggle icons changing color) are not suppressed by memoization."
+  (let* ((kprops (and (stringp label) (text-properties-at 0 label)))
+         (key (list label help fn kprops))
          (cache (or carriage-ui--button-cache
                     (setq carriage-ui--button-cache (make-hash-table :test 'equal))))
          (hit (and cache (gethash key cache))))
@@ -1261,12 +1301,13 @@ Uses pulse.el when available, otherwise temporary overlays."
          (state  (and (boundp 'carriage--ui-state) carriage--ui-state))
          (spin   (and (memq state '(sending streaming dispatch waiting reasoning))
                       (carriage-ui--spinner-char)))
-         (branch (carriage-ui--branch-name-cached)))
+         (branch (carriage-ui--branch-name-cached))
+         (abortp (and (boundp 'carriage--abort-handler) carriage--abort-handler)))
     (list uicons
           state spin
           (and ctx-badge (car ctx-badge))
           (and ctx-badge (cdr ctx-badge))
-          patch-count show-patch has-last blocks
+          patch-count show-patch has-last abortp blocks
           (and (boundp 'carriage-mode-intent)  carriage-mode-intent)
           (and (boundp 'carriage-mode-suite)   carriage-mode-suite)
           (and (boundp 'carriage-mode-model)   carriage-mode-model)
@@ -1465,10 +1506,11 @@ Uses pulse.el when available, otherwise temporary overlays."
     (carriage-ui--ml-button label #'carriage-ui--ediff-button "Открыть Ediff для элемента отчёта")))
 
 (defun carriage-ui--ml-seg-abort ()
-  "Build Abort button."
-  (let* ((uicons (carriage-ui--icons-available-p))
-         (label (or (and uicons (carriage-ui--icon 'abort)) "[Abort]")))
-    (carriage-ui--ml-button label #'carriage-abort-current "Abort current request")))
+  "Build Abort button (visible only when an abort handler is registered)."
+  (when (and (boundp 'carriage--abort-handler) carriage--abort-handler)
+    (let* ((uicons (carriage-ui--icons-available-p))
+           (label (or (and uicons (carriage-ui--icon 'abort)) "[Abort]")))
+      (carriage-ui--ml-button label #'carriage-abort-current "Abort current request"))))
 
 (defun carriage-ui--ml-seg-report ()
   "Build Report button."
