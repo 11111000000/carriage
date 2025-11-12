@@ -3,6 +3,7 @@
 (require 'cl-lib)
 (require 'subr-x)
 (require 'carriage-utils)
+(require 'carriage-llm-registry)
 (require 'carriage-perf nil t)
 (declare-function carriage-select-apply-engine "carriage-apply-engine" (&optional engine))
 
@@ -1290,34 +1291,37 @@ Uses pulse.el when available, otherwise temporary overlays."
 (defun carriage-ui--ml-seg-model ()
   "Build Model segment."
   (let* ((uicons (carriage-ui--icons-available-p))
-         (model-str (or (and (boundp 'carriage-mode-model) carriage-mode-model) "model"))
-         (b-backend (let ((b (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
-                      (if (symbolp b) (symbol-name b) (or b ""))))
-         (display-model-base
-          (let* ((m (if (symbolp model-str) (symbol-name model-str) model-str)))
-            (if (and (stringp m) (string= m "gptel-default")
-                     (require 'carriage-llm-registry nil t))
-                (let* ((bcur (if (symbolp carriage-mode-backend)
-                                 (symbol-name carriage-mode-backend)
-                               (or carriage-mode-backend "")))
-                       (pairs (ignore-errors (carriage-llm-candidates)))
-                       (cand (ignore-errors (carriage-llm-default-candidate bcur m pairs carriage-mode-provider))))
-                  (carriage-llm-basename (or cand m)))
-              (or (car (last (split-string m ":" t))) m))))
-         (bm-text (format "[%s]" display-model-base))
-         (bm-label (if uicons
-                       (let ((ic (carriage-ui--icon 'model)))
-                         (if ic (concat ic " " bm-text) bm-text))
-                     bm-text))
-         (provider (and (boundp 'carriage-mode-provider) carriage-mode-provider))
-         (full-id (if (and (stringp b-backend) (not (string-empty-p b-backend)))
-                      (if (and provider (stringp provider) (not (string-empty-p provider)))
-                          (format "%s:%s:%s" b-backend provider model-str)
-                        (format "%s:%s" b-backend model-str))
-                    model-str)))
-    (carriage-ui--ml-button bm-label
-                            #'carriage-select-model
-                            (format "Модель: %s (клик — выбрать)" full-id))))
+         (model-val (and (boundp 'carriage-mode-model) carriage-mode-model))
+         (raw-model (cond
+                     ((stringp model-val) model-val)
+                     ((symbolp model-val) (symbol-name model-val))
+                     ((null model-val) "")
+                     (t (format "%s" model-val))))
+         (resolved (carriage-llm-resolve-model carriage-mode-backend carriage-mode-provider raw-model))
+         (display-source (if (stringp resolved) resolved raw-model))
+         (display-name (carriage-llm-display-name (or display-source "")))
+         (bm-text (format "[%s]" (if (and (stringp display-name)
+                                          (not (string-empty-p display-name)))
+                                     display-name
+                                   "-")))
+         (ic (and uicons (carriage-ui--icon 'model)))
+         (full-id
+          (let* ((candidate (and (stringp resolved) resolved))
+                 (has-colon (and candidate (string-match-p ":" candidate))))
+            (cond
+             (has-colon candidate)
+             (t (or (carriage-llm-make-full-id carriage-mode-backend carriage-mode-provider display-source)
+                    display-source
+                    raw-model
+                    "-")))))
+         ;; Make only the text part clickable to ensure mouse highlight and clicks work reliably.
+         (btn (carriage-ui--ml-button bm-text
+                                      #'carriage-select-model
+                                      (format "Модель: %s (клик — выбрать)"
+                                              (or full-id "-")))))
+    (if ic
+        (concat ic " " btn)
+      btn)))
 
 (defun carriage-ui--ml-seg-engine ()
   "Build Engine segment."

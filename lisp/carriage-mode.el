@@ -844,51 +844,54 @@ TYPE is either 'text (default) or 'reasoning.
 Deduplicates segments if MODEL already contains provider/backend."
   (let* ((be (or backend (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
          (pr (or provider (and (boundp 'carriage-mode-provider) carriage-mode-provider)))
-         (mo (or model   (and (boundp 'carriage-mode-model)   carriage-mode-model)))
-         (be-str (cond
-                  ((symbolp be) (symbol-name be))
-                  ((stringp be) be)
-                  ((null be) "")
-                  (t (format "%s" be))))
-         (pr-str (cond
-                  ((symbolp pr) (symbol-name pr))
-                  ((stringp pr) pr)
-                  ((null pr) "")
-                  (t (format "%s" pr))))
-         (mo-str (cond
-                  ((symbolp mo) (symbol-name mo))
-                  ((stringp mo) mo)
-                  ((null mo) "")
-                  (t (format "%s" mo)))))
-    (let* ((parts (and (stringp mo-str) (not (string-empty-p mo-str))
-                       (split-string mo-str ":" t)))
-           (n (length parts)))
-      (cond
-       ;; No model → return backend (or empty)
-       ((or (null parts) (zerop n))
-        (or be-str ""))
-       ;; MODEL already like "backend:...": return as-is
-       ((and (not (string-empty-p be-str))
-             (string-prefix-p (concat be-str ":") mo-str))
-        mo-str)
-       ;; MODEL has two parts "provider:model" → prefix backend
-       ((= n 2)
-        (if (and (not (string-empty-p be-str)))
-            (concat be-str ":" mo-str)
-          mo-str))
-       ;; MODEL has ≥3 parts → assume fully-qualified and return as-is
-       ((>= n 3)
-        mo-str)
-       ;; MODEL is a bare name → compose "backend[:provider]:model" with dedup when pr==backend
-       (t
-        (if (string-empty-p be-str)
-            mo-str
-          (concat be-str
-                  (if (and (not (string-empty-p pr-str))
-                           (not (string= pr-str be-str)))
-                      (concat ":" pr-str)
-                    "")
-                  ":" mo-str)))))))
+         (mo (or model   (and (boundp 'carriage-mode-model)   carriage-mode-model))))
+    (let ((resolved (ignore-errors (carriage-llm-resolve-model be pr mo))))
+      (when (stringp resolved)
+        (setq mo resolved)))
+    (let* ((be-str (cond
+                    ((symbolp be) (symbol-name be))
+                    ((stringp be) be)
+                    ((null be) "")
+                    (t (format "%s" be))))
+           (pr-str (cond
+                    ((symbolp pr) (symbol-name pr))
+                    ((stringp pr) pr)
+                    ((null pr) "")
+                    (t (format "%s" pr))))
+           (mo-str (cond
+                    ((symbolp mo) (symbol-name mo))
+                    ((stringp mo) mo)
+                    ((null mo) "")
+                    (t (format "%s" mo)))))
+      (let* ((parts (and (stringp mo-str) (not (string-empty-p mo-str))
+                         (split-string mo-str ":" t)))
+             (n (length parts)))
+        (cond
+         ;; No model → return backend (or empty)
+         ((or (null parts) (zerop n))
+          (or be-str ""))
+         ;; MODEL already like "backend:...": return as-is
+         ((and (not (string-empty-p be-str))
+               (string-prefix-p (concat be-str ":") mo-str))
+          mo-str)
+         ;; MODEL has two parts "provider:model" → prefix backend
+         ((= n 2)
+          (if (and (not (string-empty-p be-str)))
+              (concat be-str ":" mo-str)
+            mo-str))
+         ;; MODEL has ≥3 parts → assume fully-qualified and return as-is
+         ((>= n 3)
+          mo-str)
+         ;; MODEL is a bare name → compose "backend[:provider]:model" with dedup when pr==backend
+         (t
+          (if (string-empty-p be-str)
+              mo-str
+            (concat be-str
+                    (if (and (not (string-empty-p pr-str))
+                             (not (string= pr-str be-str)))
+                        (concat ":" pr-str)
+                      "")
+                    ":" mo-str))))))))
 
 (defun carriage--build-context (source buffer)
   "Return context plist for prompt builder with at least :payload.

@@ -3,6 +3,10 @@
 (require 'cl-lib)
 (require 'subr-x)
 
+(declare-function gptel-backend-name "gptel" (backend))
+(declare-function gptel-backend-models "gptel" (&optional backend))
+(declare-function gptel-backend-default-model "gptel" (backend))
+
 (defvar carriage-llm--registry nil
   "Alist registry of LLM backends and their models.
 Shape: ((BACKEND . (:models (\"m1\" \"m2\") :models-fn FN)) ...).
@@ -104,6 +108,17 @@ Examples:
          (last (car (last parts))))
     (or last s)))
 
+(defun carriage-llm-display-name (model-or-id)
+  "Return a friendly display name for MODEL-OR-ID.
+
+Takes the last part after ':' and, if that part contains a provider prefix
+separated by '/', returns only the final segment after '/'."
+  (let* ((base (carriage-llm-basename model-or-id))
+         (parts (and (stringp base) (split-string base "/" t))))
+    (if (and parts (> (length parts) 0))
+        (car (last parts))
+      base)))
+
 (defun carriage-llm-default-candidate (backend model pairs &optional provider)
   "Return best default candidate string for BACKEND MODEL using PAIRS.
 When PROVIDER is non-nil, prefer \"backend:provider:model\" if present.
@@ -148,6 +163,125 @@ Returns:
      ((and b provider model) (format "%s:%s:%s" b provider model))
      ((and b model)          (format "%s:%s" b model))
      (model))))
+
+;; -----------------------------------------------------------------------------
+;; Model resolution helpers
+
+(defun carriage-llm--coerce-string (value)
+  "Return VALUE coerced to a non-empty string when possible."
+  (cond
+   ((stringp value) (unless (string-empty-p value) value))
+   (symbolp value) (symbol-name value))
+  ((numberp value) (number-to-string value))
+  ((null value) nil)
+  (t (let ((s (ignore-errors (format "%s" value))))
+       (unless (or (null s) (string-empty-p s)) s))))
+
+(defun carriage-llm--first-model-string (value)
+  "Extract the first non-empty model string from VALUE."
+  (cond
+   ((stringp value) (unless (string-empty-p value) value))
+   ((symbolp value) (symbol-name value))
+   ((numberp value) (number-to-string value))
+   ((vectorp value)
+    (let ((len (length value))
+          (idx 0)
+          (res nil))
+      (while (and (< idx len) (null res))
+        (setq res (carriage-llm--first-model-string (aref value idx)))
+        (setq idx (1+ idx)))
+      res))
+   ((listp value)
+    (cl-loop for item in value
+             for str = (carriage-llm--first-model-string item)
+             when str return str))
+   ((null value) nil)
+   (t (carriage-llm--coerce-string value))))
+
+(defun carriage-llm--provider-slug (provider)
+  "Return normalized provider slug for PROVIDER."
+  (let ((raw (cond
+              ((stringp provider) provider)
+              ((symbolp provider) (symbol-name provider))
+              ((null provider) nil)
+              (t (format "%s" provider)))))
+    (when (and raw (not (string-empty-p raw)))
+      (carriage-llm--slug raw))))
+
+(defun carriage-llm--gptel-backend-slug (backend)
+  "Return slug for GPTel BACKEND object when known."
+  (when (and backend (boundp 'gptel--known-backends) gptel--known-backends)
+    (cl-loop for cell in gptel--known-backends
+             for provider-name = (car cell)
+             for backend-obj = (cdr cell)
+             when (eq backend backend-obj)
+             return (carriage-llm--slug
+                     (or provider-name
+                         (and (fboundp 'gptel-backend-name)
+                              (ignore-errors (gptel-backend-name backend)))
+                         "default")))))
+
+(defun carriage-llm--gptel-backend-by-provider (provider)
+  "Return GPTel backend object that matches PROVIDER slug."
+  (let ((slug (carriage-llm--provider-slug provider)))
+    (when (and slug (boundp 'gptel--known-backends) gptel--known-backends)
+      (cl-loop for cell in gptel--known-backends
+               for provider-name = (car cell)
+               for backend = (cdr cell)
+               for prov-slug = (carriage-llm--slug
+                                (or provider-name
+                                    (and (fboundp 'gptel-backend-name)
+                                         (ignore-errors (gptel-backend-name backend)))
+                                    "default"))
+               when (string= prov-slug slug)
+               return backend))))
+
+(defun carriage-llm--gptel-current-backend ()
+  "Return current or default GPTel backend object."
+  (or (and (boundp 'gptel-current-backend) gptel-current-backend)
+      (and (boundp 'gptel-default-backend) gptel-default-backend)
+      (and (boundp 'gptel--default-backend) gptel--default-backend)
+      (and (boundp 'gptel--known-backends) gptel--known-backends
+           (cdr (car gptel--known-backends)))))
+
+(defun carriage-llm--gptel-resolve-default (provider)
+  "Resolve \"gptel-default\" for PROVIDER to a concrete model identifier."
+  (when (require 'gptel nil t)
+    (let* ((backend (or (carriage-llm--gptel-backend-by-provider provider)
+                        (carriage-llm--gptel-current-backend)))
+           (model
+            (or
+             (when (and backend (fboundp 'gptel-backend-default-model))
+               (carriage-llm--first-model-string
+                (ignore-errors (gptel-backend-default-model backend))))
+             (let* ((models-raw (and backend (fboundp 'gptel-backend-models)
+                                     (ignore-errors (gptel-backend-models backend))))
+                    (models (if (functionp models-raw)
+                                (ignore-errors (funcall models-raw))
+                              models-raw)))
+               (carriage-llm--first-model-string models)))))
+      (when (stringp model)
+        (let* ((slug (or (carriage-llm--provider-slug provider)
+                         (carriage-llm--gptel-backend-slug backend))))
+          (if slug
+              (carriage-llm-make-full-id 'gptel slug model)
+            (carriage-llm-make-full-id 'gptel nil model)))))))
+
+(defun carriage-llm-resolve-model (backend provider model)
+  "Return canonical model string for BACKEND/PROVIDER/MODEL.
+Expands placeholders such as \"gptel-default\" when possible."
+  (let* ((model-str (cond
+                     ((stringp model) model)
+                     ((symbolp model) (symbol-name model))
+                     ((null model) nil)
+                     (t (format "%s" model))))
+         (backend-sym (carriage-llm--norm-backend backend)))
+    (cond
+     ((and (stringp model-str)
+           (string= model-str "gptel-default")
+           (eq backend-sym 'gptel))
+      (or (carriage-llm--gptel-resolve-default provider) model-str))
+     (t model-str))))
 
 (provide 'carriage-llm-registry)
 ;;; carriage-llm-registry.el ends here
