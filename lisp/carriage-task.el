@@ -320,9 +320,9 @@ Behavior:
               :cmd carriage-create-task-doc
               :keys ("n")
               :section tools
-              :contexts (carriage org global))))))
-  (when (fboundp 'carriage-keys-apply-known-keymaps)
-    (ignore-errors (carriage-keys-apply-known-keymaps))))
+              :contexts (carriage org global)
+              :desc-key :task-new)))))
+  (when (fboundp 'carriage-keys-apply-known-keymaps) (ignore-errors (carriage-keys-apply-known-keymaps))))
 
 (provide 'carriage-task)
 ;;; carriage-task.el ends here

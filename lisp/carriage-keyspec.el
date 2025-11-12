@@ -3,6 +3,8 @@
 (require 'cl-lib)
 (require 'subr-x)
 
+(autoload 'carriage-create-task-doc "carriage-task" "Create task document from the current heading." t)
+
 (defgroup carriage-keyspec nil
   "Centralized key binding model for Carriage."
   :group 'applications
@@ -21,8 +23,24 @@
 (defcustom carriage-keys-prefix-alias nil
   "Optional additional prefix key sequence (e.g., \"C-c C-e \") as an alias for `carriage-keys-prefix'.
 Used for menu binding etc., not for all suffix bindings."
-  :type '(choice (const nil) string)
+  :type '(choice (const nil) string (repeat string))
   :group 'carriage-keyspec)
+
+(defun carriage-keys-prefixes ()
+  "Return list of primary and alias prefixes without trailing whitespace."
+  (let* ((raw (cons carriage-keys-prefix
+                    (cond
+                     ((null carriage-keys-prefix-alias) nil)
+                     ((listp carriage-keys-prefix-alias) carriage-keys-prefix-alias)
+                     (t (list carriage-keys-prefix-alias)))))
+         (clean (cl-remove-if-not
+                 #'identity
+                 (mapcar (lambda (p)
+                           (when (stringp p)
+                             (let ((trim (string-trim-right p "[ \t\n\r]+")))
+                               (unless (string-empty-p trim) trim))))
+                         raw))))
+    (delete-dups clean)))
 
 (defvar carriage-keys--profile-overlays
   '((classic . nil)
@@ -63,6 +81,7 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
     (:id show-traffic :cmd carriage-show-traffic            :keys ("T")     :contexts (carriage report global) :section logs :desc-key :show-traffic)
     (:id aux-quit     :cmd quit-window                      :keys ("q")     :contexts (report log traffic)     :section navigate :desc-key :quit)
     (:id open-buffer  :cmd carriage-open-buffer             :keys ("e")     :contexts (global)   :section session :desc-key :open-buffer)
+    (:id task-new     :cmd carriage-create-task-doc         :keys ("n")     :contexts (carriage org global) :section tools :desc-key :task-new :label "Create task doc")
     ;; Engine
     (:id engine       :cmd carriage-select-apply-engine     :keys ("E")  :contexts (carriage) :section tools :desc-key :engine))
   "Keyspec: list of action plists with :id :cmd :keys :contexts :section :desc-key.
@@ -223,24 +242,17 @@ Example: (global carriage) → локальные биндинги перекр�
   map)
 
 (defun carriage-keys-apply-known-keymaps ()
-  "Apply keyspec to known Carriage keymaps with proper context priority.
-- carriage buffers:
-  - when `carriage-mode-use-transient' is non-nil, bind the bare prefix (from
-    `carriage-keys-prefix') to the menu command and DO NOT bind any suffix
-    sequences under this prefix in `carriage-mode-map' to avoid \"non-prefix\"
-    errors;
-  - when transient is nil, install full prefix sequences for (global carriage).
-- report/log/traffic buffers: install (global report|log/traffic) sequences.
-
-This avoids binding conflicts where a bare prefix key is a command (menu)
-and therefore cannot also serve as a prefix for longer sequences."
-  (let ((base (string-trim-right (or carriage-keys-prefix "C-c e ")
-                                 "[ \t\n\r]+")))
+  "Apply keyspec to known Carriage keymaps ensuring all prefixes open the menu.
+Installs bindings for the primary prefix and any aliases in Carriage and auxiliary maps."
+  (let ((prefixes (carriage-keys-prefixes)))
     (when (and (boundp 'carriage-mode-map) (keymapp carriage-mode-map))
-      (define-key carriage-mode-map (kbd base) #'carriage-keys-open-menu))
+      (dolist (pref prefixes)
+        (define-key carriage-mode-map (kbd pref) #'carriage-keys-open-menu)))
     (dolist (mp '(carriage-report-mode-map carriage-aux-mode-map org-mode-map))
-      (when (and (boundp mp) (keymapp (symbol-value mp)))
-        (define-key (symbol-value mp) (kbd base) #'carriage-keys-open-menu))))
+      (let ((map (when (boundp mp) (symbol-value mp))))
+        (when (keymapp map)
+          (dolist (pref prefixes)
+            (define-key map (kbd pref) #'carriage-keys-open-menu))))))
   ;; Legacy alias: C-c ! applies last iteration (UI v1 legacy)
   (ignore-errors
     (global-set-key (kbd "C-c !") #'carriage-apply-last-iteration))
@@ -385,30 +397,37 @@ Fallback: completing-read (group prefix in labels)."
   (interactive)
   (when (require 'which-key nil t)
     (let* ((_ (require 'carriage-i18n nil t))
-           (base (string-trim-right (or carriage-keys-prefix "C-c e ") "[ \t\n\r]+"))
+           (prefixes (carriage-keys-prefixes))
+           (base (car prefixes))
+           (aliases (cdr prefixes))
            (menu   (if (fboundp 'carriage-i18n) (carriage-i18n :carriage-menu) "Carriage Menu"))
-           (toggles (if (fboundp 'carriage-i18n) (carriage-i18n :carriage-toggles) "Carriage Toggles")))
-      (which-key-add-key-based-replacements base menu)
-      (which-key-add-key-based-replacements (concat base " t") toggles)
-      (let ((task (if (fboundp 'carriage-i18n)
-                      (or (carriage-i18n :task-new) "Create task doc")
-                    "Create task doc")))
+           (toggles (if (fboundp 'carriage-i18n) (carriage-i18n :carriage-toggles) "Carriage Toggles"))
+           (task (if (fboundp 'carriage-i18n)
+                     (or (carriage-i18n :task-new) "Create task doc")
+                   "Create task doc")))
+      (when base
+        (which-key-add-key-based-replacements base menu)
+        (which-key-add-key-based-replacements (concat base " t") toggles)
         (which-key-add-key-based-replacements (concat base " n") task))
+      (dolist (alias aliases)
+        (which-key-add-key-based-replacements alias menu))
       t)))
 
-;;;###autoload
 (defun carriage-keys-which-key-unregister ()
   "Remove which-key replacements for Carriage prefix keys, if present."
   (interactive)
   (when (require 'which-key nil t)
-    (let* ((base (string-trim-right (or carriage-keys-prefix "C-c e ") "[ \t\n\r]+")))
-      (when (fboundp 'which-key-remove-key-based-replacements)
+    (let* ((prefixes (carriage-keys-prefixes))
+           (base (car prefixes))
+           (aliases (cdr prefixes)))
+      (when (and base (fboundp 'which-key-remove-key-based-replacements))
         (ignore-errors (which-key-remove-key-based-replacements base))
-        (ignore-errors (which-key-remove-key-based-replacements (concat base " t"))))
+        (ignore-errors (which-key-remove-key-based-replacements (concat base " t")))
+        (ignore-errors (which-key-remove-key-based-replacements (concat base " n"))))
+      (dolist (alias aliases)
+        (when (fboundp 'which-key-remove-key-based-replacements)
+          (ignore-errors (which-key-remove-key-based-replacements alias))))
       t)))
-
-;; Global prefix is managed by carriage-global-mode (see carriage-global-mode.el).
-;; No global prefix is installed from keyspec; only buffer-local bindings are applied here.
 
 (provide 'carriage-keyspec)
 ;;; carriage-keyspec.el ends here

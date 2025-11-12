@@ -98,4 +98,5 @@
 
 ;; Глобальное «открыть буфер Carriage» (уникальный на проект)
 (:id open-buffer  :cmd carriage-open-buffer   :keys ("e")      :contexts (global)   :section session :desc-key :open-buffer)
+(:id task-new     :cmd carriage-create-task-doc :keys ("n")    :contexts (carriage org global) :section tools :desc-key :task-new)
 #+end_src

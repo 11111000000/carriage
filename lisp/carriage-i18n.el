@@ -72,6 +72,7 @@
     (:files-tooltip      . ((ru . "Переключить файлы документа") (en . "Toggle document files")))
     (:flash-enabled      . ((ru . "Мигание патчей по завершении") (en . "Flash patches on completion")))
     (:audio-enabled      . ((ru . "Звуковое уведомление")      (en . "Audio notification")))
+    (:task-new           . ((ru . "Создать задачу из этого") (en . "New task from that")))
     )
   "Translation table: KEY → ((ru . STR) (en . STR)).")
 

@@ -28,29 +28,18 @@ When enabled:
 which-key hints are registered if available."
   :global t
   :group 'carriage-global
-  (let* ((base (string-trim-right (or carriage-keys-prefix "C-c e ") "[ \t\n\r]+"))
-         (key  (kbd base)))
-    ;; Clear any previous binding to avoid stale maps
-    (define-key global-map key nil)
+  (let* ((prefixes (carriage-keys-prefixes)))
+    (dolist (pref prefixes)
+      (define-key global-map (kbd pref) nil))
     (when (keymapp carriage-global--prefix-map)
       (setq carriage-global--prefix-map nil))
     (if carriage-global-mode
         (progn
-          (if carriage-global-use-transient
-              (define-key global-map key #'carriage-keys-open-menu)
-            ;; Non-transient global prefix: create and populate prefix map from keyspec(:contexts global)
-            (setq carriage-global--prefix-map (make-sparse-keymap))
-            (define-key global-map key carriage-global--prefix-map)
-            (when (require 'carriage-keyspec nil t)
-              (if (fboundp 'carriage-keys-apply-prefix-suffixes)
-                  (carriage-keys-apply-prefix-suffixes carriage-global--prefix-map 'global)
-                (carriage-keys-apply-to carriage-global--prefix-map 'global))))
+          (dolist (pref prefixes)
+            (define-key global-map (kbd pref) #'carriage-keys-open-menu))
           (ignore-errors (carriage-keys-which-key-register))
-          (message "carriage-global-mode enabled (%s)"
-                   (if carriage-global-use-transient "menu" "prefix")))
-      ;; Disable: unbind and unregister which-key hints
+          (message "carriage-global-mode enabled (menu)"))
       (ignore-errors (carriage-keys-which-key-unregister))
-      (setq carriage-global--prefix-map nil)
       (message "carriage-global-mode disabled"))))
 
 (provide 'carriage-global-mode)

@@ -382,12 +382,11 @@ Consults engine capabilities; safe when registry is not yet loaded."
   (when (require 'carriage-keyspec nil t)
     (carriage-keys-apply-known-keymaps)
     (ignore-errors (carriage-keys-which-key-register))
-    (let* ((base (string-trim-right (or carriage-keys-prefix "C-c e ")
-                                    "[ \t\n\r]+")))
-      ;; Всегда открываем меню transient по C-c e в carriage-mode.
-      (define-key carriage-mode-map (kbd base) #'carriage-keys-open-menu)
-      (setq carriage--mode-emulation-map nil
-            carriage--emulation-map-alist nil))
+    (let ((prefixes (carriage-keys-prefixes)))
+      (dolist (pref prefixes)
+        (define-key carriage-mode-map (kbd pref) #'carriage-keys-open-menu)))
+    (setq carriage--mode-emulation-map nil
+          carriage--emulation-map-alist nil)
     ;; Legacy bindings:
     ;; - C-c C-c → apply at point/region ONLY on patch blocks; otherwise delegate to Org
     ;; - C-c !   → apply last iteration (override org-time-stamp in carriage-mode buffers)
@@ -493,13 +492,16 @@ Consults engine capabilities; safe when registry is not yet loaded."
 
 (defun carriage--preloader--render (pos)
   "Render preloader at POS, updating overlay text."
-  (unless (overlayp carriage--preloader-overlay)
+  ;; Ensure overlay variable is bound and overlay exists for this buffer.
+  (unless (and (boundp 'carriage--preloader-overlay)
+               (overlayp carriage--preloader-overlay))
     (setq carriage--preloader-overlay (make-overlay pos pos)))
   (let* ((frames (carriage--preloader-frames))
          (n (length frames))
          (i (mod (or carriage--preloader-index 0) (max 1 n)))
          (frame (aref frames i)))
-    (overlay-put carriage--preloader-overlay 'after-string (propertize frame 'face 'shadow))
+    (when (overlayp carriage--preloader-overlay)
+      (overlay-put carriage--preloader-overlay 'after-string (propertize frame 'face 'shadow)))
     (setq carriage--preloader-index (1+ i))))
 
 (defun carriage--preloader-start ()
@@ -510,17 +512,28 @@ Consults engine capabilities; safe when registry is not yet loaded."
                        (buffer-live-p (marker-buffer carriage--stream-origin-marker)))
                   (marker-position carriage--stream-origin-marker))
                  (t (point))))
-           (interval (or carriage-mode-preloader-interval 0.2)))
+           (interval (or carriage-mode-preloader-interval 0.2))
+           (buf (current-buffer))
+           (timer nil))
       (setq carriage--preloader-index 0)
       (carriage--preloader--render pos)
-      (setq carriage--preloader-timer
-            (run-at-time 0 interval
-                         (lambda ()
-                           (let ((ov carriage--preloader-overlay))
-                             (when (and (overlayp ov)
-                                        (get-buffer-window (overlay-buffer ov) t))
-                               (carriage--preloader--render (overlay-start ov))))))))))
-
+      (setq timer
+            (run-at-time
+             0 interval
+             (lambda ()
+               (if (not (buffer-live-p buf))
+                   (when (timerp timer)
+                     (cancel-timer timer)
+                     (setq timer nil))
+                 (with-current-buffer buf
+                   (let* ((ov (and (boundp 'carriage--preloader-overlay)
+                                   carriage--preloader-overlay))
+                          (ob (and (overlayp ov) (overlay-buffer ov))))
+                     (when (and (overlayp ov)
+                                (buffer-live-p ob)
+                                (get-buffer-window ob t))
+                       (carriage--preloader--render (overlay-start ov)))))))))
+      (setq carriage--preloader-timer timer))))
 
 (defun carriage--preloader-stop ()
   "Stop and remove buffer preloader spinner if active."
@@ -876,35 +889,6 @@ Deduplicates segments if MODEL already contains provider/backend."
                       (concat ":" pr-str)
                     "")
                   ":" mo-str)))))))
-
-(defun carriage--modeline-attach-model-tooltip (ret)
-  "Attach help-echo with full model id to the model segment inside RET (modeline construct).
-RET can be a string or a list; this function is defensive and no-ops if not in carriage-mode."
-  (condition-case _e
-      (if (and (bound-and-true-p carriage-mode)
-               (boundp 'carriage-mode-model) carriage-mode-model)
-          (let* ((base carriage-mode-model)
-                 (full (carriage-llm-full-id))
-                 (_ (require 'carriage-i18n nil t))
-                 (templ (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                            (carriage-i18n :model-tooltip "%s")
-                          "Модель: %s"))
-                 (help (format templ full))
-                 (prop (lambda (s)
-                         (if (and (stringp s) (string-match (regexp-quote base) s))
-                             (replace-match (propertize base 'help-echo help) t t s)
-                           s))))
-            (cond
-             ((stringp ret) (funcall prop ret))
-             ((consp ret)   (mapcar (lambda (el) (if (stringp el) (funcall prop el) el)) ret))
-             (t ret)))
-        ret)
-    (error ret)))
-
-;; Register advice once (global), but it is effectively active only in carriage-mode buffers.
-(when (fboundp 'carriage-ui--modeline)
-  (unless (advice-member-p #'carriage--modeline-attach-model-tooltip 'carriage-ui--modeline)
-    (advice-add 'carriage-ui--modeline :filter-return #'carriage--modeline-attach-model-tooltip)))
 
 (defun carriage--build-context (source buffer)
   "Return context plist for prompt builder with at least :payload.
