@@ -290,7 +290,7 @@ Update only when BUF is visible and selected to avoid unnecessary redisplay chur
     ('error "Error")
     (_ (capitalize (symbol-name (or state 'idle))))))
 
-(defcustom carriage-ui-context-cache-ttl 1.5
+(defcustom carriage-ui-context-cache-ttl 2.5
   "Maximum age in seconds for cached context badge computations in the mode-line.
 Set to 0 to recompute on every redisplay; set to nil to keep values until other cache
 keys change (buffer content, toggle states)."
@@ -412,6 +412,18 @@ Plist keys: :doc :gpt :tick :time :value.")
 (defvar-local carriage-ui--ml-cache-key nil
   "Signature (key) of the last rendered modeline for quick short-circuit.")
 
+(defvar-local carriage-ui--button-cache nil
+  "Cache of clickable modeline button strings keyed by (label help fn).")
+
+(defvar-local carriage--mode-modeline-string nil
+  "Precomputed Carriage modeline string for non-:eval mode-line segment.")
+
+(defun carriage-ui--invalidate-ml-cache ()
+  "Invalidate cached modeline/button strings for the current buffer."
+  (setq carriage-ui--ml-cache nil
+        carriage-ui--ml-cache-key nil)
+  (setq carriage-ui--button-cache (make-hash-table :test 'equal)))
+
 (defun carriage-ui--reset-context-cache (&optional buffer)
   "Clear cached context badge for BUFFER or the current buffer."
   (if buffer
@@ -433,12 +445,18 @@ Lightweight: count unique files only; no filesystem size probing."
               (when (and inc-doc (fboundp 'carriage-context--doc-paths))
                 (dolist (p (or (ignore-errors (carriage-context--doc-paths (current-buffer))) '()))
                   (let* ((abs (if (file-name-absolute-p p) p (expand-file-name p root)))
-                         (tru (ignore-errors (file-truename abs))))
+                         (tru (or (gethash abs tru-cache)
+                                  (let ((v (ignore-errors (file-truename abs))))
+                                    (when v (puthash abs v tru-cache))
+                                    v))))
                     (when tru (puthash tru t set)))))
               (when (and inc-gpt (fboundp 'carriage-context--maybe-gptel-files))
                 (dolist (p (or (ignore-errors (carriage-context--maybe-gptel-files)) '()))
                   (let* ((abs (if (file-name-absolute-p p) p (expand-file-name p root)))
-                         (tru (ignore-errors (file-truename abs))))
+                         (tru (or (gethash abs tru-cache)
+                                  (let ((v (ignore-errors (file-truename abs))))
+                                    (when v (puthash abs v tru-cache))
+                                    v))))
                     (when tru (puthash tru t set)))))
               (maphash (lambda (_tru _v) (setq cnt (1+ cnt))) set)))
         (error
@@ -1028,19 +1046,26 @@ Updates on any change of outline path, heading level, or heading title."
 
 (defun carriage-ui--ml-button (label fn help)
   "Return a clickable LABEL that invokes FN, preserving LABEL's text properties.
-Optimized: apply properties in one call to reduce per-redisplay overhead."
-  (let ((map (make-sparse-keymap)))
-    (define-key map [mode-line mouse-1] fn)
-    (let* ((s (copy-sequence (or label "")))
-           (len (length s)))
-      (when (> len 0)
-        (add-text-properties
-         0 len
-         (list 'mouse-face 'mode-line-highlight
-               'help-echo help
-               'local-map map)
-         s))
-      s)))
+Memoized to avoid per-redisplay keymap/props allocation when LABEL/HELP/FN are unchanged."
+  (let* ((key (list label help fn))
+         (cache (or carriage-ui--button-cache
+                    (setq carriage-ui--button-cache (make-hash-table :test 'equal))))
+         (hit (and cache (gethash key cache))))
+    (if (stringp hit)
+        hit
+      (let ((map (make-sparse-keymap)))
+        (define-key map [mode-line mouse-1] fn)
+        (let* ((s (copy-sequence (or label "")))
+               (len (length s)))
+          (when (> len 0)
+            (add-text-properties
+             0 len
+             (list 'mouse-face 'mode-line-highlight
+                   'help-echo help
+                   'local-map map)
+             s))
+          (puthash key s cache)
+          s)))))
 
 (defun carriage-ui--toggle-icon (key onp)
   "Return colored icon for toggle KEY based on ONP, with caching."

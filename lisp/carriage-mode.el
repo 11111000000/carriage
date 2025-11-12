@@ -228,7 +228,7 @@ If nil (default v1 behavior), such cases are considered a failure in dry-run."
   "When non-nil, add a buffer-local modeline segment for Carriage."
   :type 'boolean :group 'carriage)
 
-(defcustom carriage-mode-spinner-interval 0.15
+(defcustom carriage-mode-spinner-interval 0.2
   "Spinner update interval in seconds for sending/streaming states."
   :type 'number :group 'carriage)
 
@@ -361,7 +361,9 @@ Consults engine capabilities; safe when registry is not yet loaded."
       (add-hook 'post-command-hook #'carriage-ui--headerline-post-command nil t)
       (add-hook 'window-scroll-functions #'carriage-ui--headerline-window-scroll nil t))
     (when carriage-mode-show-mode-line-ui
-      (setq carriage--mode-modeline-construct '(:eval (carriage-ui--modeline)))
+      (setq carriage--mode-modeline-construct 'carriage--mode-modeline-string)
+      (when (fboundp 'carriage-ui--modeline)
+        (setq carriage--mode-modeline-string (carriage-ui--modeline)))
       (let* ((ml (if (listp mode-line-format) (copy-sequence mode-line-format) (list mode-line-format)))
              (pos (cl-position 'mode-line-end-spaces ml)))
         (setq-local mode-line-format
