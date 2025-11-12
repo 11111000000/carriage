@@ -202,13 +202,13 @@ Negative values move icons up; positive move them down."
 
 (defun carriage-ui--spinner-tick (buf)
   "Advance spinner in BUF and update mode-line.
-Update only when BUF is visible to avoid global redisplay churn."
-  (when (and (buffer-live-p buf)
-             (get-buffer-window buf t))
-    (with-current-buffer buf
-      (setq carriage--ui-spinner-index (1+ carriage--ui-spinner-index))
-      ;; Local refresh only; avoid (force-mode-line-update t) which repaints all windows.
-      (force-mode-line-update))))
+Update only when BUF is visible and selected to avoid unnecessary redisplay churn."
+  (let ((win (and (buffer-live-p buf) (get-buffer-window buf t))))
+    (when (and win (eq (selected-window) win))
+      (with-current-buffer buf
+        (setq carriage--ui-spinner-index (1+ carriage--ui-spinner-index))
+        ;; Local refresh only; avoid (force-mode-line-update t) which repaints all windows.
+        (force-mode-line-update)))))
 
 (defun carriage-ui--spinner-start ()
   "Start buffer-local spinner timer if not running."
@@ -237,6 +237,9 @@ Update only when BUF is visible to avoid global redisplay churn."
 (defun carriage-ui-set-state (state)
   "Set UI STATE symbol for mode-line visuals and manage spinner."
   (setq carriage--ui-state (or state 'idle))
+  ;; Invalidate modeline cache on state changes to avoid stale render
+  (setq carriage-ui--ml-cache nil
+        carriage-ui--ml-cache-key nil)
   (pcase carriage--ui-state
     ;; spinner for active phases (include reasoning/waiting/streaming/dispatch/sending)
     ((or 'sending 'streaming 'dispatch 'waiting 'reasoning)
@@ -323,7 +326,11 @@ keys change (buffer content, toggle states)."
       (with-current-buffer buf
         (when (boundp 'carriage-ui--icon-cache-env)
           (setq carriage-ui--icon-cache nil)
-          (setq carriage-ui--icon-cache-env nil))))))
+          (setq carriage-ui--icon-cache-env nil))
+        ;; Drop modeline cache as well (theme/face/icon env changed)
+        (when (boundp 'carriage-ui--ml-cache)
+          (setq carriage-ui--ml-cache nil)
+          (setq carriage-ui--ml-cache-key nil))))))
 
 (defun carriage-ui--set-modeline-blocks (sym val)
   "Setter for `carriage-ui-modeline-blocks' that refreshes modelines everywhere."
@@ -397,6 +404,12 @@ Unknown symbols are ignored."
 (defvar-local carriage-ui--ctx-cache nil
   "Buffer-local cache for context badge computation.
 Plist keys: :doc :gpt :tick :time :value.")
+
+(defvar-local carriage-ui--ml-cache nil
+  "Cached rendered modeline string for Carriage (buffer-local).")
+
+(defvar-local carriage-ui--ml-cache-key nil
+  "Signature (key) of the last rendered modeline for quick short-circuit.")
 
 (defun carriage-ui--reset-context-cache (&optional buffer)
   "Clear cached context badge for BUFFER or the current buffer."
@@ -1142,230 +1155,6 @@ reflects toggle state (muted when off, bright when on)."
     (error
      (message "Нет доступного отчёта для Ediff"))))
 
-(defun carriage-ui--modeline ()
-  "Build Carriage modeline segment using `carriage-ui-modeline-blocks'."
-  (let* ((uicons (carriage-ui--icons-available-p))
-         (ctx-badge (carriage-ui--context-badge))
-         (patch-count (carriage-ui--patch-count))
-         (show-patch (carriage-ui--show-apply-buttons-p))
-         (has-last (carriage-ui--last-iteration-present-p))
-         (blocks (if (and (listp carriage-ui-modeline-blocks)
-                          carriage-ui-modeline-blocks)
-                     carriage-ui-modeline-blocks
-                   carriage-ui--modeline-default-blocks)))
-    (cl-labels
-        ((intent-block ()
-           (let* ((intent-label
-                   (if uicons
-                       (cond
-                        ((and (boundp 'carriage-mode-intent) (eq carriage-mode-intent 'Ask))
-                         (or (carriage-ui--icon 'ask) "[Ask]"))
-                        ((eq carriage-mode-intent 'Code)
-                         (or (carriage-ui--icon 'patch) "[Code]"))
-                        (t
-                         (or (carriage-ui--icon 'hybrid) "[Hybrid]")))
-                     (format "[%s]"
-                             (pcase (and (boundp 'carriage-mode-intent) carriage-mode-intent)
-                               ('Ask "Ask")
-                               ('Code "Code")
-                               (_ "Hybrid"))))))
-             (carriage-ui--ml-button intent-label
-                                     #'carriage-toggle-intent
-                                     "Toggle Ask/Code/Hybrid intent")))
-         (suite-block ()
-           (let* ((suite-str
-                   (let ((s (and (boundp 'carriage-mode-suite) carriage-mode-suite)))
-                     (cond
-                      ((symbolp s) (symbol-name s))
-                      ((stringp s) s)
-                      (t "udiff"))))
-                  (suite-label
-                   (let ((ic (and uicons
-                                  (boundp 'carriage-mode-use-suite-icon) carriage-mode-use-suite-icon
-                                  (carriage-ui--icon 'suite))))
-                     (if ic
-                         (format "%s [%s]" ic suite-str)
-                       (let* ((_ (require 'carriage-i18n nil t))
-                              (name (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                                        (carriage-i18n :suite)
-                                      "Suite")))
-                         (format "%s: [%s]" name suite-str)))))
-                  (_ (require 'carriage-i18n nil t))
-                  (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                            (carriage-i18n :suite-tooltip)
-                          "Select Suite (sre|udiff)")))
-             (carriage-ui--ml-button suite-label #'carriage-select-suite help)))
-         (model-block ()
-           (let* ((model-str (or (and (boundp 'carriage-mode-model) carriage-mode-model) "model"))
-                  (b-backend (let ((b (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
-                               (if (symbolp b) (symbol-name b) (or b ""))))
-                  (display-model-base
-                   (let* ((m (if (symbolp model-str) (symbol-name model-str) model-str)))
-                     (if (and (stringp m) (string= m "gptel-default")
-                              (require 'carriage-llm-registry nil t))
-                         (let* ((bcur (if (symbolp carriage-mode-backend)
-                                          (symbol-name carriage-mode-backend)
-                                        (or carriage-mode-backend "")))
-                                (pairs (ignore-errors (carriage-llm-candidates)))
-                                (cand (ignore-errors (carriage-llm-default-candidate bcur m pairs carriage-mode-provider))))
-                           (carriage-llm-basename (or cand m)))
-                       (or (car (last (split-string m ":" t))) m))))
-                  (bm-text (format "[%s]" display-model-base))
-                  (bm-label (if uicons
-                                (let* ((ic (carriage-ui--icon 'model)))
-                                  (if ic (concat ic " " bm-text) bm-text))
-                              bm-text))
-                  (provider (and (boundp 'carriage-mode-provider) carriage-mode-provider))
-                  (full-id (if (and (stringp b-backend) (not (string-empty-p b-backend)))
-                               (if (and provider (stringp provider) (not (string-empty-p provider)))
-                                   (format "%s:%s:%s" b-backend provider model-str)
-                                 (format "%s:%s" b-backend model-str))
-                             model-str)))
-             (carriage-ui--ml-button bm-label
-                                     #'carriage-select-model
-                                     (format "Модель: %s (клик — выбрать)" full-id))))
-         (engine-block ()
-           (let* ((engine-str
-                   (let ((e (and (boundp 'carriage-apply-engine) carriage-apply-engine)))
-                     (cond
-                      ((eq e 'git)
-                       (let ((pol (and (boundp 'carriage-git-branch-policy)
-                                       carriage-git-branch-policy)))
-                         (format "git:%s" (if (symbolp pol) (symbol-name pol) ""))))
-                      ((symbolp e) (symbol-name e))
-                      ((stringp e) e)
-                      (t "git"))))
-                  (engine-label
-                   (let ((ic (and uicons
-                                  (boundp 'carriage-mode-use-engine-icon) carriage-mode-use-engine-icon
-                                  (carriage-ui--icon 'engine))))
-                     (if ic
-                         (format "%s [%s]" ic engine-str)
-                       (let* ((_ (require 'carriage-i18n nil t))
-                              (name (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                                        (carriage-i18n :engine-label)
-                                      "Engine")))
-                         (format "%s: [%s]" name engine-str)))))
-                  (_ (require 'carriage-i18n nil t))
-                  (eng (and (boundp 'carriage-apply-engine) carriage-apply-engine))
-                  (policy (and (eq eng 'git)
-                               (boundp 'carriage-git-branch-policy)
-                               (symbol-name carriage-git-branch-policy)))
-                  (help (cond
-                         ((and (eq eng 'git)
-                               (featurep 'carriage-i18n) (fboundp 'carriage-i18n)
-                               (stringp policy))
-                          (carriage-i18n :engine-tooltip-branch engine-str policy))
-                         ((and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                          (carriage-i18n :engine-tooltip))
-                         (t "Select apply engine"))))
-             (carriage-ui--ml-button engine-label #'carriage-select-apply-engine help)))
-         (state-block ()
-           (let* ((st (let ((s (and (boundp 'carriage--ui-state) carriage--ui-state)))
-                        (if (symbolp s) s 'idle)))
-                  (label (carriage-ui--state-label st))
-                  (txt (format "[%s%s]"
-                               label
-                               (if (memq st '(sending streaming dispatch waiting reasoning))
-                                   (concat " " (carriage-ui--spinner-char))
-                                 "")))
-                  (face (pcase st
-                          ((or 'idle 'done) 'carriage-ui-state-success-face)
-                          ((or 'reasoning 'waiting 'streaming 'dispatch) 'carriage-ui-state-active-face)
-                          ('error 'carriage-ui-state-error-face)
-                          (_ nil))))
-             (if face (propertize txt 'face face) txt)))
-         (context-block ()
-           (when ctx-badge
-             (let ((lbl (car ctx-badge))
-                   (hint (cdr ctx-badge)))
-               (if hint (propertize lbl 'help-echo hint) lbl))))
-         (branch-block ()
-           (let* ((br (carriage-ui--branch-name-cached))
-                  (txt (and (stringp br) (not (string-empty-p br)) (format "[%s]" br))))
-             (when txt
-               (if (and uicons (fboundp 'all-the-icons-octicon))
-                   (let* ((ic (all-the-icons-octicon "git-branch"
-                                                     :height carriage-mode-icon-height
-                                                     :v-adjust carriage-mode-icon-v-adjust
-                                                     :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face)))))
-                     (concat ic " " txt))
-                 txt))))
-         (patch-block ()
-           (when (and (numberp patch-count) (> patch-count 0))
-             (propertize (format "[P:%d]" patch-count)
-                         'help-echo "Количество #+begin_patch блоков в буфере")))
-         (dry-block ()
-           (when show-patch
-             (let ((label (or (and uicons (carriage-ui--icon 'dry)) "[Dry]")))
-               (carriage-ui--ml-button label #'carriage-dry-run-at-point "Dry-run at point"))))
-         (apply-block ()
-           (when show-patch
-             (let ((label (or (and uicons (carriage-ui--icon 'apply)) "[Apply]")))
-               (carriage-ui--ml-button label #'carriage-apply-at-point-or-region "Apply at point or region"))))
-         (all-block ()
-           (when has-last
-             (let ((label (or (and uicons (carriage-ui--icon 'all)) "[All]")))
-               (carriage-ui--ml-button label #'carriage-apply-last-iteration "Apply last iteration"))))
-         (abort-block ()
-           (let ((label (or (and uicons (carriage-ui--icon 'abort)) "[Abort]")))
-             (carriage-ui--ml-button label #'carriage-abort-current "Abort current request")))
-         (report-block ()
-           (let ((label (or (and uicons (carriage-ui--icon 'report)) "[Report]")))
-             (carriage-ui--ml-button label #'carriage-report-open "Open report buffer")))
-         (toggle-ctx-block ()
-           (carriage-ui--toggle
-            "[Ctx]" 'carriage-mode-include-gptel-context
-            #'carriage-toggle-include-gptel-context
-            (let* ((_ (require 'carriage-i18n nil t)))
-              (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                  (carriage-i18n :ctx-tooltip)
-                "Toggle including gptel-context (buffers/files)"))
-            'ctx))
-         (toggle-files-block ()
-           (carriage-ui--toggle
-            "[Files]" 'carriage-mode-include-doc-context
-            #'carriage-toggle-include-doc-context
-            (let* ((_ (require 'carriage-i18n nil t)))
-              (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
-                  (carriage-i18n :files-tooltip)
-                "Toggle including files from #+begin_context"))
-            'files))
-         (settings-block ()
-           (carriage-ui--settings-btn))
-         (render-block (blk)
-           (pcase blk
-             ('suite (suite-block))
-             ('engine (engine-block))
-             ('branch (branch-block))
-             ('model (model-block))
-             ('intent (intent-block))
-             ('state (state-block))
-             ('context (context-block))
-             ('patch (patch-block))
-             ('dry (dry-block))
-             ('apply (apply-block))
-             ('all (all-block))
-             ('diff
-              (let ((label (or (and uicons (carriage-ui--icon 'diff)) "[Diff]")))
-                (carriage-ui--ml-button label #'carriage-ui--diff-button "Открыть Diff для элемента отчёта")))
-             ('ediff
-              (let ((label (or (and uicons (carriage-ui--icon 'ediff)) "[Ediff]")))
-                (carriage-ui--ml-button label #'carriage-ui--ediff-button "Открыть Ediff для элемента отчёта")))
-             ('abort (abort-block))
-             ('report (report-block))
-             ('toggle-ctx (toggle-ctx-block))
-             ('toggle-files (toggle-files-block))
-             ('settings (settings-block))
-             (_ nil))))
-      (let* ((segments (cl-loop for blk in blocks
-                                for seg = (render-block blk)
-                                if (stringp seg)
-                                collect seg)))
-        (if segments
-            (mapconcat #'identity segments " ")
-          "")))))
-
 ;; -- Optional: settings "gear" button to open the menu directly.
 (defun carriage-ui--settings-btn ()
   "Return a clickable gear settings button for the modeline."
@@ -1429,5 +1218,300 @@ Uses pulse.el when available, otherwise temporary overlays."
                     (run-at-time dur nil
                                  (lambda (o) (when (overlayp o) (delete-overlay o)))
                                  ov)))))))))))
+;; -------------------------------------------------------------------
+;; Refactor: split carriage-ui--modeline into smaller helpers
+
+(defun carriage-ui--ml-cache-key ()
+  "Compute cache key for the modeline string based on current UI environment."
+  (let* ((uicons (carriage-ui--icons-available-p))
+         (ctx-badge (carriage-ui--context-badge))
+         (patch-count (carriage-ui--patch-count))
+         (show-patch (carriage-ui--show-apply-buttons-p))
+         (has-last (carriage-ui--last-iteration-present-p))
+         (blocks (if (and (listp carriage-ui-modeline-blocks)
+                          carriage-ui-modeline-blocks)
+                     carriage-ui-modeline-blocks
+                   carriage-ui--modeline-default-blocks))
+         (state  (and (boundp 'carriage--ui-state) carriage--ui-state))
+         (spin   (and (memq state '(sending streaming dispatch waiting reasoning))
+                      (carriage-ui--spinner-char)))
+         (branch (carriage-ui--branch-name-cached)))
+    (list uicons
+          state spin
+          (and ctx-badge (car ctx-badge))
+          (and ctx-badge (cdr ctx-badge))
+          patch-count show-patch has-last blocks
+          (and (boundp 'carriage-mode-intent)  carriage-mode-intent)
+          (and (boundp 'carriage-mode-suite)   carriage-mode-suite)
+          (and (boundp 'carriage-mode-model)   carriage-mode-model)
+          (and (boundp 'carriage-mode-backend) carriage-mode-backend)
+          (and (boundp 'carriage-mode-provider) carriage-mode-provider)
+          (and (fboundp 'carriage-apply-engine) (carriage-apply-engine))
+          branch
+          (and (boundp 'carriage-mode-include-gptel-context)
+               carriage-mode-include-gptel-context)
+          (and (boundp 'carriage-mode-include-doc-context)
+               carriage-mode-include-doc-context))))
+
+(defun carriage-ui--ml-seg-intent ()
+  "Build Intent segment."
+  (let* ((uicons (carriage-ui--icons-available-p))
+         (intent (and (boundp 'carriage-mode-intent) carriage-mode-intent))
+         (label
+          (if uicons
+              (pcase intent
+                ('Ask   (or (carriage-ui--icon 'ask) "[Ask]"))
+                ('Code  (or (carriage-ui--icon 'patch) "[Code]"))
+                (_      (or (carriage-ui--icon 'hybrid) "[Hybrid]")))
+            (format "[%s]" (pcase intent ('Ask "Ask") ('Code "Code") (_ "Hybrid"))))))
+    (carriage-ui--ml-button label #'carriage-toggle-intent "Toggle Ask/Code/Hybrid intent")))
+
+(defun carriage-ui--ml-seg-suite ()
+  "Build Suite segment."
+  (let* ((uicons (carriage-ui--icons-available-p))
+         (suite  (and (boundp 'carriage-mode-suite) carriage-mode-suite))
+         (suite-str (cond ((symbolp suite) (symbol-name suite))
+                          ((stringp suite) suite) (t "udiff")))
+         (icon (and uicons
+                    (boundp 'carriage-mode-use-suite-icon)
+                    carriage-mode-use-suite-icon
+                    (carriage-ui--icon 'suite)))
+         (_ (require 'carriage-i18n nil t))
+         (label (if icon
+                    (format "%s [%s]" icon suite-str)
+                  (let ((name (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                                  (carriage-i18n :suite) "Suite")))
+                    (format "%s: [%s]" name suite-str))))
+         (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                   (carriage-i18n :suite-tooltip)
+                 "Select Suite (sre|udiff)")))
+    (carriage-ui--ml-button label #'carriage-select-suite help)))
+
+(defun carriage-ui--ml-seg-model ()
+  "Build Model segment."
+  (let* ((uicons (carriage-ui--icons-available-p))
+         (model-str (or (and (boundp 'carriage-mode-model) carriage-mode-model) "model"))
+         (b-backend (let ((b (and (boundp 'carriage-mode-backend) carriage-mode-backend)))
+                      (if (symbolp b) (symbol-name b) (or b ""))))
+         (display-model-base
+          (let* ((m (if (symbolp model-str) (symbol-name model-str) model-str)))
+            (if (and (stringp m) (string= m "gptel-default")
+                     (require 'carriage-llm-registry nil t))
+                (let* ((bcur (if (symbolp carriage-mode-backend)
+                                 (symbol-name carriage-mode-backend)
+                               (or carriage-mode-backend "")))
+                       (pairs (ignore-errors (carriage-llm-candidates)))
+                       (cand (ignore-errors (carriage-llm-default-candidate bcur m pairs carriage-mode-provider))))
+                  (carriage-llm-basename (or cand m)))
+              (or (car (last (split-string m ":" t))) m))))
+         (bm-text (format "[%s]" display-model-base))
+         (bm-label (if uicons
+                       (let ((ic (carriage-ui--icon 'model)))
+                         (if ic (concat ic " " bm-text) bm-text))
+                     bm-text))
+         (provider (and (boundp 'carriage-mode-provider) carriage-mode-provider))
+         (full-id (if (and (stringp b-backend) (not (string-empty-p b-backend)))
+                      (if (and provider (stringp provider) (not (string-empty-p provider)))
+                          (format "%s:%s:%s" b-backend provider model-str)
+                        (format "%s:%s" b-backend model-str))
+                    model-str)))
+    (carriage-ui--ml-button bm-label
+                            #'carriage-select-model
+                            (format "Модель: %s (клик — выбрать)" full-id))))
+
+(defun carriage-ui--ml-seg-engine ()
+  "Build Engine segment."
+  (let* ((uicons (carriage-ui--icons-available-p))
+         (engine-str
+          (let ((e (and (boundp 'carriage-apply-engine) carriage-apply-engine)))
+            (cond
+             ((eq e 'git)
+              (let ((pol (and (boundp 'carriage-git-branch-policy)
+                              carriage-git-branch-policy)))
+                (format "git:%s" (if (symbolp pol) (symbol-name pol) ""))))
+             ((symbolp e) (symbol-name e))
+             ((stringp e) e)
+             (t "git"))))
+         (icon (and uicons
+                    (boundp 'carriage-mode-use-engine-icon) carriage-mode-use-engine-icon
+                    (carriage-ui--icon 'engine)))
+         (_ (require 'carriage-i18n nil t))
+         (eng (and (boundp 'carriage-apply-engine) carriage-apply-engine))
+         (policy (and (eq eng 'git)
+                      (boundp 'carriage-git-branch-policy)
+                      (symbol-name carriage-git-branch-policy)))
+         (help (cond
+                ((and (eq eng 'git)
+                      (featurep 'carriage-i18n) (fboundp 'carriage-i18n)
+                      (stringp policy))
+                 (carriage-i18n :engine-tooltip-branch engine-str policy))
+                ((and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                 (carriage-i18n :engine-tooltip))
+                (t "Select apply engine")))
+         (label (if icon
+                    (format "%s [%s]" icon engine-str)
+                  (let ((name (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                                  (carriage-i18n :engine-label)
+                                "Engine")))
+                    (format "%s: [%s]" name engine-str)))))
+    (carriage-ui--ml-button label #'carriage-select-apply-engine help)))
+
+(defun carriage-ui--ml-seg-state ()
+  "Build State segment with spinner and face."
+  (let* ((st (let ((s (and (boundp 'carriage--ui-state) carriage--ui-state)))
+               (if (symbolp s) s 'idle)))
+         (label (carriage-ui--state-label st))
+         (txt (format "[%s%s]"
+                      label
+                      (if (memq st '(sending streaming dispatch waiting reasoning))
+                          (concat " " (carriage-ui--spinner-char))
+                        "")))
+         (face (pcase st
+                 ((or 'idle 'done) 'carriage-ui-state-success-face)
+                 ((or 'reasoning 'waiting 'streaming 'dispatch) 'carriage-ui-state-active-face)
+                 ('error 'carriage-ui-state-error-face)
+                 (_ nil))))
+    (if face (propertize txt 'face face) txt)))
+
+(defun carriage-ui--ml-seg-context ()
+  "Build Context badge segment."
+  (let ((ctx-badge (carriage-ui--context-badge)))
+    (when ctx-badge
+      (let ((lbl (car ctx-badge))
+            (hint (cdr ctx-badge)))
+        (if hint (propertize lbl 'help-echo hint) lbl)))))
+
+(defun carriage-ui--ml-seg-branch ()
+  "Build Branch segment."
+  (let* ((uicons (carriage-ui--icons-available-p))
+         (br (carriage-ui--branch-name-cached))
+         (txt (and (stringp br) (not (string-empty-p br)) (format "[%s]" br))))
+    (when txt
+      (if (and uicons (fboundp 'all-the-icons-octicon))
+          (let ((ic (all-the-icons-octicon "git-branch"
+                                           :height carriage-mode-icon-height
+                                           :v-adjust carriage-mode-icon-v-adjust
+                                           :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-cyan-face)))))
+            (concat ic " " txt))
+        txt))))
+
+(defun carriage-ui--ml-seg-patch ()
+  "Build Patch counter segment."
+  (let ((patch-count (carriage-ui--patch-count)))
+    (when (and (numberp patch-count) (> patch-count 0))
+      (propertize (format "[P:%d]" patch-count)
+                  'help-echo "Количество #+begin_patch блоков в буфере"))))
+
+(defun carriage-ui--ml-seg-dry ()
+  "Build Dry-run button."
+  (when (carriage-ui--show-apply-buttons-p)
+    (let* ((uicons (carriage-ui--icons-available-p))
+           (label (or (and uicons (carriage-ui--icon 'dry)) "[Dry]")))
+      (carriage-ui--ml-button label #'carriage-dry-run-at-point "Dry-run at point"))))
+
+(defun carriage-ui--ml-seg-apply ()
+  "Build Apply button."
+  (when (carriage-ui--show-apply-buttons-p)
+    (let* ((uicons (carriage-ui--icons-available-p))
+           (label (or (and uicons (carriage-ui--icon 'apply)) "[Apply]")))
+      (carriage-ui--ml-button label #'carriage-apply-at-point-or-region "Apply at point or region"))))
+
+(defun carriage-ui--ml-seg-all ()
+  "Build Apply-all button."
+  (when (carriage-ui--last-iteration-present-p)
+    (let* ((uicons (carriage-ui--icons-available-p))
+           (label (or (and uicons (carriage-ui--icon 'all)) "[All]")))
+      (carriage-ui--ml-button label #'carriage-apply-last-iteration "Apply last iteration"))))
+
+(defun carriage-ui--ml-seg-diff ()
+  "Build Diff button."
+  (let* ((uicons (carriage-ui--icons-available-p))
+         (label (or (and uicons (carriage-ui--icon 'diff)) "[Diff]")))
+    (carriage-ui--ml-button label #'carriage-ui--diff-button "Открыть Diff для элемента отчёта")))
+
+(defun carriage-ui--ml-seg-ediff ()
+  "Build Ediff button."
+  (let* ((uicons (carriage-ui--icons-available-p))
+         (label (or (and uicons (carriage-ui--icon 'ediff)) "[Ediff]")))
+    (carriage-ui--ml-button label #'carriage-ui--ediff-button "Открыть Ediff для элемента отчёта")))
+
+(defun carriage-ui--ml-seg-abort ()
+  "Build Abort button."
+  (let* ((uicons (carriage-ui--icons-available-p))
+         (label (or (and uicons (carriage-ui--icon 'abort)) "[Abort]")))
+    (carriage-ui--ml-button label #'carriage-abort-current "Abort current request")))
+
+(defun carriage-ui--ml-seg-report ()
+  "Build Report button."
+  (let* ((uicons (carriage-ui--icons-available-p))
+         (label (or (and uicons (carriage-ui--icon 'report)) "[Report]")))
+    (carriage-ui--ml-button label #'carriage-report-open "Open report buffer")))
+
+(defun carriage-ui--ml-seg-toggle-ctx ()
+  "Build GPT context toggle."
+  (let* ((_ (require 'carriage-i18n nil t))
+         (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                   (carriage-i18n :ctx-tooltip)
+                 "Toggle including gptel-context (buffers/files)")))
+    (carriage-ui--toggle "[Ctx]" 'carriage-mode-include-gptel-context
+                         #'carriage-toggle-include-gptel-context
+                         help 'ctx)))
+
+(defun carriage-ui--ml-seg-toggle-files ()
+  "Build Files context toggle."
+  (let* ((_ (require 'carriage-i18n nil t))
+         (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                   (carriage-i18n :files-tooltip)
+                 "Toggle including files from #+begin_context")))
+    (carriage-ui--toggle "[Files]" 'carriage-mode-include-doc-context
+                         #'carriage-toggle-include-doc-context
+                         help 'files)))
+
+(defun carriage-ui--ml-seg-settings ()
+  "Build Settings button."
+  (carriage-ui--settings-btn))
+
+(defun carriage-ui--ml-render-block (blk)
+  "Dispatch builder for a single modeline block BLK symbol."
+  (pcase blk
+    ('suite         (carriage-ui--ml-seg-suite))
+    ('engine        (carriage-ui--ml-seg-engine))
+    ('branch        (carriage-ui--ml-seg-branch))
+    ('model         (carriage-ui--ml-seg-model))
+    ('intent        (carriage-ui--ml-seg-intent))
+    ('state         (carriage-ui--ml-seg-state))
+    ('context       (carriage-ui--ml-seg-context))
+    ('patch         (carriage-ui--ml-seg-patch))
+    ('dry           (carriage-ui--ml-seg-dry))
+    ('apply         (carriage-ui--ml-seg-apply))
+    ('all           (carriage-ui--ml-seg-all))
+    ('diff          (carriage-ui--ml-seg-diff))
+    ('ediff         (carriage-ui--ml-seg-ediff))
+    ('abort         (carriage-ui--ml-seg-abort))
+    ('report        (carriage-ui--ml-seg-report))
+    ('toggle-ctx    (carriage-ui--ml-seg-toggle-ctx))
+    ('toggle-files  (carriage-ui--ml-seg-toggle-files))
+    ('settings      (carriage-ui--ml-seg-settings))
+    (_ nil)))
+
+(defun carriage-ui--modeline ()
+  "Build Carriage modeline segment using `carriage-ui-modeline-blocks' (refactored)."
+  (let* ((blocks (if (and (listp carriage-ui-modeline-blocks)
+                          carriage-ui-modeline-blocks)
+                     carriage-ui-modeline-blocks
+                   carriage-ui--modeline-default-blocks))
+         (key (carriage-ui--ml-cache-key)))
+    (if (and (equal key carriage-ui--ml-cache-key)
+             (stringp carriage-ui--ml-cache))
+        carriage-ui--ml-cache
+      (let* ((segments (cl-loop for blk in blocks
+                                for seg = (carriage-ui--ml-render-block blk)
+                                if (stringp seg)
+                                collect seg))
+             (res (if segments (mapconcat #'identity segments " ") "")))
+        (setq carriage-ui--ml-cache-key key
+              carriage-ui--ml-cache     res)
+        res))))
+
 (provide 'carriage-ui)
 ;;; carriage-ui.el ends here
