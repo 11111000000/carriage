@@ -25,7 +25,7 @@
   "Function (TITLE -> SLUG) to build filename slug."
   :type 'function :group 'carriage-task)
 
-(defcustom carriage-task-auto-run-analysis t
+(defcustom carriage-task-auto-run-analysis nil
   "When non-nil, automatically start a streaming analysis chat (Intent=Ask) in the created doc."
   :type 'boolean :group 'carriage-task)
 
@@ -277,6 +277,7 @@ Behavior:
          (slug (funcall carriage-task-slugify-fn title))
          (filename (format carriage-task-filename-format ordinal slug))
          (abs (expand-file-name filename docs-dir))
+         (doc-buf (find-file-noselect abs))
          (rel-from-root (carriage-task--relative root abs))
          (rel-to-todo   (carriage-task--relative docs-dir (or todo (expand-file-name "TODO.org" root))))
          (todo-link (format "[[file:%s::*%s][перейти]]" rel-to-todo title))

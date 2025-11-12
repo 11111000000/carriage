@@ -27,7 +27,7 @@
   - Опция carriage-task-move-subtree-content (t по умолчанию) — при t содержимое под заголовком переносится в новый файл,
     а в исходнике остаются только заголовок и ссылка. При nil — исходный текст остаётся на месте.
 - Intent:
-  - В новом документе включается carriage-mode (если доступен) и Intent=Ask; при carriage-task-auto-run-analysis=t запускается потоковый анализ.
+  - В новом документе включается carriage-mode (если доступен) и Intent=Ask. Автоанализ выключен по умолчанию; его можно включить настройкой `carriage-task-auto-run-analysis'.
 - Сохранение:
   - Новый документ и изменённый исходный документ сохраняются немедленно.
 
@@ -49,7 +49,7 @@
 - carriage-task-docs-dir — подкаталог для TODO.org (по умолчанию "org").
 - carriage-task-filename-format — "%s-%s.org" (ordinal, slug).
 - carriage-task-slugify-fn — функция слага.
-- carriage-task-auto-run-analysis — автозапуск анализа (t).
+- carriage-task-auto-run-analysis — автозапуск анализа (nil, выключен по умолчанию).
 - carriage-task-analysis-backend/model/prompt — параметры анализа.
 - carriage-task-move-subtree-content — перенос содержимого поддерева (t).
 
