@@ -361,9 +361,7 @@ Consults engine capabilities; safe when registry is not yet loaded."
       (add-hook 'post-command-hook #'carriage-ui--headerline-post-command nil t)
       (add-hook 'window-scroll-functions #'carriage-ui--headerline-window-scroll nil t))
     (when carriage-mode-show-mode-line-ui
-      (setq carriage--mode-modeline-construct 'carriage--mode-modeline-string)
-      (when (fboundp 'carriage-ui--modeline)
-        (setq carriage--mode-modeline-string (carriage-ui--modeline)))
+      (setq carriage--mode-modeline-construct '(:eval (carriage-ui--modeline)))
       (let* ((ml (if (listp mode-line-format) (copy-sequence mode-line-format) (list mode-line-format)))
              (pos (cl-position 'mode-line-end-spaces ml)))
         (setq-local mode-line-format

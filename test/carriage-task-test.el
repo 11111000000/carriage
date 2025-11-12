@@ -44,7 +44,7 @@
       (should (eq cmd 'carriage-create-task-doc)))))
 
 (ert-deftest carriage-task--create-doc-from-todo-heading ()
-  "End-to-end: create org/N-*.org from TODO heading, with backlinks."
+  "End-to-end: create org/N-*.org from TODO heading, with backlinks; preserve content and advance TODO."
   (let* ((root (make-temp-file "carriage-task-root-" t))
          (default-directory root)
          (todo (expand-file-name "TODO.org" root))
@@ -53,10 +53,12 @@
         (progn
           ;; Prepare TODO.org with a heading
           (with-temp-file todo
+            (insert "#+TODO: TODO THINK DOING DONE\n")
             (insert "* TODO Задача Тест\n\nНекоторый контекст поддерева.\n"))
-          ;; Visit TODO and position at heading
+          ;; Visit TODO and position at heading, with custom TODO workflow
           (let ((buf (find-file-noselect todo)))
             (with-current-buffer buf
+              (setq-local org-todo-keywords '((sequence "TODO" "THINK" "DOING" "DONE")))
               (org-mode)
               (goto-char (point-min))
               (search-forward "Задача Тест")
@@ -77,11 +79,16 @@
               (goto-char (point-min))
               (should (re-search-forward (regexp-quote "См. TODO:") nil t))
               (should (re-search-forward (regexp-quote "[[file:../TODO.org::*Задача Тест]") nil t))))
-          ;; Check TODO.org got a backlink to org/<N>-<slug>.org
+          ;; Check TODO.org got a backlink to org/<N>-<slug>.org, preserved content, and advanced state
           (with-temp-buffer
             (insert-file-contents todo)
             (goto-char (point-min))
-            (should (re-search-forward (regexp-quote "Документ: [[file:org/") nil t))))
+            (should (re-search-forward (regexp-quote "Документ: [[file:org/") nil t))
+            (goto-char (point-min))
+            (should (re-search-forward (regexp-quote "Некоторый контекст поддерева.") nil t))
+            ;; Verify TODO state advanced to THINK
+            (goto-char (point-min))
+            (should (re-search-forward (rx bol "* " "THINK" (+ space) "Задача Тест") nil t))))
       (ignore-errors (delete-directory root t)))))
 
 (provide 'carriage-task-test)

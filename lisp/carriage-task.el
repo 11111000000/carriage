@@ -46,6 +46,31 @@
   "When non-nil, move the subtree content into the new task document, leaving only the heading and backlink in the source."
   :type 'boolean :group 'carriage-task)
 
+(defcustom carriage-task-advance-todo-on-create t
+  "When non-nil, advance TODO state of the origin heading after creating a task doc."
+  :type 'boolean :group 'carriage-task)
+
+(defcustom carriage-task-next-todo-states '("THINK" "DOING" "NEXT")
+  "Preferred TODO states to set after creating task doc; first present in the buffer is used.
+If none are available, falls back to advancing to the next state (`org-todo' 'nextset)."
+  :type '(repeat string) :group 'carriage-task)
+
+(defun carriage-task--advance-todo-state-at-point ()
+  "Advance TODO state at current org heading using `carriage-task-next-todo-states'.
+If none of preferred states are available, use `org-todo' with 'nextset."
+  (when (derived-mode-p 'org-mode)
+    (require 'org)
+    (save-excursion
+      (org-back-to-heading t)
+      (let* ((cands carriage-task-next-todo-states)
+             (avail (or (and (boundp 'org-todo-keywords-1) org-todo-keywords-1) '()))
+             (chosen (cl-find-if (lambda (s) (member s avail)) cands)))
+        (cond
+         ((and (stringp chosen) (not (string-empty-p chosen)))
+          (ignore-errors (org-todo chosen)))
+         (t
+          (ignore-errors (org-todo 'nextset))))))))
+
 (defun carriage-task--project-root ()
   "Return project root, falling back to default-directory."
   (or (ignore-errors (carriage-project-root))
@@ -172,9 +197,10 @@ TODO.org in ROOT uses `carriage-task-docs-dir'. Other files get ROOT/<slug-of-ba
                  (save-buffer))))
          (carriage-log "carriage-task: heading not found in TODO: %s" heading))))))
 
-(defun carriage-task--insert-backlink-into-origin (origin-file heading new-file-rel &optional wipe-subtree)
+(defun carriage-task--insert-backlink-into-origin (origin-file heading new-file-rel &optional wipe-subtree advance-state)
   "Insert backlink to NEW-FILE-REL under HEADING in ORIGIN-FILE.
-When WIPE-SUBTREE non-nil, remove subtree content leaving only HEADING and the backlink."
+When WIPE-SUBTREE non-nil, remove subtree content leaving only HEADING and the backlink.
+When ADVANCE-STATE non-nil and `carriage-task-advance-todo-on-create' is t, advance TODO state."
   (when (and origin-file (file-exists-p origin-file) (stringp heading) (not (string-empty-p heading)))
     (with-current-buffer (find-file-noselect origin-file)
       (org-with-wide-buffer
@@ -199,6 +225,10 @@ When WIPE-SUBTREE non-nil, remove subtree content leaving only HEADING and the b
                (when wipe-subtree
                  (save-excursion
                    (delete-region beg hend))))
+             (when (and advance-state carriage-task-advance-todo-on-create)
+               (save-excursion
+                 (org-back-to-heading t)
+                 (carriage-task--advance-todo-state-at-point)))
              (save-buffer))
          (carriage-log "carriage-task: heading not found in origin: %s" heading))))))
 
@@ -271,8 +301,18 @@ Behavior:
          (todo (carriage-task--find-todo-in-root root))
          (title0 (or (carriage-task--org-heading-at-point)
                      (read-string "Task title: ")))
-         (title (string-trim title0))
-         (docs-dir (carriage-task--origin-doc-dir root origin-file))
+         (title (string-trim title0)))
+    ;; Confirm when not on a TODO heading
+    (when (derived-mode-p 'org-mode)
+      (require 'org)
+      (save-excursion
+        (org-back-to-heading t)
+        (let* ((state (org-get-todo-state))
+               (done-set (or org-done-keywords '("DONE"))))
+          (when (or (null state) (member state done-set))
+            (unless (y-or-n-p "Заголовок не в состоянии TODO. Продолжить создание документа? ")
+              (user-error "Отменено пользователем")))))))
+  (let* ((docs-dir (carriage-task--origin-doc-dir root origin-file))
          (ordinal (carriage-task--next-ordinal docs-dir))
          (slug (funcall carriage-task-slugify-fn title))
          (filename (format carriage-task-filename-format ordinal slug))
@@ -301,7 +341,7 @@ Behavior:
       (let* ((origin-dir (file-name-directory origin-file))
              (rel-from-origin (carriage-task--relative origin-dir abs)))
         (carriage-task--insert-backlink-into-origin
-         origin-file title rel-from-origin carriage-task-move-subtree-content)))
+         origin-file title rel-from-origin carriage-task-move-subtree-content t)))
     ;; Save origin buffer if modified
     (when (and (buffer-live-p origin-buf)
                (buffer-modified-p origin-buf))
