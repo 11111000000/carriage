@@ -172,6 +172,37 @@ TODO.org in ROOT uses `carriage-task-docs-dir'. Other files get ROOT/<slug-of-ba
                  (save-buffer))))
          (carriage-log "carriage-task: heading not found in TODO: %s" heading))))))
 
+(defun carriage-task--insert-backlink-into-origin (origin-file heading new-file-rel &optional wipe-subtree)
+  "Insert backlink to NEW-FILE-REL under HEADING in ORIGIN-FILE.
+When WIPE-SUBTREE non-nil, remove subtree content leaving only HEADING and the backlink."
+  (when (and origin-file (file-exists-p origin-file) (stringp heading) (not (string-empty-p heading)))
+    (with-current-buffer (find-file-noselect origin-file)
+      (org-with-wide-buffer
+       (goto-char (point-min))
+       (if (re-search-forward (format org-complex-heading-regexp-format (regexp-quote heading)) nil t)
+           (progn
+             (org-back-to-heading t)
+             (org-show-subtree)
+             (let* ((lnk (format "[[file:%s][%s]]" new-file-rel new-file-rel))
+                    (line (format "Документ: %s" lnk))
+                    (beg (save-excursion (forward-line 1) (point)))
+                    (hend (save-excursion (org-end-of-subtree t t) (point)))
+                    (exists nil))
+               (save-excursion
+                 (goto-char beg)
+                 (while (re-search-forward (regexp-quote lnk) hend t)
+                   (setq exists t)))
+               (save-excursion
+                 (goto-char beg)
+                 (unless exists
+                   (insert line "\n")))
+               (when wipe-subtree
+                 (save-excursion
+                   (delete-region beg hend))))
+             (save-buffer))
+         (carriage-log "carriage-task: heading not found in origin: %s" heading))))))
+
+
 (defun carriage-task--insert-new-file-template (buf title todo-link subtree-text)
   "Insert template into BUF: TITLE, TODO-LINK, and quoted SUBTREE-TEXT."
   (with-current-buffer buf
@@ -224,23 +255,28 @@ TODO.org in ROOT uses `carriage-task-docs-dir'. Other files get ROOT/<slug-of-ba
 
 Behavior:
 - Derive title from current Org heading (or prompt).
-- Compute next ordinal N by scanning org/N-*.org.
-- Create org/N-<slug>.org, insert template with backlink to TODO.org.
-- Add backlink into TODO.org under the same heading (if present).
-- Open the new file, enable org-mode and carriage-mode.
+- Compute next ordinal N by scanning sibling task docs (N.0 pattern).
+- Create N-<slug>.org under:
+  - org/ (when origin is ROOT/TODO.org),
+  - or ROOT/<slug-of-origin-base>/ for other org files.
+- Insert template with backlink, optionally move subtree to the new doc.
+- Add backlink into origin heading (and into TODO when applicable).
+- Open the new file, enable org-mode and carriage-mode, set Intent=Ask.
 - With prefix ARG (C-u), toggle auto analysis for this invocation."
   (interactive "P")
   (let* ((root (carriage-task--project-root))
+         (origin-file (and (derived-mode-p 'org-mode) buffer-file-name))
+         (origin-buf (current-buffer))
          (todo (carriage-task--find-todo-in-root root))
          (title0 (or (carriage-task--org-heading-at-point)
                      (read-string "Task title: ")))
          (title (string-trim title0))
-         (docs-dir (carriage-task--ensure-docs-dir root))
+         (docs-dir (carriage-task--origin-doc-dir root origin-file))
          (ordinal (carriage-task--next-ordinal docs-dir))
          (slug (funcall carriage-task-slugify-fn title))
          (filename (format carriage-task-filename-format ordinal slug))
          (abs (expand-file-name filename docs-dir))
-         (rel-from-todo (carriage-task--relative root abs))
+         (rel-from-root (carriage-task--relative root abs))
          (rel-to-todo   (carriage-task--relative docs-dir (or todo (expand-file-name "TODO.org" root))))
          (todo-link (format "[[file:%s::*%s][перейти]]" rel-to-todo title))
          (subtree (or (carriage-task--org-subtree-text) ""))
@@ -251,11 +287,24 @@ Behavior:
       (with-current-buffer buf
         (org-mode)
         (ignore-errors (carriage-mode 1))
+        (when (boundp 'carriage-mode-intent)
+          (setq-local carriage-mode-intent 'Ask))
         (save-buffer)
         (switch-to-buffer buf)))
-    ;; Add backlink into TODO
+    ;; Add backlink into TODO (root overview)
     (when todo
-      (carriage-task--maybe-insert-backlink-into-todo todo title rel-from-todo))
+      (carriage-task--maybe-insert-backlink-into-todo todo title rel-from-root))
+    ;; Add backlink into the origin heading and optionally wipe subtree
+    (when (and origin-file (file-exists-p origin-file))
+      (let* ((origin-dir (file-name-directory origin-file))
+             (rel-from-origin (carriage-task--relative origin-dir abs)))
+        (carriage-task--insert-backlink-into-origin
+         origin-file title rel-from-origin carriage-task-move-subtree-content)))
+    ;; Save origin buffer if modified
+    (when (and (buffer-live-p origin-buf)
+               (buffer-modified-p origin-buf))
+      (with-current-buffer origin-buf
+        (save-buffer)))
     ;; Optional analysis
     (when auto
       (carriage-task--start-analysis (current-buffer)))))
@@ -269,9 +318,10 @@ Behavior:
           :label "Create task doc"
           :cmd carriage-create-task-doc
           :keys ("n")
-          :contexts (org)))))
-    (when (fboundp 'carriage-keys-apply-known-keymaps)
-      (ignore-errors (carriage-keys-apply-known-keymaps)))))
+          :section tools
+          :contexts (carriage org global))))))
+  (when (fboundp 'carriage-keys-apply-known-keymaps)
+    (ignore-errors (carriage-keys-apply-known-keymaps))))
 
 (provide 'carriage-task)
 ;;; carriage-task.el ends here
