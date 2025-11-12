@@ -59,15 +59,7 @@
   - ./security-v1.org — политики безопасности и ограничения.
   - ./prompt-profiles-v1.org — Intent/Suite: реестр сьюитов и композиция промптов по ops.
   - ./ui-v1.org — header-line, mode-line, keymap, буферы отчётов.
-  - ./errors-v1.org — коды ошибок и формат диагностики.
-  - ./testing-v1.org — план тестов ERT/интеграция.
-  - ./data-structures-v1.org — единые структуры плана, отчётов и диагностики.
-  - ./parser-impl-v1.org — контракты parse/dry-run/apply и elisp-скелеты.
-  - ./api-v1.org — публичный API: команды, переменные, лица.
-  - ./compliance-checklist-v1.org — контрольный список соответствия.
-  - ./context-integration-v1.org — единая модель включения контекста (gptel + блоки документа).
-  - ./keyspec-v1.org — спецификация централизованной модели биндингов и генераторов (which-key/transient/hydra).
-  - ./i18n-v1.org — международизация (слой переводов для UI/which-key/transient).
+  - ./readme-v1.org — структура README.org, обязательные разделы и ссылки на спецификации.
 - Нарратив и основания:
   - ./carriage-whitepaper-v1.org — философия, мотивация и архитектурные решения без детализации реализации.
 

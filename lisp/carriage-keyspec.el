@@ -40,7 +40,6 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
     ;; Suite/Intent (tools)
     (:id select-suite :cmd carriage-select-suite                 :keys ("s")   :contexts (carriage) :section tools :desc-key :select-suite)
     (:id toggle-intent :cmd carriage-toggle-intent               :keys ("i")   :contexts (carriage) :section tools :desc-key :toggle-intent)
-    (:id menu         :cmd carriage-keys-open-menu               :keys ("e")   :contexts (carriage) :section tools :desc-key :menu)
     ;; Actions
     (:id dry-run      :cmd carriage-dry-run-at-point        :keys ("d")     :contexts (carriage) :section act :desc-key :dry-run)
     (:id apply        :cmd carriage-apply-at-point-or-region :keys ("a")     :contexts (carriage) :section act :desc-key :apply)
@@ -235,33 +234,13 @@ Example: (global carriage) → локальные биндинги перекр�
 
 This avoids binding conflicts where a bare prefix key is a command (menu)
 and therefore cannot also serve as a prefix for longer sequences."
-  ;; Carriage buffers
-  (when (and (boundp 'carriage-mode-map) (keymapp carriage-mode-map))
-    (let ((base (string-trim-right (or carriage-keys-prefix "C-c e ")
-                                   "[ \t\n\r]+")))
-      (if (and (boundp 'carriage-mode-use-transient) carriage-mode-use-transient)
-          (progn
-            ;; Do not install any suffixes in carriage-mode-map when transient is ON.
-            ;; Only bind the bare prefix to open the menu. Do NOT bind longer sequences
-            ;; (like "C-c e e") here since base is a non-prefix command in this map.
-            (define-key carriage-mode-map (kbd base) #'carriage-keys-open-menu))
-        ;; Transient is OFF → do not install absolute prefix sequences into carriage-mode-map.
-        ;; Per-buffer bindings (e.g., C-c e RET) are installed by carriage-mode itself
-        ;; using emulation maps; ensure bare prefix is not a command here.
-        (define-key carriage-mode-map (kbd base) nil))))
-
-  ;; Child modes (best-effort: apply if the maps are defined)
-  ;; Apply report-specific bindings only to report map; apply log/traffic to aux map if present.
-  (dolist (mp '(carriage-report-mode-map carriage-aux-mode-map))
-    (when (and (boundp mp) (keymapp (symbol-value mp)))
-      (carriage-keys-apply-multi
-       (symbol-value mp)
-       (if (eq mp 'carriage-report-mode-map)
-           '(global report)
-         '(global log traffic)))))
-  ;; Org buffers: install org-only actions (e.g., task-new) under the Carriage prefix
-  (when (and (boundp 'org-mode-map) (keymapp org-mode-map))
-    (carriage-keys-apply-to org-mode-map 'org))
+  (let ((base (string-trim-right (or carriage-keys-prefix "C-c e ")
+                                 "[ \t\n\r]+")))
+    (when (and (boundp 'carriage-mode-map) (keymapp carriage-mode-map))
+      (define-key carriage-mode-map (kbd base) #'carriage-keys-open-menu))
+    (dolist (mp '(carriage-report-mode-map carriage-aux-mode-map org-mode-map))
+      (when (and (boundp mp) (keymapp (symbol-value mp)))
+        (define-key (symbol-value mp) (kbd base) #'carriage-keys-open-menu))))
   ;; Legacy alias: C-c ! applies last iteration (UI v1 legacy)
   (ignore-errors
     (global-set-key (kbd "C-c !") #'carriage-apply-last-iteration))
@@ -315,7 +294,9 @@ Fallback: completing-read (group prefix in labels)."
                                          (k   (car (plist-get pl :keys)))
                                          (key0 (and (stringp k) (car (last (split-string k " " t)))))
                                          (desc-key (plist-get pl :desc-key))
+                                         (fallback-label (plist-get pl :label))
                                          (lbl (or (and (fboundp 'carriage-i18n) (carriage-i18n desc-key))
+                                                  fallback-label
                                                   (and (symbolp cmd) (symbol-name cmd))
                                                   (format "%s" id))))
                                     (list key0 lbl cmd id sec)))))

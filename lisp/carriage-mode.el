@@ -243,9 +243,14 @@ May be a string or a function of zero args returning string."
   :type '(choice string function) :group 'carriage)
 
 (defcustom carriage-mode-use-transient t
-  "When non-nil, C-c e invokes Carriage menu (transient or fallback) in carriage-mode buffers.
-When nil, C-c e acts purely as a prefix for keyspec sequences (no menu on bare C-c e)."
+  "DEPRECATED: transient Carriage menu is always enabled; this option is ignored."
   :type 'boolean :group 'carriage)
+(make-obsolete-variable 'carriage-mode-use-transient
+                        "Transient Carriage menu is always enabled; the option is ignored."
+                        "1.4")
+
+(defvar carriage-mode--transient-warning-emitted nil
+  "Internal guard to warn about ignored `carriage-mode-use-transient'.")
 
 (defcustom carriage-enable-legacy-bindings nil
   "When non-nil, enable legacy bindings (C-c M-RET / C-c RET) in carriage-mode buffers.
@@ -379,21 +384,10 @@ Consults engine capabilities; safe when registry is not yet loaded."
     (ignore-errors (carriage-keys-which-key-register))
     (let* ((base (string-trim-right (or carriage-keys-prefix "C-c e ")
                                     "[ \t\n\r]+")))
-      (if (and (boundp 'carriage-mode-use-transient) carriage-mode-use-transient)
-          (progn
-            ;; transient=t: ensure bare C-c e opens the menu; do NOT bind longer sequences here
-            (define-key carriage-mode-map (kbd base) #'carriage-keys-open-menu))
-        ;; transient=nil: keep bare C-c e unbound; provide C-c e RET via emulation-mode-map-alists
-        (progn
-          (define-key carriage-mode-map (kbd base) nil)
-          (setq carriage--mode-emulation-map (make-sparse-keymap))
-          (define-key carriage--mode-emulation-map (kbd (concat base " RET")) #'carriage-send-buffer)
-          (setq carriage--emulation-map-alist (list (cons 'carriage-mode carriage--mode-emulation-map)))
-          (let ((lst (copy-sequence emulation-mode-map-alists)))
-            (setq-local emulation-mode-map-alists
-                        (if (member carriage--emulation-map-alist lst)
-                            lst
-                          (cons carriage--emulation-map-alist lst)))))))
+      ;; Всегда открываем меню transient по C-c e в carriage-mode.
+      (define-key carriage-mode-map (kbd base) #'carriage-keys-open-menu)
+      (setq carriage--mode-emulation-map nil
+            carriage--emulation-map-alist nil))
     ;; Legacy bindings:
     ;; - C-c C-c → apply at point/region ONLY on patch blocks; otherwise delegate to Org
     ;; - C-c !   → apply last iteration (override org-time-stamp in carriage-mode buffers)

@@ -215,6 +215,7 @@ When WIPE-SUBTREE non-nil, remove subtree content leaving only HEADING and the b
     (insert (or (string-trim-right (or subtree-text "")) ""))
     (insert "\n#+end_quote\n\n")
     (insert "** Анализ\n")
+    (insert "Диалектически проанализируй эту задачу. Опиши решение. И добавь блок #+begin_context,с полным списком путей файлов - спецификаций, кода и тестов, относящихся к данной задаче.\n")
     (goto-char (point-max))
     (current-buffer)))
 
@@ -315,11 +316,11 @@ Behavior:
     (ignore-errors
       (carriage-keys-register-actions
        '((:id task-new
-          :label "Create task doc"
-          :cmd carriage-create-task-doc
-          :keys ("n")
-          :section tools
-          :contexts (carriage org global))))))
+              :label "Create task doc"
+              :cmd carriage-create-task-doc
+              :keys ("n")
+              :section tools
+              :contexts (carriage org global))))))
   (when (fboundp 'carriage-keys-apply-known-keymaps)
     (ignore-errors (carriage-keys-apply-known-keymaps))))
 
