@@ -382,6 +382,12 @@ Unknown symbols are ignored."
   :set #'carriage-ui--set-modeline-blocks
   :group 'carriage-ui)
 
+(defvar-local carriage-ui--model-block-cache nil
+  "Cached (label . help) tuple for the mode-line model segment.")
+
+(defvar-local carriage-ui--model-block-cache-key nil
+  "Key signature used to compute `carriage-ui--model-block-cache'.")
+
 (defvar-local carriage-ui--ctx-cache nil
   "Buffer-local cache for context badge computation.
 Plist keys: :doc :gpt :tick :time :value.")
