@@ -164,6 +164,15 @@ Returns:
      ((and b model)          (format "%s:%s" b model))
      (model))))
 
+;; Small normalization helper to avoid duplicate leading backend prefixes,
+;; e.g., "gptel:gptel:ai-tunnel:gpt-4.1" -> "gptel:ai-tunnel:gpt-4.1".
+(defun carriage-llm--dedupe-leading-backend (s)
+  "Return S with duplicate leading backend removed: \"be:be:rest\" -> \"be:rest\"."
+  (if (and (stringp s)
+           (string-match "\\`\\([^:]+\\):\\1:\\(.*\\)\\'" s))
+      (concat (match-string 1 s) ":" (match-string 2 s))
+    s))
+
 ;; -----------------------------------------------------------------------------
 ;; Model resolution helpers
 

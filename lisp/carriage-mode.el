@@ -1466,6 +1466,10 @@ Falls back to plain string prompt when registry is empty."
          (collection (delete-dups (append (or pairs '()) (or models '()))))
          (def-full (and collection
                         (carriage-llm-default-candidate bcur carriage-mode-model pairs carriage-mode-provider)))
+         (def-full-sane (if (and (stringp def-full)
+                                 (fboundp 'carriage-llm--dedupe-leading-backend))
+                            (carriage-llm--dedupe-leading-backend def-full)
+                          def-full))
          (prompt (if collection
                      (format "Model (or backend:model) [%s]: " bcur)
                    "Model: "))
@@ -1474,15 +1478,15 @@ Falls back to plain string prompt when registry is empty."
                          (let* ((initial (if (and (stringp carriage-mode-model)
                                                   (string= carriage-mode-model "gptel-default"))
                                              ""
-                                           def-full))
+                                           def-full-sane))
                                 (def (unless (and (stringp carriage-mode-model)
                                                   (string= carriage-mode-model "gptel-default"))
-                                       def-full)))
+                                       def-full-sane)))
                            (completing-read prompt collection nil t initial nil def))
                        (let ((initial (if (and (stringp carriage-mode-model)
                                                (string= carriage-mode-model "gptel-default"))
                                           ""
-                                        def-full)))
+                                        def-full-sane)))
                          (read-string prompt initial))))))
     ;; Apply selection:
     ;; When choice contains ':', treat first segment as backend and last segment as model;
