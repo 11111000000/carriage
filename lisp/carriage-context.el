@@ -350,7 +350,7 @@ WHERE is 'system or 'user (affects only label string)."
                 (or (and have-new (buffer-local-value 'carriage-mode-include-doc-context buf))
                     (and have-legacy (buffer-local-value 'carriage-mode-context-attach-files buf))))
                (t t))))))
-    (carriage-context--dbg "count: include{gptel=%s,doc=%s} root=%s" inc-gpt inc-doc root)
+
     (if (not (or inc-gpt inc-doc))
         (progn
           (carriage-context--dbg "count: both sources OFF → 0")

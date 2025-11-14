@@ -505,8 +505,7 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
                                  (append (mapcar #'carriage-ui--context-item->line shown)
                                          (when (> more 0)
                                            (list (format "… (+%d more)" more))))))))
-        (when (null res)
-          (carriage-ui--dbg "Ctx badge: count-fn missing or error (fboundp=%s)" (fboundp 'carriage-context-count)))
+
         (carriage-ui--dbg "Ctx badge: inc-doc=%s inc-gpt=%s cnt=%s items=%s warns=%s"
                           inc-doc inc-gpt cnt n (length warns))
         (cons (format "[Ctx:%d]" cnt)
