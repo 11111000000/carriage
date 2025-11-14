@@ -62,6 +62,7 @@
   "DEPRECATED: kept for UI toggle state only. Use =carriage-mode-report-open-policy'.
 When non-nil, the [AutoRpt] toggle appears ON (meaning 'always)."
   :type 'boolean :group 'carriage)
+(make-variable-buffer-local 'carriage-mode-auto-open-report)
 
 (defcustom carriage-mode-report-open-policy 'on-error
   "Report auto-open policy:
@@ -70,6 +71,7 @@ When non-nil, the [AutoRpt] toggle appears ON (meaning 'always)."
 - 'never    — never open automatically."
   :type '(choice (const on-error) (const always) (const never))
   :group 'carriage)
+(make-variable-buffer-local 'carriage-mode-report-open-policy)
 
 (defun carriage--report-open-maybe (report)
   "Open report according to =carriage-mode-report-open-policy'."
@@ -89,6 +91,7 @@ When non-nil, the [AutoRpt] toggle appears ON (meaning 'always)."
 (defcustom carriage-mode-show-diffs t
   "Require showing diffs before apply."
   :type 'boolean :group 'carriage)
+(make-variable-buffer-local 'carriage-mode-show-diffs)
 
 (defcustom carriage-mode-auto-open-log nil
   "When non-nil, open *carriage-log* automatically on mode enable and when sending."
@@ -101,10 +104,12 @@ When non-nil, the [AutoRpt] toggle appears ON (meaning 'always)."
 (defcustom carriage-mode-confirm-apply-all nil
   "Ask for confirmation before applying all blocks (C-c e A)."
   :type 'boolean :group 'carriage)
+(make-variable-buffer-local 'carriage-mode-confirm-apply-all)
 
 (defcustom carriage-mode-confirm-apply nil
   "Ask for confirmation before applying a single block or a region."
   :type 'boolean :group 'carriage)
+(make-variable-buffer-local 'carriage-mode-confirm-apply)
 
 (defcustom carriage-mode-replace-applied-blocks t
   "When non-nil, replace successfully applied #+begin_patch … #+end_patch blocks
@@ -120,6 +125,7 @@ This toggle has no effect."
 (defcustom carriage-mode-use-icons t
   "Use all-the-icons in mode-line if available."
   :type 'boolean :group 'carriage)
+(make-variable-buffer-local 'carriage-mode-use-icons)
 
 ;; UI v1.3 — Suite/Engine iconized labels
 (defcustom carriage-mode-use-suite-icon t
@@ -173,10 +179,12 @@ This toggle has no effect."
 (defcustom carriage-mode-include-gptel-context t
   "When non-nil, include gptel-context (buffers/files) into the request context."
   :type 'boolean :group 'carriage)
+(make-variable-buffer-local 'carriage-mode-include-gptel-context)
 
 (defcustom carriage-mode-include-doc-context t
   "When non-nil, include file contents listed in the nearest #+begin_context block."
   :type 'boolean :group 'carriage)
+(make-variable-buffer-local 'carriage-mode-include-doc-context)
 
 (defcustom carriage-mode-context-injection 'system
   "Where to inject collected context: 'system (default) or 'user."
@@ -604,6 +612,29 @@ Consults engine capabilities; safe when registry is not yet loaded."
 
 (defvar-local carriage--iteration-inline-marker-inserted nil
   "Non-nil when an inline iteration marker has been inserted for the current stream.")
+
+(defun carriage-insert-inline-iteration-marker-now ()
+  "Insert inline iteration marker immediately at a safe position if configured.
+Uses stream origin when available; never splits a patch block. Returns non-nil when inserted."
+  (interactive)
+  (when (and (boundp 'carriage-iteration-marker-placement)
+             (eq carriage-iteration-marker-placement 'inline)
+             (not carriage--iteration-inline-marker-inserted)
+             (boundp 'carriage--last-iteration-id)
+             (stringp carriage--last-iteration-id)
+             (> (length (string-trim carriage--last-iteration-id)) 0))
+    (let* ((pos (cond
+                 ((and (markerp carriage--stream-origin-marker)
+                       (buffer-live-p (marker-buffer carriage--stream-origin-marker)))
+                  (marker-position carriage--stream-origin-marker))
+                 ((and (markerp carriage--stream-beg-marker)
+                       (buffer-live-p (marker-buffer carriage--stream-beg-marker)))
+                  (marker-position carriage--stream-beg-marker))
+                 (t (point)))))
+      (ignore-errors
+        (carriage-iteration--write-inline-marker pos carriage--last-iteration-id))
+      (setq carriage--iteration-inline-marker-inserted t)
+      t)))
 
 (defun carriage-stream-reset (&optional origin-marker)
   "Reset streaming state for current buffer and set ORIGIN-MARKER if provided.
@@ -1809,7 +1840,7 @@ FN must be a zero-argument function that cancels the ongoing activity."
 (defun carriage-toggle-auto-open-report ()
   "Toggle auto-opening report after dry-run."
   (interactive)
-  (setq carriage-mode-auto-open-report (not carriage-mode-auto-open-report))
+  (setq-local carriage-mode-auto-open-report (not carriage-mode-auto-open-report))
   (message "Auto-open report: %s" (if carriage-mode-auto-open-report "on" "off"))
   (force-mode-line-update t))
 
@@ -1817,7 +1848,7 @@ FN must be a zero-argument function that cancels the ongoing activity."
 (defun carriage-toggle-show-diffs ()
   "Toggle requirement to show diffs before apply."
   (interactive)
-  (setq carriage-mode-show-diffs (not carriage-mode-show-diffs))
+  (setq-local carriage-mode-show-diffs (not carriage-mode-show-diffs))
   (message "Show diffs before apply: %s" (if carriage-mode-show-diffs "on" "off"))
   (force-mode-line-update t))
 
@@ -1825,7 +1856,7 @@ FN must be a zero-argument function that cancels the ongoing activity."
 (defun carriage-toggle-confirm-apply-all ()
   "Toggle confirmation before applying all blocks (C-c e A)."
   (interactive)
-  (setq carriage-mode-confirm-apply-all (not carriage-mode-confirm-apply-all))
+  (setq-local carriage-mode-confirm-apply-all (not carriage-mode-confirm-apply-all))
   (message "Confirm apply-all: %s" (if carriage-mode-confirm-apply-all "on" "off"))
   (force-mode-line-update t))
 
@@ -1833,7 +1864,7 @@ FN must be a zero-argument function that cancels the ongoing activity."
 (defun carriage-toggle-use-icons ()
   "Toggle using icons in the UI (requires all-the-icons)."
   (interactive)
-  (setq carriage-mode-use-icons (not carriage-mode-use-icons))
+  (setq-local carriage-mode-use-icons (not carriage-mode-use-icons))
   (message "Use icons: %s" (if carriage-mode-use-icons "on" "off"))
   (force-mode-line-update t))
 
@@ -1841,7 +1872,7 @@ FN must be a zero-argument function that cancels the ongoing activity."
 (defun carriage-toggle-include-gptel-context ()
   "Toggle including gptel-context (buffers/files) into the request context."
   (interactive)
-  (setq carriage-mode-include-gptel-context (not carriage-mode-include-gptel-context))
+  (setq-local carriage-mode-include-gptel-context (not carriage-mode-include-gptel-context))
   (when (fboundp 'carriage-ui--reset-context-cache)
     (carriage-ui--reset-context-cache))
   (message "Include gptel-context: %s" (if carriage-mode-include-gptel-context "on" "off"))
@@ -1851,7 +1882,7 @@ FN must be a zero-argument function that cancels the ongoing activity."
 (defun carriage-toggle-include-doc-context ()
   "Toggle including file contents from the nearest #+begin_context block in the document."
   (interactive)
-  (setq carriage-mode-include-doc-context (not carriage-mode-include-doc-context))
+  (setq-local carriage-mode-include-doc-context (not carriage-mode-include-doc-context))
   (when (fboundp 'carriage-ui--reset-context-cache)
     (carriage-ui--reset-context-cache))
   (message "Include #+begin_context files: %s" (if carriage-mode-include-doc-context "on" "off"))

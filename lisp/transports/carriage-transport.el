@@ -10,7 +10,8 @@
 (declare-function carriage-clear-abort-handler "carriage-mode" ())
 (declare-function carriage--preloader-start "carriage-mode" ())
 (declare-function carriage--preloader-stop "carriage-mode" ())
-(declare-function carriage-iteration--write-inline-marker "carriage-mode" (pos id))
+(declare-function carriage-iteration--write-inline-marker "carriage-iteration" (pos id))
+(declare-function carriage-insert-inline-iteration-marker-now "carriage-mode" ())
 
 (defvar carriage--transport-loading-adapter nil
   "Guard to prevent recursive/layered adapter loading in transport dispatcher.")
