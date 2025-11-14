@@ -679,6 +679,7 @@ Records begin and tail markers so main text can be inserted after reasoning
 without auto-closing; the end marker is inserted later at tail."
   (when (eq carriage-mode-include-reasoning 'block)
     (carriage--ensure-stream-region)
+    (ignore-errors (carriage-insert-inline-iteration-marker-now))
     (unless carriage--reasoning-open
       (let ((inhibit-read-only t)
             (pos (marker-position carriage--stream-end-marker)))

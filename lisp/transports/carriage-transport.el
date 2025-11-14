@@ -165,6 +165,8 @@ Returns an unregister lambda that clears the handler when called."
   ;; Generate iteration id before any streaming/reasoning to group upcoming patches
   (when (fboundp 'carriage-begin-iteration)
     (ignore-errors (carriage-begin-iteration)))
+  (when (fboundp 'carriage-insert-inline-iteration-marker-now)
+    (ignore-errors (carriage-insert-inline-iteration-marker-now)))
   (carriage-ui-set-state 'sending)
   ;; Start buffer preloader (if available) at the insertion point.
   (when (fboundp 'carriage--preloader-start)
