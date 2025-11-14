@@ -101,6 +101,7 @@ When non-nil, the [AutoRpt] toggle appears ON (meaning 'always)."
 (defcustom carriage-mode-auto-open-traffic nil
   "When non-nil, open *carriage-traffic* automatically when sending."
   :type 'boolean :group 'carriage)
+(make-variable-buffer-local 'carriage-mode-auto-open-traffic)
 
 (defcustom carriage-mode-confirm-apply-all nil
   "Ask for confirmation before applying all blocks (C-c e A)."
