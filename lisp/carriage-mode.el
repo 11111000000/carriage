@@ -615,6 +615,7 @@ Does not modify buffer text; only clears markers/state so the next chunk opens a
   (setq carriage--reasoning-tail-marker nil)
   (setq carriage--reasoning-beg-marker nil)
   (setq carriage--iteration-inline-marker-inserted nil)
+  (carriage--undo-group-start)
   t)
 
 (defun carriage-stream-region ()
@@ -777,6 +778,7 @@ TYPE is either 'text (default) or 'reasoning.
 - 'reasoning: when carriage-mode-include-reasoning='block, ensure a #+begin_reasoning
   and append to the reasoning tail marker so that main text remains outside the block."
   (let ((s (or string "")))
+    (carriage--undo-group-start)
     ;; First incoming chunk stops the preloader (if any).
     (when (fboundp 'carriage--preloader-stop)
       (carriage--preloader-stop))
@@ -1076,6 +1078,7 @@ May include :context-text and :context-target per v1.1."
       (ignore-errors (carriage-show-traffic)))
 
     (carriage--ensure-transport)
+    (carriage-stream-reset origin-marker)
     (let* ((unreg (carriage-transport-begin)))
       ;; Start lightweight preloader at insertion point until first stream chunk arrives.
       (when (fboundp 'carriage--preloader-start)
