@@ -99,5 +99,30 @@
       (when (buffer-live-p buf1) (kill-buffer buf1))
       (when (buffer-live-p buf2) (kill-buffer buf2)))))
 
+(ert-deftest carriage-auto-open-flags-are-buffer-local ()
+  "Auto-open log/traffic flags should be buffer-local in carriage-mode."
+  (let ((buf1 (generate-new-buffer "*carriage-test-auto-1*"))
+        (buf2 (generate-new-buffer "*carriage-test-auto-2*")))
+    (unwind-protect
+        (progn
+          (with-current-buffer buf1 (org-mode) (carriage-mode 1))
+          (with-current-buffer buf2 (org-mode) (carriage-mode 1))
+          ;; defaults equal in both buffers
+          (should (eq (buffer-local-value 'carriage-mode-auto-open-log buf1)
+                      (buffer-local-value 'carriage-mode-auto-open-log buf2)))
+          (should (eq (buffer-local-value 'carriage-mode-auto-open-traffic buf1)
+                      (buffer-local-value 'carriage-mode-auto-open-traffic buf2)))
+          ;; flip only in buf1
+          (with-current-buffer buf1
+            (setq-local carriage-mode-auto-open-log t)
+            (setq-local carriage-mode-auto-open-traffic t))
+          ;; buf1 changed, buf2 unaffected
+          (should-not (eq (buffer-local-value 'carriage-mode-auto-open-log buf1)
+                          (buffer-local-value 'carriage-mode-auto-open-log buf2)))
+          (should-not (eq (buffer-local-value 'carriage-mode-auto-open-traffic buf1)
+                          (buffer-local-value 'carriage-mode-auto-open-traffic buf2))))
+      (when (buffer-live-p buf1) (kill-buffer buf1))
+      (when (buffer-live-p buf2) (kill-buffer buf2)))))
+
 (provide 'carriage-mode-toggle-tests)
 ;;; carriage-mode-toggle-tests.el ends here

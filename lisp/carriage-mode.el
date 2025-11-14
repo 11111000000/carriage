@@ -96,6 +96,7 @@ When non-nil, the [AutoRpt] toggle appears ON (meaning 'always)."
 (defcustom carriage-mode-auto-open-log nil
   "When non-nil, open *carriage-log* automatically on mode enable and when sending."
   :type 'boolean :group 'carriage)
+(make-variable-buffer-local 'carriage-mode-auto-open-log)
 
 (defcustom carriage-mode-auto-open-traffic nil
   "When non-nil, open *carriage-traffic* automatically when sending."
