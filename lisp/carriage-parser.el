@@ -324,8 +324,16 @@ Behavior:
           (setq last-pos (line-end-position))))
       (when (numberp last-pos)
         (carriage-log "collect-last-iteration STRICT: using region after inline marker @%d" last-pos)
-        (cl-return-from carriage-collect-last-iteration-blocks-strict
-          (carriage-parse-blocks-in-region last-pos (point-max) root)))
+        ;; Collect blocks strictly between this marker and the next inline marker (if any).
+        (let* ((end-limit (save-excursion
+                            (goto-char (1+ last-pos))
+                            (when (re-search-forward "^[ \t]*#\\+CARRIAGE_ITERATION_ID:[ \t]+\\([0-9a-fA-F-]+\\)[ \t]*$" nil t)
+                              (line-beginning-position))))
+               (plan (carriage-parse-blocks-in-region last-pos (or end-limit (point-max)) root)))
+          ;; If nothing found (e.g., the marker was inserted late), do not return yet;
+          ;; fall back to other strategies below.
+          (when (and plan (> (length plan) 0))
+            (cl-return-from carriage-collect-last-iteration-blocks-strict plan))))
       ;; Fallback: if no inline marker with the exact ID is found,
       ;; use the last inline marker of any ID as the anchor.
       (let ((any-pos nil))
