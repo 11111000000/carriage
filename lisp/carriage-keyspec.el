@@ -53,8 +53,8 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
   '(
     ;; Tools/model/context
     (:id model-select :cmd carriage-select-model :keys ("m") :contexts (carriage) :section tools :desc-key :model-select)
-    (:id toggle-ctx   :cmd carriage-toggle-include-gptel-context :keys ("tg") :contexts (carriage) :section tools :desc-key :toggle-ctx)
-    (:id toggle-doc   :cmd carriage-toggle-include-doc-context   :keys ("tc") :contexts (carriage) :section tools :desc-key :toggle-doc)
+    (:id toggle-ctx   :cmd carriage-toggle-include-gptel-context :keys ("tc") :contexts (carriage) :section tools :desc-key :toggle-ctx)
+    (:id toggle-doc   :cmd carriage-toggle-include-doc-context   :keys ("tf") :contexts (carriage) :section tools :desc-key :toggle-doc)
     ;; Suite/Intent (tools)
     (:id select-suite :cmd carriage-select-suite                 :keys ("s")   :contexts (carriage) :section tools :desc-key :select-suite)
     (:id toggle-intent :cmd carriage-toggle-intent               :keys ("i")   :contexts (carriage) :section tools :desc-key :toggle-intent)

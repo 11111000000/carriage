@@ -299,6 +299,12 @@ keys change (buffer content, toggle states)."
                  (const :tag "Unlimited (until buffer changes)" nil))
   :group 'carriage-ui)
 
+(defcustom carriage-ui-context-tooltip-max-items 50
+  "Maximum number of context items to list in the [Ctx:N] tooltip.
+When more are present, the tooltip shows a tail line like \"… (+K more)\"."
+  :type 'integer
+  :group 'carriage-ui)
+
 (defconst carriage-ui--modeline-default-blocks
   '(intent
     model
@@ -431,49 +437,93 @@ Plist keys: :doc :gpt :tick :time :value.")
         (setq carriage-ui--ctx-cache nil))
     (setq carriage-ui--ctx-cache nil)))
 
+(defun carriage-ui--context-item->line (item)
+  "Format ITEM from carriage-context-count into a single tooltip line."
+  (let* ((p   (plist-get item :path))
+         (src (pcase (plist-get item :source)
+                ('doc "doc") ('gptel "gptel") ('both "both") (_ "?")))
+         (inc (plist-get item :included))
+         (rsn (plist-get item :reason)))
+    (concat " - [" src "] " (or p "-")
+            (unless inc
+              (format " (content omitted%s)" (if rsn (format ": %s" rsn) ""))))))
+
+(defun carriage-ui--context-build-tooltip (inc-doc inc-gpt cnt items warns limit)
+  "Build multi-line tooltip text for [Ctx:N].
+INC-DOC/INC-GPT are toggle states for doc/gptel sources.
+CNT is the count from collector, ITEMS/WARNS from carriage-context-count.
+LIMIT controls max number of items shown; nil or <=0 means no limit."
+  (let* ((n (length items))
+         (shown (if (and (integerp limit) (> limit 0))
+                    (cl-subseq items 0 (min n limit))
+                  items))
+         (more (max 0 (- n (length shown))))
+         (header (format "Контекст: файлов=%d — источники: doc=%s, gptel=%s"
+                         cnt (if inc-doc "on" "off") (if inc-gpt "on" "off")))
+         (warn-lines (when warns
+                       (cons "Предупреждения:"
+                             (mapcar (lambda (w) (concat " - " w)) warns))))
+         (item-lines (when shown
+                       (cons "Элементы:"
+                             (append (mapcar #'carriage-ui--context-item->line shown)
+                                     (when (> more 0)
+                                       (list (format "… (+%d more)" more))))))))
+    (mapconcat #'identity
+               (delq nil (list header
+                               (and warn-lines (mapconcat #'identity warn-lines "\n"))
+                               (and item-lines (mapconcat #'identity item-lines "\n"))))
+               "\n")))
+
 (defun carriage-ui--compute-context-badge (inc-doc inc-gpt)
-  "Compute context badge (LABEL . HINT) for INC-DOC / INC-GPT toggles.
-Lightweight: count unique files only; no filesystem size probing."
-  (if (not (or inc-doc inc-gpt))
-      nil
-    (let ((cnt 0))
-      (condition-case _e
-          (progn
-            (require 'carriage-context nil t)
-            (let* ((set (make-hash-table :test 'equal))
-                   (root (or (carriage-project-root) default-directory)))
-              (when (and inc-doc (fboundp 'carriage-context--doc-paths))
-                (dolist (p (or (ignore-errors (carriage-context--doc-paths (current-buffer))) '()))
-                  (let* ((abs (if (file-name-absolute-p p) p (expand-file-name p root)))
-                         (tru (or (gethash abs tru-cache)
-                                  (let ((v (ignore-errors (file-truename abs))))
-                                    (when v (puthash abs v tru-cache))
-                                    v))))
-                    (when tru (puthash tru t set)))))
-              (when (and inc-gpt (fboundp 'carriage-context--maybe-gptel-files))
-                (dolist (p (or (ignore-errors (carriage-context--maybe-gptel-files)) '()))
-                  (let* ((abs (if (file-name-absolute-p p) p (expand-file-name p root)))
-                         (tru (or (gethash abs tru-cache)
-                                  (let ((v (ignore-errors (file-truename abs))))
-                                    (when v (puthash abs v tru-cache))
-                                    v))))
-                    (when tru (puthash tru t set)))))
-              (maphash (lambda (_tru _v) (setq cnt (1+ cnt))) set)))
-        (error
-         (setq cnt 0)))
-      (let* ((lbl (format "[Ctx:%d]" cnt))
-             (hint (format "Контекст: файлов=%d — источники: doc=%s, gptel=%s"
-                           cnt
-                           (if inc-doc "on" "off")
-                           (if inc-gpt "on" "off"))))
-        (cons lbl hint)))))
+  "Compute context badge (LABEL . HINT) for INC-DOC/INC-GPT toggles.
+Основано на carriage-context-count — показывает ровно то, что уйдёт в запрос."
+  (require 'carriage-context nil t)
+  (let* ((off (not (or inc-doc inc-gpt))))
+    (if off
+        (cons "[Ctx:-]" "Контекст выключен (doc=off, gptel=off)")
+      (let* ((res (and (fboundp 'carriage-context-count)
+                       (ignore-errors
+                         (carriage-context-count (current-buffer) (point)))))
+             (cnt  (or (and (listp res) (plist-get res :count)) 0))
+             (items (or (and (listp res) (plist-get res :items)) '()))
+             (warns (or (and (listp res) (plist-get res :warnings)) '()))
+             (limit (or (and (boundp 'carriage-ui-context-tooltip-max-items)
+                             carriage-ui-context-tooltip-max-items)
+                        50))
+             (n (length items))
+             (shown (if (and (integerp limit) (> limit 0))
+                        (cl-subseq items 0 (min n limit))
+                      items))
+             (more (max 0 (- n (length shown))))
+             (head-line (format "Контекст: файлов=%d — источники: doc=%s, gptel=%s"
+                                cnt (if inc-doc "on" "off") (if inc-gpt "on" "off")))
+             (warn-lines (when warns
+                           (cons "Предупреждения:"
+                                 (mapcar (lambda (w) (concat " - " w)) warns))))
+             (item-lines (when shown
+                           (cons "Элементы:"
+                                 (append (mapcar #'carriage-ui--context-item->line shown)
+                                         (when (> more 0)
+                                           (list (format "… (+%d more)" more))))))))
+        (when (null res)
+          (carriage-ui--dbg "Ctx badge: count-fn missing or error (fboundp=%s)" (fboundp 'carriage-context-count)))
+        (carriage-ui--dbg "Ctx badge: inc-doc=%s inc-gpt=%s cnt=%s items=%s warns=%s"
+                          inc-doc inc-gpt cnt n (length warns))
+        (cons (format "[Ctx:%d]" cnt)
+              (mapconcat #'identity
+                         (delq nil (list head-line
+                                         (and warn-lines (mapconcat #'identity warn-lines "\n"))
+                                         (and item-lines (mapconcat #'identity item-lines "\n"))))
+                         "\n"))))))
 
 (defun carriage-ui--context-badge ()
   "Return cached or freshly computed context badge cons cell (LABEL . HINT)."
-  (let* ((inc-doc (and (boundp 'carriage-mode-include-doc-context)
-                       carriage-mode-include-doc-context))
-         (inc-gpt (and (boundp 'carriage-mode-include-gptel-context)
-                       carriage-mode-include-gptel-context))
+  (let* ((inc-doc (if (boundp 'carriage-mode-include-doc-context)
+                      carriage-mode-include-doc-context
+                    t))
+         (inc-gpt (if (boundp 'carriage-mode-include-gptel-context)
+                      carriage-mode-include-gptel-context
+                    t))
          (tick (buffer-chars-modified-tick))
          (pt (point))
          (now (float-time))
@@ -489,7 +539,16 @@ Lightweight: count unique files only; no filesystem size probing."
              (= tick (plist-get cache :tick))
              (= pt (plist-get cache :point))
              ttl-ok)
-        (plist-get cache :value)
+        (progn
+          (when carriage-ui-debug
+            (let* ((val (plist-get cache :value))
+                   (lbl (and (consp val) (car val))))
+              (carriage-ui--dbg "ctx-badge: cache HIT (doc=%s gpt=%s tick=%s pt=%s) → %s"
+                                inc-doc inc-gpt tick pt lbl)))
+          (plist-get cache :value))
+      (when carriage-ui-debug
+        (carriage-ui--dbg "ctx-badge: cache MISS (doc=%s gpt=%s tick=%s pt=%s ttl-ok=%s)"
+                          inc-doc inc-gpt tick pt ttl-ok))
       (let ((value (carriage-ui--compute-context-badge inc-doc inc-gpt)))
         (setq carriage-ui--ctx-cache
               (list :doc inc-doc

@@ -190,7 +190,7 @@
     carriage-report-show-diff-at-point, carriage-report-ediff-at-point.
 - lisp/carriage-context.el
   - Сбор и форматирование контекста (gptel-context + #+begin_context).
-  - Ключевые: carriage-context-collect, carriage-context-format.
+  - Ключевые: carriage-context-collect, carriage-context-format, carriage-context-count.
 - lisp/carriage-i18n.el
   - Слой локализации (ru/en) для UI/which-key/transient.
   - Ключевые: carriage-i18n, carriage-i18n-set-locale.

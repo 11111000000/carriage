@@ -60,6 +60,8 @@
   - :stats — (:total-bytes N :included M :skipped K)
 - carriage-context-format (ctx &key where) → string:
   - Форматирует заголовок/предупреждения/блоки для вставки.
+- carriage-context-count (&optional buffer point) → plist:
+  - Для UI бейджа: (:count N :items … :sources … :warnings … :stats …); источники помечаются как 'doc|'gptel|'both.
 - Интеграция:
   - carriage--build-context добавляет :context-text и :context-target (system|user) в CTX для prompt builder.
   - carriage-build-prompt учитывает :context-text и встраивает по месту.
@@ -68,8 +70,8 @@
 - Тумблеры:
   - carriage-toggle-include-gptel-context (C-c e t c)
   - carriage-toggle-include-doc-context (C-c e t f)
-- Бейдж [Ctl:N] в модлайне отображает текущее количество элементов контекста, которое будет отправлено при запуске запроса.
-  - При отключённых источниках контекста (оба тумблера off) отображается [Ctl:-].
+- Бейдж [Ctx:N] в модлайне отображает текущее количество элементов контекста, которое будет отправлено при запуске запроса.
+  - При отключённых источниках контекста (оба тумблера off) отображается [Ctx:-].
   - help-echo бейджа содержит список всех элементов с пометками «контент включён» или «контент не включён (REASON)» и предупреждения сборщика.
   - При обновлении буфера или смене позиции точки кеш пересчитывается; используется TTL для ограничения частоты пересборки.
 - В модлайне — иконки (при наличии all-the-icons) и текстовые ярлыки [скобках]:

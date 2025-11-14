@@ -56,8 +56,9 @@
   - [ShowDiffs] — carriage-mode-show-diffs (t/nil) — требовать предпросмотр диффов перед применением.
   - [ConfirmAll] — carriage-mode-confirm-apply-all (t/nil) — подтверждение перед C-c e A.
   - [Icons] — carriage-mode-use-icons (t/nil) — использовать иконки.
-  - [Ctx] — carriage-mode-use-context (t/nil) — включать контекст запроса (релевантные фрагменты; см. ./context-integration-v1.org).
-  - [Files] — carriage-mode-context-attach-files (t/nil) — прикладывать список/содержимое файлов в запрос (лимиты см. ./index.org).
+  - [Ctx] — carriage-mode-include-gptel-context (t/nil) — включать gptel-контекст (буферы/файлы; см. ./context-integration-v1.org).
+  - [Files] — carriage-mode-include-doc-context (t/nil) — прикладывать файлы из блока #+begin_context документа (лимиты см. ./index.org).
+- Бейдж [Ctx:N] — в модлайне постоянно показывает число элементов контекста, которые будут отправлены при текущих тумблерах; при выключенных источниках отображается [Ctx:-]. Всплывающая подсказка содержит список элементов с их источниками и причинами пропусков (если есть).
 
 - Иконки (при наличии all-the-icons; иначе — текстовые метки в [скобках]):
   - Intent: Ask — material "chat" | Code/Hybrid — material "code".
