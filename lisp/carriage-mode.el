@@ -1329,6 +1329,7 @@ May include :context-text and :context-target per v1.1."
     ;; Strict: no plan → helpful diagnostics and user-error
     (when (or (null plan) (zerop (length plan)))
       (let* ((id (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id))
+             (inline-id (ignore-errors (carriage-iteration-read-inline-id)))
              (total 0) (marked 0))
         (save-excursion
           (goto-char (point-min))
@@ -1342,9 +1343,12 @@ May include :context-text and :context-target per v1.1."
                            (equal (get-text-property lb 'carriage-iteration-id) id))
                   (setq marked (1+ marked))))
               (forward-line 1))))
-        (user-error (format "Нет последней итерации (CARRIAGE_ITERATION_ID). Blocks=%d, marked=%d%s"
+        (user-error (format "Нет последней итерации (CARRIAGE_ITERATION_ID). Blocks=%d, marked=%d%s%s"
                             total marked
-                            (if id (format ", id=%s" (substring id 0 (min 8 (length id)))) "")))))
+                            (if id (format ", id=%s" (substring id 0 (min 8 (length id)))) "")
+                            (if inline-id
+                                (format ", inline=%s" (substring inline-id 0 (min 8 (length inline-id))))
+                              ", inline:-")))))
     (when (and carriage-mode-confirm-apply-all
                (not (y-or-n-p (format "Применить все блоки (%d)? " (length plan)))))
       (user-error "Отменено"))
