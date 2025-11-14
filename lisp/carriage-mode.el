@@ -453,6 +453,45 @@ Consults engine capabilities; safe when registry is not yet loaded."
 
 ;; Streaming insertion state and helpers
 
+;; Group all streaming edits into a single undo step using change groups.
+(defvar-local carriage--undo-change-group nil
+  "Handle of the active change group for streaming, or nil.")
+
+(defun carriage--undo-group-start ()
+  "Start a change group for streaming if supported and not already active."
+  (when (and (fboundp 'prepare-change-group)
+             (fboundp 'activate-change-group)
+             (null carriage--undo-change-group))
+    (let ((cg (prepare-change-group)))
+      (setq carriage--undo-change-group cg)
+      (activate-change-group cg)
+      cg)))
+
+(defun carriage--undo-group-accept ()
+  "Accept the active change group for streaming and insert a boundary."
+  (when carriage--undo-change-group
+    (when (fboundp 'accept-change-group)
+      (accept-change-group carriage--undo-change-group))
+    (setq carriage--undo-change-group nil)
+    (when (fboundp 'undo-boundary)
+      (ignore-errors (undo-boundary)))
+    t))
+
+(defun carriage--undo-group-cancel ()
+  "Cancel the active change group for streaming."
+  (when carriage--undo-change-group
+    (when (fboundp 'cancel-change-group)
+      (cancel-change-group carriage--undo-change-group))
+    (setq carriage--undo-change-group nil)
+    t))
+
+(defun carriage--undo-group-on-abort ()
+  "Finalize change group on abort according to policy."
+  (pcase (and (boundp 'carriage-mode-stream-undo-on-abort)
+              carriage-mode-stream-undo-on-abort)
+    ('drop (carriage--undo-group-cancel))
+    (_     (carriage--undo-group-accept))))
+
 (defcustom carriage-mode-stream-undo-on-abort 'keep
   "Policy for undo change group on abort: 'keep (accept accumulated changes) or 'drop (cancel them)."
   :type '(choice (const keep) (const drop))
