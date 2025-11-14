@@ -453,6 +453,11 @@ Consults engine capabilities; safe when registry is not yet loaded."
 
 ;; Streaming insertion state and helpers
 
+(defcustom carriage-mode-stream-undo-on-abort 'keep
+  "Policy for undo change group on abort: 'keep (accept accumulated changes) or 'drop (cancel them)."
+  :type '(choice (const keep) (const drop))
+  :group 'carriage)
+
 (defcustom carriage-mode-reasoning-log-verbose nil
   "When non-nil, emit verbose reasoning begin/end logs to *carriage-log*."
   :type 'boolean :group 'carriage)
