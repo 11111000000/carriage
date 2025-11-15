@@ -1340,7 +1340,8 @@ May include :context-text and :context-target per v1.1."
     (when (or (null plan) (zerop (length plan)))
       (let* ((id (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id))
              (inline-id (ignore-errors (carriage-iteration-read-inline-id)))
-             (total 0) (marked 0))
+             (total 0) (marked 0) (after 0))
+        ;; Count all patch blocks and how many are text-property marked with current id.
         (save-excursion
           (goto-char (point-min))
           (while (search-forward "#+begin_patch" nil t)
@@ -1353,12 +1354,32 @@ May include :context-text and :context-target per v1.1."
                            (equal (get-text-property lb 'carriage-iteration-id) id))
                   (setq marked (1+ marked))))
               (forward-line 1))))
-        (user-error (format "Нет последней итерации (CARRIAGE_ITERATION_ID). Blocks=%d, marked=%d%s%s"
+        ;; Additionally, count how many patch blocks are located AFTER the last inline marker line.
+        (let ((last-pos nil))
+          (save-excursion
+            (goto-char (point-min))
+            (let* ((case-fold-search t)
+                   (rx (if (and (stringp id) (> (length id) 0))
+                           (format "^[ \t]*#\\+CARRIAGE_ITERATION_ID:[ \t]+%s[ \t]*$"
+                                   (regexp-quote (downcase id)))
+                         "^[ \t]*#\\+CARRIAGE_ITERATION_ID:[ \t]+\\([0-9a-fA-F-]+\\)[ \t]*$")))
+              (while (re-search-forward rx nil t)
+                (setq last-pos (line-end-position)))))
+          (when (numberp last-pos)
+            (save-excursion
+              (goto-char last-pos)
+              (let ((case-fold-search t))
+                (while (re-search-forward "^[ \t]*#\\+begin_patch\\b" nil t)
+                  (setq after (1+ after)))))))
+        (user-error (format "Нет последней итерации (CARRIAGE_ITERATION_ID). Blocks=%d, marked=%d%s%s%s"
                             total marked
                             (if id (format ", id=%s" (substring id 0 (min 8 (length id)))) "")
                             (if inline-id
                                 (format ", inline=%s" (substring inline-id 0 (min 8 (length inline-id))))
-                              ", inline:-")))))
+                              ", inline:-")
+                            (if (> after 0)
+                                (format ", after-inline=%d" after)
+                              "")))))
     (when (and carriage-mode-confirm-apply-all
                (not (y-or-n-p (format "Применить все блоки (%d)? " (length plan)))))
       (user-error "Отменено"))
