@@ -238,7 +238,7 @@ If nil (default v1 behavior), such cases are considered a failure in dry-run."
   "When non-nil, add a buffer-local modeline segment for Carriage."
   :type 'boolean :group 'carriage)
 
-(defcustom carriage-mode-spinner-interval 0.2
+(defcustom carriage-mode-spinner-interval 0.35
   "Spinner update interval in seconds for sending/streaming states."
   :type 'number :group 'carriage)
 

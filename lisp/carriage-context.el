@@ -31,6 +31,9 @@ When nil, cache entries are considered valid until file size or mtime changes."
   "Cache of file reads keyed by truename.
 Each value is a plist: (:mtime MT :size SZ :time TS :ok BOOL :data STRING-OR-REASON).")
 
+(defvar carriage-context--root-tru-cache (make-hash-table :test 'equal)
+  "Cache mapping project ROOT → truenamed directory (with trailing slash).")
+
 (defun carriage-context--dbg (fmt &rest args)
   "Internal debug logger for context layer (respects =carriage-context-debug')."
   (when carriage-context-debug
@@ -47,8 +50,12 @@ Each value is a plist: (:mtime MT :size SZ :time TS :ok BOOL :data STRING-OR-REA
 
 (defun carriage-context--inside-root-p (truename root)
   "Return non-nil if TRUENAME lies within ROOT.
-Assumes TRUENAME is already a truename; avoids re-normalizing it."
-  (let* ((rt (file-name-as-directory (file-truename root)))
+Assumes TRUENAME is already a truename; avoids re-normalizing it.
+Uses a small memo to avoid repeated (file-truename root) calls."
+  (let* ((rt (or (gethash root carriage-context--root-tru-cache)
+                 (let ((v (file-name-as-directory (file-truename root))))
+                   (puthash root v carriage-context--root-tru-cache)
+                   v)))
          (pt (file-name-as-directory truename)))
     (string-prefix-p rt pt)))
 

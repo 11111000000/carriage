@@ -292,7 +292,7 @@ Update only when BUF is visible; refresh any windows showing it."
     ('error "Error")
     (_ (capitalize (symbol-name (or state 'idle))))))
 
-(defcustom carriage-ui-context-cache-ttl 8.0
+(defcustom carriage-ui-context-cache-ttl 10.0
   "Maximum age in seconds for cached context badge computations in the mode-line.
 Set to 0 to recompute on every redisplay; set to nil to keep values until other cache
 keys change (buffer content, toggle states)."
@@ -572,7 +572,8 @@ Heavy recomputation is moved off the redisplay path to reduce churn."
           (setq carriage-ui--ctx-refresh-timer
                 (run-at-time delay nil
                              (lambda ()
-                               (when (buffer-live-p buf)
+                               (when (and (buffer-live-p buf)
+                                          (get-buffer-window buf t))
                                  (with-current-buffer buf
                                    (let* ((val (carriage-ui--compute-context-badge doc gpt))
                                           (t2 (float-time)))
@@ -592,7 +593,8 @@ Heavy recomputation is moved off the redisplay path to reduce churn."
           (setq carriage-ui--ctx-refresh-timer
                 (run-at-time delay nil
                              (lambda ()
-                               (when (buffer-live-p buf)
+                               (when (and (buffer-live-p buf)
+                                          (get-buffer-window buf t))
                                  (with-current-buffer buf
                                    (let* ((val (carriage-ui--compute-context-badge doc gpt))
                                           (t2 (float-time)))
@@ -997,8 +999,18 @@ Truncation order: outline → buffer → project."
 (defvar-local carriage-ui--patch-count-tick nil
   "Buffer tick corresponding to `carriage-ui--patch-count-cache'.")
 
+(defcustom carriage-ui-apply-visibility-cache-ttl 0.1
+  "TTL in seconds for caching visibility of [Dry]/[Apply] buttons in the modeline.
+When 0 or nil, the cache is disabled."
+  :type '(choice (const :tag "Disabled" 0) number)
+  :group 'carriage-ui)
+
+(defvar-local carriage-ui--apply-visibility-cache nil
+  "Cached result for carriage-ui--show-apply-buttons-p.
+Plist keys: :value :tick :point :beg :end :time (float seconds).")
+
 ;; Branch name cache (to avoid heavy VC/git calls on every modeline render)
-(defcustom carriage-ui-branch-cache-ttl 3.0
+(defcustom carriage-ui-branch-cache-ttl 5.0
   "TTL in seconds for cached VCS branch name used in the modeline.
 When nil, the cache is considered always valid (until explicitly invalidated)."
   :type '(choice (const :tag "Unlimited (never auto-refresh)" nil) number)
@@ -1085,12 +1097,33 @@ Respects `carriage-ui-branch-cache-ttl'."
         (re-search-forward "^[ \t]*#\\+begin_patch\\b" end t)))))
 
 (defun carriage-ui--show-apply-buttons-p ()
-  "Return non-nil when modeline should show Dry/Apply actions.
+  "Return non-nil when modeline should show Dry/Apply actions (with short-lived cache).
 
 Visible only when point is inside a #+begin_patch … #+end_patch block
-or when the active region contains at least one patch block."
-  (or (carriage-ui--point-in-patch-block-p)
-      (carriage-ui--region-has-patch-p)))
+or when the active region contains at least one patch block.
+To avoid regex scans on every redisplay, the result is cached briefly per buffer."
+  (let* ((ttl (or carriage-ui-apply-visibility-cache-ttl 0))
+         (now (float-time))
+         (tick (buffer-chars-modified-tick))
+         (pt (point))
+         (rb (and (use-region-p) (region-beginning)))
+         (re (and (use-region-p) (region-end)))
+         (c carriage-ui--apply-visibility-cache)
+         (fresh (and (numberp ttl) (> ttl 0)
+                     (plist-get c :value)
+                     (= (plist-get c :tick) tick)
+                     (= (plist-get c :point) pt)
+                     (eq (plist-get c :beg) rb)
+                     (eq (plist-get c :end) re)
+                     (< (- now (or (plist-get c :time) 0)) ttl))))
+    (if fresh
+        (plist-get c :value)
+      (let ((val (or (carriage-ui--point-in-patch-block-p)
+                     (carriage-ui--region-has-patch-p))))
+        (when (and (numberp ttl) (> ttl 0))
+          (setq carriage-ui--apply-visibility-cache
+                (list :value val :tick tick :point pt :beg rb :end re :time now)))
+        val))))
 
 (defvar-local carriage-ui--last-iter-cache-id nil
   "Cached last iteration id used to detect presence of last-iteration blocks.")
@@ -1415,7 +1448,6 @@ Uses pulse.el when available, otherwise temporary overlays."
     (list uicons
           state spin
           (and ctx-badge (car ctx-badge))
-          (and ctx-badge (cdr ctx-badge))
           patch-count show-patch has-last abortp blocks
           (and (boundp 'carriage-mode-intent)  carriage-mode-intent)
           (and (boundp 'carriage-mode-suite)   carriage-mode-suite)

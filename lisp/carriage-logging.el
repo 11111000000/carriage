@@ -49,8 +49,7 @@ When nil (default), use a lightweight header-line tabs to reduce redisplay cost.
       (unless (derived-mode-p 'carriage-aux-mode)
         (carriage-aux-mode))
       (setq-local header-line-format (carriage--aux-header-line 'log))
-      (carriage--aux-ensure-tabline)
-      (setq-local header-line-format (carriage--aux-header-line 'log)))
+      (carriage--aux-ensure-tabline))
     buf))
 
 (defun carriage-traffic-buffer ()
@@ -60,8 +59,7 @@ When nil (default), use a lightweight header-line tabs to reduce redisplay cost.
       (unless (derived-mode-p 'carriage-aux-mode)
         (carriage-aux-mode))
       (setq-local header-line-format (carriage--aux-header-line 'traffic))
-      (carriage--aux-ensure-tabline)
-      (setq-local header-line-format (carriage--aux-header-line 'traffic)))
+      (carriage--aux-ensure-tabline))
     buf))
 
 (defun carriage--buffer-line-count (buffer)
@@ -134,14 +132,18 @@ STRING may be any object; it will be coerced to a string via format."
 (defun carriage--aux-ensure-tabline ()
   "Enable tab-line with only Log/Traffic buffers when available.
 Respects `carriage-mode-use-tab-line-in-aux'. When nil, do not enable tab-line
-and rely on the lightweight header-line tabs."
-  (when (and carriage-mode-use-tab-line-in-aux
-             (boundp 'tab-line-tabs-function))
-    (setq-local tab-line-tabs-function (lambda ()
-                                         (carriage--aux-tab-buffers)))
-    (setq-local tab-line-tab-name-function #'carriage--aux-tab-name)
+and rely on the lightweight header-line tabs.
+Also explicitly disables tab-line in these buffers to avoid global tab-line-mode overhead."
+  (if (and carriage-mode-use-tab-line-in-aux
+           (boundp 'tab-line-tabs-function))
+      (progn
+        (setq-local tab-line-tabs-function (lambda ()
+                                             (carriage--aux-tab-buffers)))
+        (setq-local tab-line-tab-name-function #'carriage--aux-tab-name)
+        (when (fboundp 'tab-line-mode)
+          (tab-line-mode 1)))
     (when (fboundp 'tab-line-mode)
-      (tab-line-mode 1))))
+      (tab-line-mode 0))))
 
 (defun carriage--aux-header-line (active)
   "Build a minimal header-line with clickable [Log|Traffic] tabs as fallback.
