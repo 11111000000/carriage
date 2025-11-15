@@ -175,6 +175,198 @@ Fallback: search whole buffer."
       (carriage-context--dbg "gptel-files: %s %s" (length res) (car res))
       res)))
 
+;; Internal helpers for context collection and counting
+
+(defun carriage-context--include-flags (buf)
+  "Return plist with include toggles for BUF: (:gptel BOOL :doc BOOL).
+Defaults are ON when variables are unbound."
+  (with-current-buffer buf
+    (list
+     :gptel (if (boundp 'carriage-mode-include-gptel-context)
+                (buffer-local-value 'carriage-mode-include-gptel-context buf)
+              t)
+     :doc   (if (boundp 'carriage-mode-include-doc-context)
+                (buffer-local-value 'carriage-mode-include-doc-context buf)
+              t))))
+
+(defun carriage-context--limits (buf)
+  "Return plist with limits for BUF: (:max-files N :max-bytes N)."
+  (with-current-buffer buf
+    (list
+     :max-files (or (and (boundp 'carriage-mode-context-max-files)
+                         (buffer-local-value 'carriage-mode-context-max-files buf))
+                    100)
+     :max-bytes (or (and (boundp 'carriage-mode-context-max-total-bytes)
+                         (buffer-local-value 'carriage-mode-context-max-total-bytes buf))
+                    (* 1024 1024)))))
+
+(defun carriage-context--gather-candidates (buf include-doc include-gptel)
+  "Gather and deduplicate candidate paths from BUF according to toggles."
+  (let* ((doc (when include-doc (carriage-context--doc-paths buf)))
+         (gpf (when include-gptel (carriage-context--maybe-gptel-files)))
+         (cands (delete-dups (append (or gpf '()) (or doc '())))))
+    (carriage-context--dbg "collect: doc-paths=%s gptel-files=%s candidates=%s"
+                           (and doc (length doc)) (and gpf (length gpf)) (length cands))
+    cands))
+
+(defun carriage-context--normalize-candidate (path root)
+  "Normalize PATH relative to ROOT and return plist:
+  (:ok BOOL :rel REL :true TRUE :reason SYMBOL|nil)."
+  (let ((norm (carriage-context--normalize-path path root)))
+    (if (car norm)
+        (list :ok t :rel (cadr norm) :true (cddr norm))
+      (list :ok nil :reason (cdr norm)))))
+
+(defun carriage-context--unique-truenames-under-root (paths root)
+  "Return a deduped list of truenames from PATHS that lie under ROOT."
+  (let ((acc '()))
+    (dolist (p paths)
+      (let* ((norm (carriage-context--normalize-candidate p root)))
+        (when (plist-get norm :ok)
+          (push (plist-get norm :true) acc))))
+    (delete-dups acc)))
+
+(defun carriage-context--source-counts-from-items (items)
+  "Count items by :source and return list: ((doc . N) (gptel . N) (both . N))."
+  (let ((d 0) (g 0) (b 0))
+    (dolist (it items)
+      (pcase (plist-get it :source)
+        ('doc (setq d (1+ d)))
+        ('gptel (setq g (1+ g)))
+        ('both (setq b (1+ b)))
+        (_ nil)))
+    (list (cons 'doc d) (cons 'gptel g) (cons 'both b))))
+
+(defun carriage-context--collect-config (buf root)
+  "Build config plist for collection for BUF and ROOT.
+Keys: :root :include-gptel :include-doc :max-files :max-bytes."
+  (let* ((r (or root (carriage-context--project-root)))
+         (flags (carriage-context--include-flags buf))
+         (lims (carriage-context--limits buf)))
+    (list :root r
+          :include-gptel (plist-get flags :gptel)
+          :include-doc (plist-get flags :doc)
+          :max-files (plist-get lims :max-files)
+          :max-bytes (plist-get lims :max-bytes))))
+
+(defun carriage-context--collect-init-state (config)
+  "Initial mutable state plist for collection based on CONFIG.
+Keys: :files :warnings :seen :total-bytes :included :skipped
+and the CONFIG keys are copied in as well."
+  (let ((seen (make-hash-table :test 'equal)))
+    (append (list :files '()
+                  :warnings '()
+                  :seen seen
+                  :total-bytes 0
+                  :included 0
+                  :skipped 0)
+            config)))
+
+(defun carriage-context--state-under-file-limit-p (state)
+  "Return non-nil if we can still consider more files given STATE limits."
+  (< (+ (plist-get state :included)
+        (plist-get state :skipped))
+     (plist-get state :max-files)))
+
+(defun carriage-context--state-mark-seen (true state)
+  "Mark TRUE as seen in STATE. Return non-nil if it was not seen before."
+  (let ((seen (plist-get state :seen)))
+    (unless (gethash true seen)
+      (puthash true t seen)
+      t)))
+
+(defun carriage-context--push-warning (msg state)
+  "Push warning MSG into STATE."
+  (plist-put state :warnings (cons msg (plist-get state :warnings))))
+
+(defun carriage-context--push-file (entry state)
+  "Push file ENTRY plist into STATE."
+  (plist-put state :files (cons entry (plist-get state :files))))
+
+(defun carriage-context--collect-process-path (p state)
+  "Process a candidate path P and update STATE accordingly.
+Returns updated STATE."
+  (let* ((root (plist-get state :root))
+         (max-bytes (plist-get state :max-bytes))
+         (norm (carriage-context--normalize-candidate p root)))
+    (if (not (plist-get norm :ok))
+        (progn
+          (setq state (plist-put state :skipped (1+ (plist-get state :skipped))))
+          (setq state (carriage-context--push-warning
+                       (format "skip %s: %s" p (plist-get norm :reason))
+                       state))
+          (carriage-context--dbg "collect: skip %s → %s" p (plist-get norm :reason))
+          state)
+      (let* ((rel (plist-get norm :rel))
+             (true (plist-get norm :true)))
+        (if (not (carriage-context--state-mark-seen true state))
+            state
+          (let* ((rd (carriage-context--read-file-safe true)))
+            (if (not (car rd))
+                (progn
+                  (setq state (carriage-context--push-file
+                               (list :rel rel :true true :content nil :reason (cdr rd))
+                               state))
+                  (setq state (plist-put state :skipped (1+ (plist-get state :skipped))))
+                  (carriage-context--dbg "collect: omit %s reason=%s" rel (cdr rd))
+                  state)
+              (let* ((s (cdr rd))
+                     (sb (string-bytes s))
+                     (total (plist-get state :total-bytes)))
+                (if (> (+ total sb) max-bytes)
+                    (progn
+                      (setq state (carriage-context--push-warning
+                                   (format "limit reached, include path only: %s" rel)
+                                   state))
+                      (setq state (carriage-context--push-file
+                                   (list :rel rel :true true :content nil :reason 'size-limit)
+                                   state))
+                      (setq state (plist-put state :skipped (1+ (plist-get state :skipped))))
+                      (carriage-context--dbg "collect: size-limit for %s (sb=%s total=%s)" rel sb total)
+                      state)
+                  (setq state (plist-put state :total-bytes (+ total sb)))
+                  (setq state (carriage-context--push-file
+                               (list :rel rel :true true :content s)
+                               state))
+                  (setq state (plist-put state :included (1+ (plist-get state :included))))
+                  (carriage-context--dbg "collect: include %s (bytes=%s total=%s)" rel sb (+ total sb))
+                  state)))))))))
+
+(defun carriage-context--collect-finalize (state)
+  "Finalize STATE into result plist compatible with carriage-context-collect."
+  (let ((files (nreverse (plist-get state :files)))
+        (warnings (nreverse (plist-get state :warnings)))
+        (skipped (plist-get state :skipped))
+        (included (plist-get state :included))
+        (total-bytes (plist-get state :total-bytes)))
+    (carriage-context--dbg "collect: done files=%s included=%s skipped=%s total-bytes=%s warnings=%s"
+                           (length files) included skipped total-bytes (length warnings))
+    (list :files files
+          :warnings warnings
+          :omitted skipped
+          :stats (list :total-bytes total-bytes :included included :skipped skipped))))
+
+(defun carriage-context--collect-iterate (candidates state)
+  "Iterate over CANDIDATES updating STATE until limits are reached.
+Return updated STATE."
+  (dolist (p candidates state)
+    (when (carriage-context--state-under-file-limit-p state)
+      (setq state (carriage-context--collect-process-path p state)))))
+
+(defun carriage-context--collect-exec (buf config)
+  "Run collection for BUF using CONFIG and return the finalized result plist."
+  (let* ((root (plist-get config :root))
+         (include-gptel (plist-get config :include-gptel))
+         (include-doc (plist-get config :include-doc))
+         (max-files (plist-get config :max-files))
+         (max-bytes (plist-get config :max-bytes))
+         (state (carriage-context--collect-init-state config))
+         (candidates (carriage-context--gather-candidates buf include-doc include-gptel)))
+    (carriage-context--dbg "collect: root=%s include{gptel=%s,doc=%s} limits{files=%s,bytes=%s}"
+                           root include-gptel include-doc max-files max-bytes)
+    (setq state (carriage-context--collect-iterate candidates state))
+    (carriage-context--collect-finalize state)))
+
 (defun carriage-context-collect (&optional buffer root)
   "Collect context from sources into a plist:
 :files — list of plists (:rel :true :content :reason)
@@ -188,78 +380,8 @@ and size limits:
 - carriage-mode-context-max-files
 - carriage-mode-context-max-total-bytes"
   (let* ((buf (or buffer (current-buffer)))
-         (root (or root (carriage-context--project-root)))
-         ;; Defaults: ON when unbound (per spec); prefer buffer-local when available.
-         (include-gptel (with-current-buffer buf
-                          (if (boundp 'carriage-mode-include-gptel-context)
-                              (buffer-local-value 'carriage-mode-include-gptel-context buf)
-                            t)))
-         (include-doc (with-current-buffer buf
-                        (if (boundp 'carriage-mode-include-doc-context)
-                            (buffer-local-value 'carriage-mode-include-doc-context buf)
-                          t)))
-         (max-files (or (with-current-buffer buf
-                          (and (boundp 'carriage-mode-context-max-files)
-                               (buffer-local-value 'carriage-mode-context-max-files buf)))
-                        100))
-         (max-bytes (or (with-current-buffer buf
-                          (and (boundp 'carriage-mode-context-max-total-bytes)
-                               (buffer-local-value 'carriage-mode-context-max-total-bytes buf)))
-                        (* 1024 1024)))
-         (warnings '())
-         (files '())
-         (seen (make-hash-table :test 'equal))
-         (total-bytes 0)
-         (included 0)
-         (skipped 0))
-    (carriage-context--dbg "collect: root=%s include{gptel=%s,doc=%s} limits{files=%s,bytes=%s}"
-                           root include-gptel include-doc max-files max-bytes)
-    ;; Merge sources
-    (let* ((doc (when include-doc (carriage-context--doc-paths buf)))
-           (gpf (when include-gptel (carriage-context--maybe-gptel-files)))
-           (candidates (delete-dups
-                        (append (or gpf '())
-                                (or doc '())))))
-      (carriage-context--dbg "collect: doc-paths=%s gptel-files=%s candidates=%s"
-                             (and doc (length doc)) (and gpf (length gpf)) (length candidates))
-      (dolist (p candidates)
-        ;; Respect max-files against total emitted items (included+skipped),
-        ;; not just those with content included.
-        (when (< (+ included skipped) max-files)
-          (let* ((norm (carriage-context--normalize-path p root)))
-            (if (not (car norm))
-                (progn
-                  (cl-incf skipped)
-                  (push (format "skip %s: %s" p (cdr norm)) warnings)
-                  (carriage-context--dbg "collect: skip %s → %s" p (cdr norm)))
-              (let* ((rel (cadr norm)) (true (cddr norm)))
-                (unless (gethash true seen)
-                  (puthash true t seen)
-                  (let* ((rd (carriage-context--read-file-safe true)))
-                    (cond
-                     ((not (car rd))
-                      (push (list :rel rel :true true :content nil :reason (cdr rd)) files)
-                      (cl-incf skipped)
-                      (carriage-context--dbg "collect: omit %s reason=%s" rel (cdr rd)))
-                     (t
-                      (let* ((s (cdr rd))
-                             (sb (string-bytes s)))
-                        (if (or (> (+ total-bytes sb) max-bytes))
-                            (progn
-                              (push (format "limit reached, include path only: %s" rel) warnings)
-                              (push (list :rel rel :true true :content nil :reason 'size-limit) files)
-                              (cl-incf skipped)
-                              (carriage-context--dbg "collect: size-limit for %s (sb=%s total=%s)" rel sb total-bytes))
-                          (setq total-bytes (+ total-bytes sb))
-                          (push (list :rel rel :true true :content s) files)
-                          (cl-incf included)
-                          (carriage-context--dbg "collect: include %s (bytes=%s total=%s)" rel sb total-bytes)))))))))))))
-    (carriage-context--dbg "collect: done files=%s included=%s skipped=%s total-bytes=%s warnings=%s"
-                           (length files) included skipped total-bytes (length warnings))
-    (list :files (nreverse files)
-          :warnings (nreverse warnings)
-          :omitted skipped
-          :stats (list :total-bytes total-bytes :included included :skipped skipped))))
+         (config (carriage-context--collect-config buf root)))
+    (carriage-context--collect-exec buf config)))
 
 (defun carriage-context--guess-lang (path)
   "Guess language token for Org src block by PATH extension."
@@ -318,6 +440,83 @@ WHERE is 'system or 'user (affects only label string)."
 ;; -----------------------------------------------------------------------------
 ;; Context counter for modeline/tooltips
 
+(defun carriage-context--count-include-flags (buf)
+  "Return cons of inclusion toggles for COUNT: (INC-GPT . INC-DOC).
+Supports new and legacy variables; defaults ON."
+  (with-current-buffer buf
+    (let* ((have-gpt-new (boundp 'carriage-mode-include-gptel-context))
+           (have-gpt-old (boundp 'carriage-mode-use-context))
+           (have-doc-new (boundp 'carriage-mode-include-doc-context))
+           (have-doc-old (boundp 'carriage-mode-context-attach-files))
+           (inc-gpt (if (or have-gpt-new have-gpt-old)
+                        (or (and have-gpt-new (buffer-local-value 'carriage-mode-include-gptel-context buf))
+                            (and have-gpt-old (buffer-local-value 'carriage-mode-use-context buf)))
+                      t))
+           (inc-doc (if (or have-doc-new have-doc-old)
+                        (or (and have-doc-new (buffer-local-value 'carriage-mode-include-doc-context buf))
+                            (and have-doc-old (buffer-local-value 'carriage-mode-context-attach-files buf)))
+                      t)))
+      (cons inc-gpt inc-doc))))
+
+(defun carriage-context--count-root+toggles (buf)
+  "Return plist with root and inclusion toggles for BUF: (:root R :inc-gpt B :inc-doc B)."
+  (let* ((root (carriage-context--project-root))
+         (toggles (carriage-context--count-include-flags buf)))
+    (list :root root :inc-gpt (car toggles) :inc-doc (cdr toggles))))
+
+(defun carriage-context--true-map (trues)
+  "Build and return a hash-table mapping TRUES for quick membership checks."
+  (let ((h (make-hash-table :test 'equal)))
+    (dolist (tru trues) (puthash tru tru h))
+    h))
+
+(defun carriage-context--count-gather-trues (buf root inc-gpt inc-doc)
+  "Collect truenames and maps for DOC and GPTEL sources given BUF and ROOT."
+  (let* ((doc-trues (if inc-doc
+                        (carriage-context--unique-truenames-under-root
+                         (ignore-errors (carriage-context--doc-paths buf)) root)
+                      '()))
+         (gpt-trues (if inc-gpt
+                        (carriage-context--unique-truenames-under-root
+                         (ignore-errors (carriage-context--maybe-gptel-files)) root)
+                      '())))
+    (list :doc-trues doc-trues
+          :gpt-trues gpt-trues
+          :doc-map (carriage-context--true-map doc-trues)
+          :gpt-map (carriage-context--true-map gpt-trues))))
+
+(defun carriage-context--count-build-items (files doc-map gpt-map)
+  "Build item list for count from FILES using DOC-MAP and GPT-MAP."
+  (mapcar
+   (lambda (f)
+     (let* ((rel (plist-get f :rel))
+            (tru (plist-get f :true))
+            (content (plist-get f :content))
+            (reason (plist-get f :reason))
+            (docp (and tru (gethash tru doc-map)))
+            (gptp (and tru (gethash tru gpt-map)))
+            (src (cond
+                  ((and docp gptp) 'both)
+                  (docp 'doc)
+                  (gptp 'gptel)
+                  (t nil))))
+       (list :path rel
+             :true tru
+             :source src
+             :included (stringp content)
+             :reason reason)))
+   files))
+
+(defun carriage-context--count-empty-result ()
+  "Return an empty counter result plist."
+  (list :count 0 :items '() :sources '() :warnings '() :stats '()))
+
+(defun carriage-context--count-assemble (items warnings stats)
+  "Assemble final count plist from ITEMS, WARNINGS and STATS."
+  (let* ((srcs (carriage-context--source-counts-from-items items))
+         (count (length items)))
+    (list :count count :items items :sources srcs :warnings warnings :stats stats)))
+
 (defun carriage-context-count (&optional buffer _point)
   "Вернуть plist со счётчиком элементов контекста для BUFFER.
 
@@ -328,51 +527,19 @@ WHERE is 'system or 'user (affects only label string)."
    :warnings (STR ...)
    :stats (:total-bytes N :included M :skipped K))"
   (let* ((buf (or buffer (current-buffer)))
-         (root (or (and (fboundp 'carriage-project-root)
-                        (carriage-project-root))
-                   default-directory))
-         ;; Поддержка новых и легаси-тумблеров (дефолт ON при отсутствии переменных)
-         (inc-gpt
-          (with-current-buffer buf
-            (let* ((have-new (boundp 'carriage-mode-include-gptel-context))
-                   (have-legacy (boundp 'carriage-mode-use-context)))
-              (cond
-               ((or have-new have-legacy)
-                (or (and have-new (buffer-local-value 'carriage-mode-include-gptel-context buf))
-                    (and have-legacy (buffer-local-value 'carriage-mode-use-context buf))))
-               (t t)))))
-         (inc-doc
-          (with-current-buffer buf
-            (let* ((have-new (boundp 'carriage-mode-include-doc-context))
-                   (have-legacy (boundp 'carriage-mode-context-attach-files)))
-              (cond
-               ((or have-new have-legacy)
-                (or (and have-new (buffer-local-value 'carriage-mode-include-doc-context buf))
-                    (and have-legacy (buffer-local-value 'carriage-mode-context-attach-files buf))))
-               (t t))))))
-
+         (cfg (carriage-context--count-root+toggles buf))
+         (root (plist-get cfg :root))
+         (inc-gpt (plist-get cfg :inc-gpt))
+         (inc-doc (plist-get cfg :inc-doc)))
     (if (not (or inc-gpt inc-doc))
         (progn
           (carriage-context--dbg "count: both sources OFF → 0")
-          (list :count 0 :items '() :sources '() :warnings '() :stats '()))
-      (let* ((doc-trues
-              (let ((acc '()))
-                (when inc-doc
-                  (dolist (p (ignore-errors (carriage-context--doc-paths buf)))
-                    (let* ((norm (carriage-context--normalize-path p root)))
-                      (when (car norm) (push (cddr norm) acc)))))
-                (delete-dups acc)))
-             (gpt-trues
-              (let ((acc '()))
-                (when inc-gpt
-                  (dolist (p (ignore-errors (carriage-context--maybe-gptel-files)))
-                    (let* ((norm (carriage-context--normalize-path p root)))
-                      (when (car norm) (push (cddr norm) acc)))))
-                (delete-dups acc)))
-             (doc-map (let ((h (make-hash-table :test 'equal)))
-                        (dolist (tru doc-trues) (puthash tru tru h)) h))
-             (gpt-map (let ((h (make-hash-table :test 'equal)))
-                        (dolist (tru gpt-trues) (puthash tru tru h)) h))
+          (carriage-context--count-empty-result))
+      (let* ((true-data (carriage-context--count-gather-trues buf root inc-gpt inc-doc))
+             (doc-trues (plist-get true-data :doc-trues))
+             (gpt-trues (plist-get true-data :gpt-trues))
+             (doc-map (plist-get true-data :doc-map))
+             (gpt-map (plist-get true-data :gpt-map))
              (col (carriage-context-collect buf root))
              (files (or (plist-get col :files) '()))
              (warnings (or (plist-get col :warnings) '()))
@@ -383,39 +550,10 @@ WHERE is 'system or 'user (affects only label string)."
                                        (or (plist-get stats :skipped) 0)
                                        (or (plist-get stats :total-bytes) 0)
                                        (length warnings)))
-             (items
-              (mapcar
-               (lambda (f)
-                 (let* ((rel (plist-get f :rel))
-                        (tru (plist-get f :true))
-                        (content (plist-get f :content))
-                        (reason (plist-get f :reason))
-                        (docp (and tru (gethash tru doc-map)))
-                        (gptp (and tru (gethash tru gpt-map)))
-                        (src (cond
-                              ((and docp gptp) 'both)
-                              (docp 'doc)
-                              (gptp 'gptel)
-                              (t nil))))
-                   (list :path rel
-                         :true tru
-                         :source src
-                         :included (stringp content)
-                         :reason reason)))
-               files))
-             (srcs
-              (let ((d 0) (g 0) (b 0))
-                (dolist (it items)
-                  (pcase (plist-get it :source)
-                    ('doc (setq d (1+ d)))
-                    ('gptel (setq g (1+ g)))
-                    ('both (setq b (1+ b)))
-                    (_ nil)))
-                (list (cons 'doc d) (cons 'gptel g) (cons 'both b))))
-             (count (length items)))
+             (items (carriage-context--count-build-items files doc-map gpt-map)))
         (carriage-context--dbg "count: doc-trues=%s gpt-trues=%s files=%s count=%s warns=%s"
-                               (length doc-trues) (length gpt-trues) (length files) count (length warnings))
-        (list :count count :items items :sources srcs :warnings warnings :stats stats)))))
+                               (length doc-trues) (length gpt-trues) (length files) (length items) (length warnings))
+        (carriage-context--count-assemble items warnings stats)))))
 
 (provide 'carriage-context)
 ;;; carriage-context.el ends here
