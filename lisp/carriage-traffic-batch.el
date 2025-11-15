@@ -12,7 +12,7 @@
 Entries are enqueued and flushed on a short timer, reducing redisplay frequency."
   :type 'boolean :group 'carriage-traffic-batch)
 
-(defcustom carriage-traffic-batch-interval 0.05
+(defcustom carriage-traffic-batch-interval 0.1
   "Interval (seconds) between batched flushes of traffic logs."
   :type 'number :group 'carriage-traffic-batch)
 

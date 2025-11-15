@@ -33,6 +33,12 @@ For left/right sides this is window-width; for top/bottom — window-height."
   :type 'boolean
   :group 'carriage)
 
+(defcustom carriage-mode-use-tab-line-in-aux nil
+  "When non-nil, use tab-line-mode in Carriage auxiliary buffers (Log/Traffic).
+When nil (default), use a lightweight header-line tabs to reduce redisplay cost."
+  :type 'boolean
+  :group 'carriage)
+
 (defconst carriage--log-buffer-name "*carriage-log*")
 (defconst carriage--traffic-buffer-name "*carriage-traffic*")
 
@@ -126,8 +132,11 @@ STRING may be any object; it will be coerced to a string via format."
      (t n))))
 
 (defun carriage--aux-ensure-tabline ()
-  "Enable tab-line with only Log/Traffic buffers when available."
-  (when (boundp 'tab-line-tabs-function)
+  "Enable tab-line with only Log/Traffic buffers when available.
+Respects `carriage-mode-use-tab-line-in-aux'. When nil, do not enable tab-line
+and rely on the lightweight header-line tabs."
+  (when (and carriage-mode-use-tab-line-in-aux
+             (boundp 'tab-line-tabs-function))
     (setq-local tab-line-tabs-function (lambda ()
                                          (carriage--aux-tab-buffers)))
     (setq-local tab-line-tab-name-function #'carriage--aux-tab-name)

@@ -18,6 +18,19 @@
   :type 'boolean
   :group 'carriage-context)
 
+(defcustom carriage-context-file-cache-ttl 5.0
+  "TTL in seconds for cached file contents used during context collection.
+When nil, cache entries are considered valid until file size or mtime changes."
+  :type '(choice (const :tag "Unlimited (until file changes)" nil) number)
+  :group 'carriage-context)
+
+(defvar carriage-context--normalize-cache (make-hash-table :test 'equal)
+  "Memo table for carriage-context--normalize-path keyed by (ROOT . PATH).")
+
+(defvar carriage-context--file-cache (make-hash-table :test 'equal)
+  "Cache of file reads keyed by truename.
+Each value is a plist: (:mtime MT :size SZ :time TS :ok BOOL :data STRING-OR-REASON).")
+
 (defun carriage-context--dbg (fmt &rest args)
   "Internal debug logger for context layer (respects =carriage-context-debug')."
   (when carriage-context-debug
@@ -40,35 +53,69 @@
 
 (defun carriage-context--normalize-path (path root)
   "Normalize PATH relative to ROOT; reject unsafe/TRAMP paths.
-Return cons (ok . (rel . truename)) or (nil . reason-symbol)."
-  (cond
-   ((or (null path) (string-empty-p path))
-    (cons nil 'empty))
-   ((file-remote-p path)
-    (cons nil 'remote))
-   (t
-    (let* ((abs (if (file-name-absolute-p path)
-                    path
-                  (expand-file-name path root)))
-           (true (ignore-errors (file-truename abs))))
-      (cond
-       ((null true) (cons nil 'unresolvable))
-       ((not (carriage-context--inside-root-p true root)) (cons nil 'outside-root))
-       (t
-        (let* ((rel (file-relative-name true root)))
-          (cons t (cons rel true)))))))))
+Return cons (ok . (rel . truename)) or (nil . reason-symbol). Uses memoization."
+  (let* ((key (cons root path))
+         (hit (and carriage-context--normalize-cache
+                   (gethash key carriage-context--normalize-cache))))
+    (if hit
+        hit
+      (let ((res
+             (cond
+              ((or (null path) (string-empty-p path))
+               (cons nil 'empty))
+              ((file-remote-p path)
+               (cons nil 'remote))
+              (t
+               (let* ((abs (if (file-name-absolute-p path)
+                               path
+                             (expand-file-name path root)))
+                      (true (ignore-errors (file-truename abs))))
+                 (cond
+                  ((null true) (cons nil 'unresolvable))
+                  ((not (carriage-context--inside-root-p true root)) (cons nil 'outside-root))
+                  (t
+                   (let* ((rel (file-relative-name true root)))
+                     (cons t (cons rel true))))))))))
+        (puthash key res carriage-context--normalize-cache)
+        res))))
 
 (defun carriage-context--read-file-safe (truename)
-  "Read file contents from TRUENAME; return (ok . string-or-reason)."
-  (condition-case err
-      (with-temp-buffer
-        (insert-file-contents truename)
-        (let ((s (buffer-substring-no-properties (point-min) (point-max))))
-          ;; crude binary check: NUL-byte
-          (if (string-match-p "\0" s)
-              (cons nil 'binary)
-            (cons t s))))
-    (error (cons nil (format "read-error:%s" (error-message-string err))))))
+  "Read file contents from TRUENAME; return (ok . string-or-reason).
+Uses a small cache with TTL and invalidation by file size/mtime."
+  (let* ((attrs (ignore-errors (file-attributes truename)))
+         (mtime (and attrs (nth 5 attrs)))
+         (size  (and attrs (nth 7 attrs)))
+         (now   (float-time))
+         (ttl   carriage-context-file-cache-ttl)
+         (ce    (and carriage-context--file-cache (gethash truename carriage-context--file-cache)))
+         (fresh (and ce
+                     (equal (plist-get ce :mtime) mtime)
+                     (equal (plist-get ce :size) size)
+                     (or (null ttl)
+                         (< (- now (or (plist-get ce :time) 0)) (or ttl 0))))))
+    (if fresh
+        (let ((ok (plist-get ce :ok))
+              (data (plist-get ce :data)))
+          (if ok (cons t data) (cons nil data)))
+      (condition-case err
+          (with-temp-buffer
+            (insert-file-contents truename)
+            (let ((s (buffer-substring-no-properties (point-min) (point-max))))
+              ;; crude binary check: NUL-byte
+              (let* ((ok (not (string-match-p "\0" s)))
+                     (data (if ok s 'binary)))
+                (puthash truename
+                         (list :mtime mtime :size size :time (float-time)
+                               :ok ok :data data)
+                         carriage-context--file-cache)
+                (if ok (cons t s) (cons nil 'binary)))))
+        (error
+         (let ((reason (format "read-error:%s" (error-message-string err))))
+           (puthash truename
+                    (list :mtime mtime :size size :time (float-time)
+                          :ok nil :data reason)
+                    carriage-context--file-cache)
+           (cons nil reason)))))))
 
 (defun carriage-context--find-context-block-in-region (beg end)
   "Return list of path lines found between #+begin_context and #+end_context within BEG..END."
@@ -301,36 +348,52 @@ Returns updated STATE."
              (true (plist-get norm :true)))
         (if (not (carriage-context--state-mark-seen true state))
             state
-          (let* ((rd (carriage-context--read-file-safe true)))
-            (if (not (car rd))
+          (let* ((attrs (ignore-errors (file-attributes true)))
+                 (sb0 (and attrs (nth 7 attrs)))
+                 (total (plist-get state :total-bytes)))
+            ;; If we know the file size and it would exceed the budget, skip reading content.
+            (if (and (numberp sb0) (> (+ total sb0) max-bytes))
                 (progn
+                  (setq state (carriage-context--push-warning
+                               (format "limit reached, include path only: %s" rel)
+                               state))
                   (setq state (carriage-context--push-file
-                               (list :rel rel :true true :content nil :reason (cdr rd))
+                               (list :rel rel :true true :content nil :reason 'size-limit)
                                state))
                   (setq state (plist-put state :skipped (1+ (plist-get state :skipped))))
-                  (carriage-context--dbg "collect: omit %s reason=%s" rel (cdr rd))
+                  (carriage-context--dbg "collect: size-limit (pre) for %s (sb=%s total=%s)" rel sb0 total)
                   state)
-              (let* ((s (cdr rd))
-                     (sb (string-bytes s))
-                     (total (plist-get state :total-bytes)))
-                (if (> (+ total sb) max-bytes)
+              ;; Otherwise read (cached) content and re-check with actual bytes.
+              (let* ((rd (carriage-context--read-file-safe true)))
+                (if (not (car rd))
                     (progn
-                      (setq state (carriage-context--push-warning
-                                   (format "limit reached, include path only: %s" rel)
-                                   state))
                       (setq state (carriage-context--push-file
-                                   (list :rel rel :true true :content nil :reason 'size-limit)
+                                   (list :rel rel :true true :content nil :reason (cdr rd))
                                    state))
                       (setq state (plist-put state :skipped (1+ (plist-get state :skipped))))
-                      (carriage-context--dbg "collect: size-limit for %s (sb=%s total=%s)" rel sb total)
+                      (carriage-context--dbg "collect: omit %s reason=%s" rel (cdr rd))
                       state)
-                  (setq state (plist-put state :total-bytes (+ total sb)))
-                  (setq state (carriage-context--push-file
-                               (list :rel rel :true true :content s)
-                               state))
-                  (setq state (plist-put state :included (1+ (plist-get state :included))))
-                  (carriage-context--dbg "collect: include %s (bytes=%s total=%s)" rel sb (+ total sb))
-                  state)))))))))
+                  (let* ((s (cdr rd))
+                         (sb (string-bytes s))
+                         (total2 (plist-get state :total-bytes)))
+                    (if (> (+ total2 sb) max-bytes)
+                        (progn
+                          (setq state (carriage-context--push-warning
+                                       (format "limit reached, include path only: %s" rel)
+                                       state))
+                          (setq state (carriage-context--push-file
+                                       (list :rel rel :true true :content nil :reason 'size-limit)
+                                       state))
+                          (setq state (plist-put state :skipped (1+ (plist-get state :skipped))))
+                          (carriage-context--dbg "collect: size-limit for %s (sb=%s total=%s)" rel sb total2)
+                          state)
+                      (setq state (plist-put state :total-bytes (+ total2 sb)))
+                      (setq state (carriage-context--push-file
+                                   (list :rel rel :true true :content s)
+                                   state))
+                      (setq state (plist-put state :included (1+ (plist-get state :included))))
+                      (carriage-context--dbg "collect: include %s (bytes=%s total=%s)" rel sb (+ total2 sb))
+                      state)))))))))))
 
 (defun carriage-context--collect-finalize (state)
   "Finalize STATE into result plist compatible with carriage-context-collect."

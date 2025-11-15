@@ -292,7 +292,7 @@ Update only when BUF is visible; refresh any windows showing it."
     ('error "Error")
     (_ (capitalize (symbol-name (or state 'idle))))))
 
-(defcustom carriage-ui-context-cache-ttl 2.5
+(defcustom carriage-ui-context-cache-ttl 8.0
   "Maximum age in seconds for cached context badge computations in the mode-line.
 Set to 0 to recompute on every redisplay; set to nil to keep values until other cache
 keys change (buffer content, toggle states)."
@@ -526,7 +526,6 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
                       carriage-mode-include-gptel-context
                     t))
          (tick (buffer-chars-modified-tick))
-         (pt (point))
          (now (float-time))
          (ttl carriage-ui-context-cache-ttl)
          (cache carriage-ui--ctx-cache)
@@ -538,24 +537,22 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
              (eq inc-doc (plist-get cache :doc))
              (eq inc-gpt (plist-get cache :gpt))
              (= tick (plist-get cache :tick))
-             (= pt (plist-get cache :point))
              ttl-ok)
         (progn
           (when carriage-ui-debug
             (let* ((val (plist-get cache :value))
                    (lbl (and (consp val) (car val))))
-              (carriage-ui--dbg "ctx-badge: cache HIT (doc=%s gpt=%s tick=%s pt=%s) → %s"
-                                inc-doc inc-gpt tick pt lbl)))
+              (carriage-ui--dbg "ctx-badge: cache HIT (doc=%s gpt=%s tick=%s) → %s"
+                                inc-doc inc-gpt tick lbl)))
           (plist-get cache :value))
       (when carriage-ui-debug
-        (carriage-ui--dbg "ctx-badge: cache MISS (doc=%s gpt=%s tick=%s pt=%s ttl-ok=%s)"
-                          inc-doc inc-gpt tick pt ttl-ok))
+        (carriage-ui--dbg "ctx-badge: cache MISS (doc=%s gpt=%s tick=%s ttl-ok=%s)"
+                          inc-doc inc-gpt tick ttl-ok))
       (let ((value (carriage-ui--compute-context-badge inc-doc inc-gpt)))
         (setq carriage-ui--ctx-cache
               (list :doc inc-doc
                     :gpt inc-gpt
                     :tick tick
-                    :point pt
                     :time now
                     :value value))
         value))))
@@ -1361,7 +1358,7 @@ Uses pulse.el when available, otherwise temporary overlays."
          (state  (and (boundp 'carriage--ui-state) carriage--ui-state))
          (spin   (and (memq state '(sending streaming dispatch waiting reasoning))
                       (carriage-ui--spinner-char)))
-         (branch (carriage-ui--branch-name-cached))
+         (branch (and (memq 'branch blocks) (carriage-ui--branch-name-cached)))
          (abortp (and (boundp 'carriage--abort-handler) carriage--abort-handler)))
     (list uicons
           state spin
