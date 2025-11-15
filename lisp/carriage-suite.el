@@ -1,4 +1,24 @@
-;;; carriage-suite.el --- Suite composition and prompt builder  -*- lexical-binding: t; -*-
+;;; carriage-suite.el --- Suite and prompt builder  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: prompt, suite
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/prompt-profiles-v1.org
+;;   spec/extensibility-points-v1.org
+;;
+;;; Commentary:
+;; Composition of system prompt from op fragments and intent fragments.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

@@ -1,4 +1,27 @@
-;;; carriage.el --- Carriage entry point  -*- lexical-binding: t; -*-
+;;; carriage.el --- Entry point and initialization  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: core, entry
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/carriage-mode-v1.org
+;;   spec/extensibility-points-v1.org
+;;   spec/apply-pipeline-v1.org
+;;   spec/apply-engines-v1.org
+;;   spec/llm-transport-v1.org
+;;
+;;; Commentary:
+;; Package entry: define-errors, add load-path rules and require core modules.
+;;
+;;; Code:
 
 (require 'carriage-errors)
 (carriage-define-errors)

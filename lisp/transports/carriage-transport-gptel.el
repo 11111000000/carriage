@@ -1,4 +1,24 @@
-;;; carriage-transport-gptel.el --- GPTel adapter for Carriage transport -*- lexical-binding: t; -*-
+;;; carriage-transport-gptel.el --- gptel transport adapter  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1") (gptel "0.1"))
+;; Version: 0.1
+;; Keywords: transport, gptel
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/llm-transport-v1.org
+;;   spec/logging-v1.org
+;;
+;;; Commentary:
+;; Adapter for streaming gptel backends.
+;;
+;;; Code:
 
 ;; Minimal reference adapter that maps Carriage transport events to gptel-request.
 ;; - Streams chunks to *carriage-traffic* and accumulates response.

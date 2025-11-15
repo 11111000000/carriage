@@ -1,4 +1,25 @@
-;;; carriage-iteration.el --- Mark and collect "last iteration" blocks  -*- lexical-binding: t; -*-
+;;; carriage-iteration.el --- Iteration markers and helpers  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: iteration
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/iteration-markers-v1.org
+;;   spec/iteration-markers-placement-v1.org
+;;   spec/ui-v1.org
+;;
+;;; Commentary:
+;; Marking and querying "last iteration" blocks in source buffers.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

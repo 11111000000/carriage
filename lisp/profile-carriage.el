@@ -1,4 +1,23 @@
-;;; profile-carriage.el --- Batch profiling helper for Carriage -*- lexical-binding: t; -*-
+;;; profile-carriage.el --- Development profile snippets  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: dev, profile
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/testing-v1.org
+;;
+;;; Commentary:
+;; Development profile helpers used by CI and local development.
+;;
+;;; Code:
 
 ;;; Commentary:
 ;; Run Emacs' built-in profiler in batch mode and export the report.

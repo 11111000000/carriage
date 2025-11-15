@@ -1,4 +1,24 @@
-;;; carriage-op-patch.el --- Unified diff (patch) handlers v1  -*- lexical-binding: t; -*-
+;;; carriage-op-patch.el --- Unified diff patch op (one file)  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: ops, patch
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/patch-unified-diff-v1.org
+;;   spec/parser-impl-v1.org
+;;
+;;; Commentary:
+;; Parsing and validation for unified diff blocks (single-file patch).
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

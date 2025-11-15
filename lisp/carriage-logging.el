@@ -1,4 +1,24 @@
-;;; carriage-logging.el --- Logging buffers and helpers  -*- lexical-binding: t; -*-
+;;; carriage-logging.el --- Logging and traffic buffers  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: logging, traffic
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/logging-v1.org
+;;   spec/security-v1.org
+;;
+;;; Commentary:
+;; Logging helpers and carriage-traffic buffer management.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

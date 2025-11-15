@@ -1,5 +1,24 @@
-;;; carriage-op-sre.el --- SRE op (begin_from/begin_to) handlers and prompt fragment -*- lexical-binding: t; -*-
+;;; carriage-op-sre.el --- SRE (search/replace) op  -*- lexical-binding: t; -*-
 ;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: sre, replace
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/sre-v1.org
+;;   spec/parser-impl-v1.org
+;;
+;;; Commentary:
+;; Parser/dry-run/apply implementations for SRE v1 blocks.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

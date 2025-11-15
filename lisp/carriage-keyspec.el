@@ -1,4 +1,24 @@
-;;; carriage-keyspec.el --- Centralized key binding model (v1.2) -*- lexical-binding: t; -*-
+;;; carriage-keyspec.el --- Keyspec and keymap generator  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: keyspec, menu
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/keyspec-v1.org
+;;   spec/ui-v1.org
+;;
+;;; Commentary:
+;; Centralized keyspec for Carriage commands and transient/menu generation.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

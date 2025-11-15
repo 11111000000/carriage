@@ -1,4 +1,27 @@
-;;; carriage-parser.el --- Parsers for patch blocks  -*- lexical-binding: t; -*-
+;;; carriage-parser.el --- Parse patch blocks and build plan  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: parser, ops
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/parser-impl-v1.org
+;;   spec/parser-registry-v1.org
+;;   spec/sre-v1.org
+;;   spec/patch-unified-diff-v1.org
+;;   spec/file-ops-v1.org
+;;
+;;; Commentary:
+;; Block parser and plan builder for different :op formats.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'seq)

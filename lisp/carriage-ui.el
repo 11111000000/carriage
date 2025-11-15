@@ -1,4 +1,26 @@
-;;; carriage-ui.el --- Keymap and minimal UI helpers  -*- lexical-binding: t; -*-
+;;; carriage-ui.el --- UI widgets, header-line and mode-line helpers  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: ui, modeline
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/ui-v1.org
+;;   spec/keyspec-v1.org
+;;   spec/i18n-v1.org
+;;   spec/logging-v1.org
+;;
+;;; Commentary:
+;; Header-line, mode-line and transient/menu UI helpers.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

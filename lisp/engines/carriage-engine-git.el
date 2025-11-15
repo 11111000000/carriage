@@ -1,4 +1,24 @@
-;;; carriage-engine-git.el --- Async Git apply engine  -*- lexical-binding: t; -*-
+;;; carriage-engine-git.el --- Git apply engine  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: engines, git
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/apply-engines-v1.org
+;;   spec/git-integration-v1.org
+;;
+;;; Commentary:
+;; Engine that invokes git (git apply / git add / git mv / git rm) for operations.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

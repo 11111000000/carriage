@@ -1,4 +1,25 @@
-;;; carriage-utils.el --- Utilities: project root, paths, delim, IO  -*- lexical-binding: t; -*-
+;;; carriage-utils.el --- Utility helpers and I/O  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: utils
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/git-integration-v1.org
+;;   spec/security-v1.org
+;;   spec/async-workflow-v1.org
+;;
+;;; Commentary:
+;; Common helpers: project-root, normalize-path, git call wrappers.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'seq)

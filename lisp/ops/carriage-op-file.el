@@ -1,5 +1,24 @@
-;;; carriage-op-file.el --- File ops (create/delete/rename) handlers and prompt fragments  -*- lexical-binding: t; -*-
+;;; carriage-op-file.el --- File ops: create/replace/delete/rename  -*- lexical-binding: t; -*-
 ;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: ops, files
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/file-ops-v1.org
+;;   spec/parser-impl-v1.org
+;;
+;;; Commentary:
+;; Implementation of create/replace/delete/rename plan items.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

@@ -1,4 +1,27 @@
-;;; carriage-mode.el --- Minor mode, commands, and UI glue  -*- lexical-binding: t; -*-
+;;; carriage-mode.el --- Main minor mode and entry points  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1") (cl-lib "0.5"))
+;; Version: 0.1
+;; Keywords: tools, convenience
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/carriage-mode-v1.org
+;;   spec/ui-v1.org
+;;   spec/llm-transport-v1.org
+;;   spec/context-integration-v1.org
+;;   spec/keyspec-v1.org
+;;
+;;; Commentary:
+;; Minor mode, public commands, and integration glue for Carriage.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

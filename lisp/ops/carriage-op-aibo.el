@@ -1,4 +1,24 @@
-;;; carriage-op-aibo.el --- AIBO v1 (literal-only Search/Replace)  -*- lexical-binding: t; -*-
+;;; carriage-op-aibo.el --- AIBO literal-only op  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: ops, sre
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/aibo-v1.org
+;;   spec/parser-impl-v1.org
+;;
+;;; Commentary:
+;; Literal-only search/replace op implemented on top of SRE core.
+;;
+;;; Code:
 
 ;; AIBO = “жёсткий” формат поисково‑заменяющих патчей без регулярок.
 ;; Цель: максимальная надёжность и идемпотентность.

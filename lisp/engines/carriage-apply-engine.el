@@ -1,4 +1,24 @@
-;;; carriage-apply-engine.el --- Apply Engine registry and selector  -*- lexical-binding: t; -*-
+;;; carriage-apply-engine.el --- Apply engine registry  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: engines
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/apply-engines-v1.org
+;;   spec/apply-pipeline-v1.org
+;;
+;;; Commentary:
+;; Engine registry and dispatcher for dry-run/apply steps.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

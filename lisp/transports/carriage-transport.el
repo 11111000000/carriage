@@ -1,4 +1,25 @@
-;;; carriage-transport.el --- Transport integration helpers (M4)  -*- lexical-binding: t; -*-
+;;; carriage-transport.el --- Transport dispatcher and events  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: transport, llm
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/llm-transport-v1.org
+;;   spec/logging-v1.org
+;;   spec/security-v1.org
+;;
+;;; Commentary:
+;; Event-based transport dispatcher used by Carriage-mode.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

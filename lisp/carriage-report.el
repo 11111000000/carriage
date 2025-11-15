@@ -1,4 +1,24 @@
-;;; carriage-report.el --- Report buffer and faces  -*- lexical-binding: t; -*-
+;;; carriage-report.el --- Apply/Dry-run report buffer and actions  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: report, ui
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/ui-v1.org
+;;   spec/apply-pipeline-v1.org
+;;
+;;; Commentary:
+;; Render and actions for apply/dry-run reports.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

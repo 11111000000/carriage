@@ -1,4 +1,24 @@
-;;; carriage-engine-emacs.el --- Emacs apply engine (local ops) -*- lexical-binding: t; -*-
+;;; carriage-engine-emacs.el --- Emacs apply engine (local ops)  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: engines, emacs
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/apply-engines-v1.org
+;;   spec/security-v1.org
+;;
+;;; Commentary:
+;; Apply engine that performs filesystem edits directly in Emacs.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

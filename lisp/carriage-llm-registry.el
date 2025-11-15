@@ -1,4 +1,25 @@
-;;; carriage-llm-registry.el --- LLM backend/model registry  -*- lexical-binding: t; -*-
+;;; carriage-llm-registry.el --- LLM backend & model registry  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: llm, registry
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/llm-transport-v1.org
+;;   spec/prompt-profiles-v1.org
+;;   spec/logging-v1.org
+;;
+;;; Commentary:
+;; Registry of available LLM backends and model identifiers.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

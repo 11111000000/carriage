@@ -1,4 +1,24 @@
-;;; carriage-transport-echo.el --- Echo transport (dev fallback) -*- lexical-binding: t; -*-
+;;; carriage-transport-echo.el --- Echo transport (dev)  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: transport, echo
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/llm-transport-v1.org
+;;   spec/logging-v1.org
+;;
+;;; Commentary:
+;; Simple echo transport for testing streaming UI and traffic.
+;;
+;;; Code:
 
 ;; A tiny reference adapter that simulates streaming without external deps.
 ;; - Streams chunks of a derived prompt to *carriage-traffic*.

@@ -1,4 +1,24 @@
-;;; carriage-traffic-batch.el --- Batch traffic logging to reduce redisplay churn -*- lexical-binding: t; -*-
+;;; carriage-traffic-batch.el --- Traffic / batch transport helpers  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1"))
+;; Version: 0.1
+;; Keywords: transport, traffic
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/logging-v1.org
+;;   spec/llm-transport-v1.org
+;;
+;;; Commentary:
+;; Helpers used by transports for batching and traffic recording.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)

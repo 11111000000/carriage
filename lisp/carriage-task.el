@@ -1,4 +1,25 @@
-;;; carriage-task.el --- Create task doc from TODO heading -*- lexical-binding: t; -*-
+;;; carriage-task.el --- Create task docs and task helpers  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1") (org "9.0"))
+;; Version: 0.1
+;; Keywords: task, org
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/task-docs-v1.org
+;;   spec/keyspec-v1.org
+;;   spec/context-integration-v1.org
+;;
+;;; Commentary:
+;; Helpers to create per-heading task documents and links.
+;;
+;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)
