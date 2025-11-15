@@ -913,24 +913,14 @@ Results are cached per-buffer and invalidated when theme or UI parameters change
 
 (defun carriage-ui--hl-mute-tail (s)
   "Apply muted face to the text portion after the first space. If no space, mute whole string.
-Keeps icon color intact when icon is at the head of S."
+Keeps icon color intact when icon is at the head of S. Optimized to avoid per-character edits."
   (if (not (stringp s)) s
     (let ((idx (string-match " " s)))
-      (cond
-       ((and idx (< idx (length s)))
-        (let ((cp (copy-sequence s))
-              (start (1+ idx)))
-          ;; Apply muted face only to characters that do not already have a face
-          (dotimes (i (- (length cp) start))
-            (let ((pos (+ start i)))
-              (unless (get-text-property pos 'face cp)
-                (put-text-property pos (1+ pos) 'face 'carriage-ui-muted-face cp))))
-          cp))
-       (t (let ((cp (copy-sequence s)))
-            (dotimes (i (length cp))
-              (unless (get-text-property i 'face cp)
-                (put-text-property i (1+ i) 'face 'carriage-ui-muted-face cp)))
-            cp))))))
+      (if (and (integerp idx) (< idx (length s)))
+          (let ((head (substring s 0 (1+ idx)))
+                (tail (substring s (1+ idx))))
+            (concat head (propertize tail 'face 'carriage-ui-muted-face)))
+        (propertize (copy-sequence s) 'face 'carriage-ui-muted-face)))))
 
 (defun carriage-ui--hl-clickable-outline (s)
   "Make outline string S clickable to jump to the heading."
