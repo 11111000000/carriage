@@ -21,6 +21,29 @@
 ;; formats context snippets, and provides a lightweight cache for file reads.
 ;;
 ;;; Code:
+;; (file body unchanged below)
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1") (cl-lib "0.5"))
+;; Version: 0.1
+;; Keywords: tools, context
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/context-integration-v1.org
+;;   spec/logging-v1.org
+;;   spec/security-v1.org
+;;
+;;; Commentary:
+;; Collects context files and document paths for inclusion into LLM requests,
+;; formats context snippets, and provides a lightweight cache for file reads.
+;;
+;;; Code:
 ;; Specifications:
 ;;   spec/code-style-v1.org
 ;;   spec/index.org

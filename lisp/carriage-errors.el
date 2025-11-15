@@ -18,6 +18,26 @@
 ;; and human-readable messages. Provides helpers to register and lookup errors.
 ;;
 ;;; Code:
+;; (file body unchanged below)
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1") (cl-lib "0.5"))
+;; Version: 0.1
+;; Keywords: tools, errors
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;
+;;; Commentary:
+;; Defines the mapping from internal error codes to Emacs condition symbols
+;; and human-readable messages. Provides helpers to register and lookup errors.
+;;
+;;; Code:
 ;; Specifications:
 ;;   spec/code-style-v1.org
 ;;   spec/index.org

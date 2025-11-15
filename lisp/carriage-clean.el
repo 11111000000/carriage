@@ -13,6 +13,28 @@
 ;;   spec/errors-v1.org
 ;;   spec/compliance-checklist-v1.org
 ;;   spec/parser-registry-v1.org
+;;
+;;; Commentary:
+;; Simple utilities to remove Org #+begin_patch … #+end_patch blocks from the
+;; current buffer or region. Used as a developer convenience for cleaning up
+;; generated patches.
+;;
+;;; Code:
+;; (file body unchanged below)
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1") (cl-lib "0.5"))
+;; Version: 0.1
+;; Keywords: tools, convenience
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/parser-registry-v1.org
 ;;   spec/ui-v1.org
 ;;
 ;;; Commentary:

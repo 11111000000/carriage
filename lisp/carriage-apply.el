@@ -23,6 +23,31 @@
 ;; preflight and epilog handling for branch policies, and engine dispatch.
 ;;
 ;;; Code:
+;; (file body unchanged below)
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1") (cl-lib "0.5") (seq "1.0"))
+;; Version: 0.1
+;; Keywords: tools, vcs, async
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/apply-pipeline-v1.org
+;;   spec/apply-engines-v1.org
+;;   spec/git-integration-v1.org
+;;   spec/async-workflow-v1.org
+;;   spec/data-structures-v1.org
+;;
+;;; Commentary:
+;; Core apply pipeline: dry-run and apply implementations, sync and async FSM,
+;; preflight and epilog handling for branch policies, and engine dispatch.
+;;
+;;; Code:
 ;; Specifications:
 ;;   spec/code-style-v1.org
 ;;   spec/index.org
