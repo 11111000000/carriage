@@ -1,4 +1,12 @@
 ;;; carriage-intent-registry.el --- Intent fragments registry  -*- lexical-binding: t; -*-
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/prompt-profiles-v1.org
+;;   spec/parser-registry-v1.org
+;;   spec/project-overview-v1.org
 
 (require 'cl-lib)
 (require 'subr-x)

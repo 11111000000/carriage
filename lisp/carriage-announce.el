@@ -1,11 +1,42 @@
 ;;; carriage-announce.el --- User-facing success announcements  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1") (cl-lib "0.5"))
+;; Version: 0.1
+;; Keywords: tools, convenience
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/logging-v1.org
+;;   spec/ui-v1.org
+;;   spec/apply-pipeline-v1.org
+;;
+;;; Commentary:
+;; Announce concise success summaries after successful apply reports.
+;; This module advises carriage-report-open to emit a short message in the
+;; Messages buffer when an apply report contains no failures.
+;;
+;;; Code:
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/logging-v1.org
+;;   spec/ui-v1.org
+;;   spec/apply-pipeline-v1.org
 
 (require 'cl-lib)
 (require 'subr-x)
 
 (defun carriage--announce--report-open (rep &rest _)
   "Announce a concise summary to Messages after successful apply REPORT via carriage-report-open."
-(when (and (listp rep))
+  (when (and (listp rep))
     (let* ((phase (plist-get rep :phase))
            (sum (plist-get rep :summary))
            (fail (and (listp sum) (plist-get sum :fail))))

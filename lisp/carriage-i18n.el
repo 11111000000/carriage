@@ -1,4 +1,32 @@
 ;;; carriage-i18n.el --- Simple i18n layer (ru/en) for UI strings -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1") (cl-lib "0.5"))
+;; Version: 0.1
+;; Keywords: i18n, l10n, ui
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/i18n-v1.org
+;;   spec/ui-v1.org
+;;
+;;; Commentary:
+;; Lightweight internationalization layer for UI strings (RU/EN) used by the
+;; Carriage UI, which-key hints and transient titles.
+;;
+;;; Code:
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/i18n-v1.org
+;;   spec/ui-v1.org
 
 (require 'cl-lib)
 (require 'subr-x)

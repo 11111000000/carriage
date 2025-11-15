@@ -1,4 +1,37 @@
 ;;; carriage-git.el --- Git integration helpers  -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1") (cl-lib "0.5"))
+;; Version: 0.1
+;; Keywords: vcs, git, tools
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/git-integration-v1.org
+;;   spec/apply-engines-v1.org
+;;   spec/async-workflow-v1.org
+;;   spec/security-v1.org
+;;
+;;; Commentary:
+;; Synchronous and asynchronous helpers for interacting with Git, branch policy
+;; helpers (WIP/ephemeral), and lightweight wrappers used by apply engines.
+;;
+;;; Code:
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/git-integration-v1.org
+;;   spec/apply-engines-v1.org
+;;   spec/async-workflow-v1.org
+;;   spec/security-v1.org
+;;   spec/logging-v1.org
 
 (require 'cl-lib)
 (require 'carriage-utils)

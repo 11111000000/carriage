@@ -1,4 +1,33 @@
 ;;; carriage-global-mode.el --- Global prefix for Carriage -*- lexical-binding: t; -*-
+;;
+;; Copyright (C) 2025 Carriage contributors
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://gnu-emacs.ru/carriage
+;; Package-Requires: ((emacs "27.1") (cl-lib "0.5"))
+;; Version: 0.1
+;; Keywords: global, keybindings, convenience
+;;
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/keyspec-v1.org
+;;   spec/ui-v1.org
+;;
+;;; Commentary:
+;; Global minor mode that installs the Carriage prefix/menu (C-c e) when
+;; enabled. Integrates with keyspec/which-key and exposes a fallback prefix.
+;;
+;;; Code:
+;; Specifications:
+;;   spec/code-style-v1.org
+;;   spec/index.org
+;;   spec/errors-v1.org
+;;   spec/compliance-checklist-v1.org
+;;   spec/ui-v1.org
+;;   spec/keyspec-v1.org
+;;   spec/i18n-v1.org
 
 (require 'cl-lib)
 (require 'subr-x)
