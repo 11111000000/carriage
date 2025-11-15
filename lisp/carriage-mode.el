@@ -919,6 +919,9 @@ TYPE is either 'text (default) or 'reasoning.
       (carriage-ui--flash-last-iteration-patches (current-buffer)))
     (when (fboundp 'carriage--audio-notify-success)
       (carriage--audio-notify-success)))
+  ;; Nudge redisplay for any windows showing this buffer so final state is visible immediately.
+  (dolist (w (get-buffer-window-list (current-buffer) t t))
+    (force-window-update w))
   t)
 
 
