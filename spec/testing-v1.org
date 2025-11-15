@@ -92,6 +92,10 @@
   - Tooltip при наведении на [MODEL] показывает полный id backend[:provider]:model.
   - Клик по [MODEL] открывает выбор модели; поле ввода предзаполнено текущим полным id.
   - См. тест: test/carriage-ui-modeline-segments-test.el.
+- State tooltips:
+  - При ошибке (симуляция через carriage-ui-note-error) help-echo у [STATE] содержит код и сообщение.
+  - При стриме (эмуляция note-stream-progress/note-reasoning-chunk) help-echo обновляется по мере чанков и содержит длительность/чанки.
+  - После dry-run/apply (эмуляция отчёта) help-echo содержит сводку ok/skip/fail/total.
 - Контекст (тумблеры):
   - [Ctx] — переключает включение gptel-контекста (по умолчанию on).
   - [Files] — переключает включение файлов (#begin_context) (по умолчанию on).

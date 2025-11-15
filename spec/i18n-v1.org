@@ -89,3 +89,9 @@
 - Эффекты и уведомления:
   - :flash-enabled — описание опции мигать патчами.
   - :audio-enabled — описание опции звукового уведомления.
+- Ключи (дополнение v1.4) — тултипы статуса:
+  - :state-tt-error — «Ошибка: %s — %s (источник: %s)»
+  - :state-tt-streaming — «Модель: %s; этап: %s; длительность: %ss; чанки=%d»
+  - :state-tt-reasoning — «Reasoning: %s»
+  - :state-tt-apply — «Результаты: ok=%d, skip=%d, fail=%d (всего %d)»
+  - :state-tt-dry — «Предпросмотр: ok=%d, skip=%d, fail=%d (всего %d)»

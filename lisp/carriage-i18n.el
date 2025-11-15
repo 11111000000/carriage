@@ -101,6 +101,18 @@
     (:flash-enabled      . ((ru . "Мигание патчей по завершении") (en . "Flash patches on completion")))
     (:audio-enabled      . ((ru . "Звуковое уведомление")      (en . "Audio notification")))
     (:task-new           . ((ru . "Создать задачу из этого") (en . "New task from that")))
+
+    ;; State tooltips (status help-echo)
+    (:state-tt-error     . ((ru . "Ошибка: %s — %s (источник: %s)")
+                            (en . "Error: %s — %s (source: %s)")))
+    (:state-tt-streaming . ((ru . "Модель: %s; этап: %s; длительность: %ss; чанки=%d")
+                            (en . "Model: %s; stage: %s; duration: %ss; chunks=%d")))
+    (:state-tt-reasoning . ((ru . "Reasoning: %s")
+                            (en . "Reasoning: %s")))
+    (:state-tt-apply     . ((ru . "Результаты: ok=%d, skip=%d, fail=%d (всего %d)")
+                            (en . "Results: ok=%d, skip=%d, fail=%d (total %d)")))
+    (:state-tt-dry       . ((ru . "Предпросмотр: ok=%d, skip=%d, fail=%d (всего %d)")
+                            (en . "Dry-run: ok=%d, skip=%d, fail=%d (total %d)")))
     )
   "Translation table: KEY → ((ru . STR) (en . STR)).")
 

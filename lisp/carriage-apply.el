@@ -300,7 +300,12 @@ Return report alist:
           (_     (setq skip (1+ skip)))))
       ;; Update virtual FS for subsequent SRE checks
       (setq virt (carriage--virt-apply-create virt it)))
-    (carriage--dry-run-build-report plan ok fail skip items msgs)))
+    (let ((report (carriage--dry-run-build-report plan ok fail skip items msgs)))
+      (ignore-errors
+        (when (fboundp 'carriage-ui-note-apply-summary)
+          (carriage-ui-note-apply-summary
+           (list :phase 'dry-run :ok ok :skip skip :fail fail :total (+ ok fail skip)))))
+      report)))
 
 (defun carriage-apply-plan (plan repo-root)
   "Apply PLAN (list of plan items) under REPO-ROOT sequentially.
@@ -343,6 +348,18 @@ Stops on first failure. Returns report alist as in carriage-dry-run-plan."
                          :summary (list :ok ok :fail fail :skipped skip)
                          :items (nreverse items)
                          :messages (nreverse msgs))))
+      ;; Update UI state tooltip summary (sync path)
+      (ignore-errors
+        (when (fboundp 'carriage-ui-note-apply-summary)
+          (carriage-ui-note-apply-summary
+           (let* ((sum (plist-get report :summary)))
+             (list :phase 'apply
+                   :ok (or (plist-get sum :ok) 0)
+                   :skip (or (plist-get sum :skipped) 0)
+                   :fail (or (plist-get sum :fail) 0)
+                   :total (+ (or (plist-get sum :ok) 0)
+                             (or (plist-get sum :skipped) 0)
+                             (or (plist-get sum :fail) 0)))))))
       ;; Announce concise success summary (only when no failures and in interactive session)
       (let* ((sum (plist-get report :summary))
              (fail (and (listp sum) (plist-get sum :fail))))
@@ -527,6 +544,17 @@ Respects per-buffer toggle `carriage-mode-replace-applied-blocks' when available
 (defun carriage--apply-finish (plan state callback)
   "Finish async apply: build REPORT from PLAN and STATE, invoke CALLBACK if any."
   (let* ((report (carriage--apply-build-report plan state)))
+    (ignore-errors
+      (when (fboundp 'carriage-ui-note-apply-summary)
+        (let* ((sum (plist-get report :summary)))
+          (carriage-ui-note-apply-summary
+           (list :phase 'apply
+                 :ok (or (plist-get sum :ok) 0)
+                 :skip (or (plist-get sum :skipped) 0)
+                 :fail (or (plist-get sum :fail) 0)
+                 :total (+ (or (plist-get sum :ok) 0)
+                           (or (plist-get sum :skipped) 0)
+                           (or (plist-get sum :fail) 0)))))))
     (carriage--apply-log-summary report)
     (carriage--apply-announce-success report)
     ;; Replace successfully applied blocks with #+patch_done markers when enabled

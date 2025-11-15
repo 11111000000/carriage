@@ -259,12 +259,18 @@ Update only when BUF is visible; refresh any windows showing it."
   ;; Local refresh only; avoid repainting all windows.
   (force-mode-line-update))
 
-(defun carriage-ui-set-state (state)
-  "Set UI STATE symbol for mode-line visuals and manage spinner."
+(defun carriage-ui-set-state (state &optional tooltip)
+  "Set UI STATE symbol for mode-line visuals and manage spinner.
+
+When TOOLTIP is a string, set it as help-echo for the [STATE] segment.
+State change invalidates modeline cache and updates spinner lifecycle."
   (setq carriage--ui-state (or state 'idle))
   ;; Invalidate modeline cache on state changes to avoid stale render
   (setq carriage-ui--ml-cache nil
         carriage-ui--ml-cache-key nil)
+  ;; Optional tooltip update
+  (when (and (stringp tooltip) (> (length tooltip) 0))
+    (setq carriage--ui-state-tooltip tooltip))
   (pcase carriage--ui-state
     ;; spinner for active phases (include reasoning/waiting/streaming/dispatch/sending)
     ((or 'sending 'streaming 'dispatch 'waiting 'reasoning)
@@ -273,7 +279,8 @@ Update only when BUF is visible; refresh any windows showing it."
     ((or 'prompt 'context 'done)
      (carriage-ui--spinner-stop nil))
     (_
-     (carriage-ui--spinner-stop t))))
+     (carriage-ui--spinner-stop t)))
+  (force-mode-line-update))
 
 (defun carriage-ui-state-lighter ()
   "Return a short lighter suffix for current =carriage--ui-state'."
@@ -376,7 +383,7 @@ When more are present, the tooltip shows a tail line like \"… (+K more)\"."
         ;; Drop header-line cache too (icons/theme affect it)
         (when (boundp 'carriage-ui--hl-cache)
           (setq carriage-ui--hl-cache nil)
-          (setq carriage-ui--hl-cache-key nil))))))  
+          (setq carriage-ui--hl-cache-key nil))))))
 
 (defun carriage-ui--set-modeline-blocks (sym val)
   "Setter for `carriage-ui-modeline-blocks' that refreshes modelines everywhere."
@@ -434,12 +441,6 @@ Unknown symbols are ignored."
                          (const :tag "Settings button" settings)))
   :set #'carriage-ui--set-modeline-blocks
   :group 'carriage-ui)
-
-(defvar-local carriage-ui--model-block-cache nil
-  "Cached (label . help) tuple for the mode-line model segment.")
-
-(defvar-local carriage-ui--model-block-cache-key nil
-  "Key signature used to compute `carriage-ui--model-block-cache'.")
 
 (defvar-local carriage-ui--model-block-cache nil
   "Cached (label . help) tuple for the mode-line model segment.")
@@ -916,10 +917,12 @@ Results are cached per-buffer and invalidated when theme or UI parameters change
   (if icon (concat icon " " label) label))
 
 (defun carriage-ui--hl-mute-tail (s)
-  "Apply muted face to the text portion after the first space. If no space, mute whole string.
-Keeps icon color intact when icon is at the head of S. Optimized to avoid per-character edits."
+  "Apply muted face to text after the icon separator.
+Skips leading padding spaces so the icon face is preserved even when the
+segment starts with a padded space. If no separator is found, mute whole string."
   (if (not (stringp s)) s
-    (let ((idx (string-match " " s)))
+    (let* ((start (let ((m (string-match "[^ ]" s))) (if (integerp m) m 0))) ; first non-space (skip left pad)
+           (idx   (string-match " " s (1+ start))))                          ; space after the first glyph (icon)
       (if (and (integerp idx) (< idx (length s)))
           (let ((head (substring s 0 (1+ idx)))
                 (tail (substring s (1+ idx))))
@@ -1595,7 +1598,7 @@ Uses pulse.el when available, otherwise temporary overlays."
     (carriage-ui--ml-button label #'carriage-select-apply-engine help)))
 
 (defun carriage-ui--ml-seg-state ()
-  "Build State segment with spinner and face."
+  "Build State segment with spinner and face, including help-echo tooltip when available."
   (let* ((st (let ((s (and (boundp 'carriage--ui-state) carriage--ui-state)))
                (if (symbolp s) s 'idle)))
          (label (carriage-ui--state-label st))
@@ -1605,11 +1608,17 @@ Uses pulse.el when available, otherwise temporary overlays."
                           (concat " " (carriage-ui--spinner-char))
                         "")))
          (face (pcase st
-                 ((or 'idle 'done) 'carriage-ui-state-success-face)
-                 ((or 'reasoning 'waiting 'streaming 'dispatch) 'carriage-ui-state-active-face)
+                 ('idle 'carriage-ui-state-idle-face)
+                 ((or 'sending 'streaming 'dispatch 'waiting 'reasoning) 'carriage-ui-state-sending-face)
+                 ('done 'carriage-ui-state-success-face)
                  ('error 'carriage-ui-state-error-face)
-                 (_ nil))))
-    (if face (propertize txt 'face face) txt)))
+                 (_ nil)))
+         (help (and (boundp 'carriage--ui-state-tooltip) carriage--ui-state-tooltip)))
+    (cond
+     ((and face help) (propertize txt 'face face 'help-echo help))
+     (face            (propertize txt 'face face))
+     (help            (propertize txt 'help-echo help))
+     (t               txt))))
 
 (defun carriage-ui--ml-seg-context ()
   "Build Context badge segment."
@@ -1751,6 +1760,183 @@ Uses pulse.el when available, otherwise temporary overlays."
         (setq carriage-ui--ml-cache-key key
               carriage-ui--ml-cache     res)
         res))))
+
+;; -------------------------------------------------------------------
+;; State tooltips: buffer-local meta, helpers and public note-* API
+
+(defcustom carriage-mode-state-tooltip-verbosity 'brief
+  "Verbosity for state tooltip: 'brief or 'detailed."
+  :type '(choice (const brief) (const detailed))
+  :group 'carriage-ui)
+
+(defcustom carriage-mode-state-tooltip-max-chars 1000
+  "Maximum total length of state tooltip (characters)."
+  :type 'integer
+  :group 'carriage-ui)
+
+(defcustom carriage-mode-state-tooltip-reasoning-tail 300
+  "Maximum number of characters from the end of reasoning to include in tooltip."
+  :type 'integer
+  :group 'carriage-ui)
+
+(defcustom carriage-mode-state-tooltip-show-backtrace nil
+  "When non-nil, include backtrace in error tooltip (discouraged by default)."
+  :type 'boolean
+  :group 'carriage-ui)
+
+(defvar-local carriage--ui-state-tooltip nil
+  "Cached tooltip string for current UI state (help-echo for [STATE]).")
+
+(defvar-local carriage--ui-state-meta nil
+  "Buffer-local plist with lightweight state metadata used to render tooltips.
+Keys (optional): :source :time-start :time-last :model :provider
+:tokens-out :tokens-in :chunks :reasoning-tail (:error (:code :message :data))
+:apply-summary (:ok :skip :fail :total) :phase.")
+
+(defun carriage-ui--trim-right (s n)
+  "Return S trimmed to at most N chars from the right."
+  (if (or (null n) (<= (length s) n)) s (substring s 0 n)))
+
+(defun carriage-ui--tail (s n)
+  "Return last N characters of S."
+  (if (or (null n) (<= (length s) n)) s (substring s (- (length s) n))))
+
+(defun carriage-ui--fmt-seconds (t0 t1)
+  "Format duration between T0 and T1 seconds as string."
+  (format "%.1f" (max 0.0 (- (or t1 (float-time)) (or t0 (float-time))))))
+
+(defun carriage-ui--set-tooltip (s)
+  "Set state tooltip to S and refresh modeline cache."
+  (setq carriage--ui-state-tooltip
+        (when (and (stringp s) (> (length s) 0))
+          (let* ((mx (or carriage-mode-state-tooltip-max-chars 1000)))
+            (carriage-ui--trim-right s mx))))
+  (carriage-ui--invalidate-ml-cache)
+  (force-mode-line-update))
+
+(defun carriage-ui--i18n (key &rest args)
+  "Format i18n KEY with ARGS when available; fallback to format."
+  (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+      (apply #'carriage-i18n key args)
+    (apply #'format (cons (symbol-name key) args))))
+
+(defun carriage-ui--render-state-tooltip (&optional state meta)
+  "Render tooltip string for STATE using META (both optional; defaults to current)."
+  (let* ((st (or state carriage--ui-state 'idle))
+         (m  (or meta carriage--ui-state-meta))
+         (phase (plist-get m :phase))
+         (src (plist-get m :source))
+         (t0  (plist-get m :time-start))
+         (t1  (plist-get m :time-last))
+         (dur (carriage-ui--fmt-seconds t0 t1))
+         (mdl (plist-get m :model))
+         (prov (plist-get m :provider))
+         (chunks (or (plist-get m :chunks) 0))
+         (err (plist-get m :error))
+         (tail (carriage-ui--tail (or (plist-get m :reasoning-tail) "") (or carriage-mode-state-tooltip-reasoning-tail 300)))
+         (sum  (plist-get m :apply-summary)))
+    (pcase st
+      ('error
+       (let ((code (or (plist-get err :code) "-"))
+             (msg  (or (plist-get err :message) "-"))
+             (srcs (or src "-")))
+         (carriage-ui--i18n :state-tt-error (format "%s" code) (format "%s" msg) (format "%s" srcs))))
+      ((or 'sending 'streaming 'dispatch 'waiting)
+       (carriage-ui--i18n :state-tt-streaming
+                          (or mdl "-")
+                          (symbol-name st)
+                          dur
+                          (or chunks 0)))
+      ('reasoning
+       (let ((head (carriage-ui--i18n :state-tt-streaming
+                                      (or mdl "-")
+                                      (symbol-name st)
+                                      dur
+                                      (or chunks 0))))
+         (if (and tail (> (length (string-trim tail)) 0))
+             (concat head "\n" (carriage-ui--i18n :state-tt-reasoning tail))
+           head)))
+      ((or 'apply 'done)
+       (let ((ok (or (plist-get sum :ok) 0))
+             (sk (or (plist-get sum :skipped) (plist-get sum :skip) 0))
+             (fl (or (plist-get sum :fail) 0))
+             (tt (or (plist-get sum :total) (+ (or (plist-get sum :ok) 0)
+                                               (or (plist-get sum :skipped) (plist-get sum :skip) 0)
+                                               (or (plist-get sum :fail) 0)))))
+         (carriage-ui--i18n :state-tt-apply ok sk fl tt)))
+      ('dry-run
+       (let ((ok (or (plist-get sum :ok) 0))
+             (sk (or (plist-get sum :skipped) (plist-get sum :skip) 0))
+             (fl (or (plist-get sum :fail) 0))
+             (tt (or (plist-get sum :total) (+ (or (plist-get sum :ok) 0)
+                                               (or (plist-get sum :skipped) (plist-get sum :skip) 0)
+                                               (or (plist-get sum :fail) 0)))))
+         (carriage-ui--i18n :state-tt-dry ok sk fl tt)))
+      (_ nil))))
+
+;;; Public note-* API (called by transports/engines/mode)
+
+(defun carriage-ui-note-error (plist)
+  "Update state meta and tooltip for an error described by PLIST.
+Expected keys: :code, :message, optional :source and :data."
+  (let* ((m (or carriage--ui-state-meta '()))
+         (err (list :code (plist-get plist :code)
+                    :message (plist-get plist :message)
+                    :data (plist-get plist :data))))
+    (setq carriage--ui-state-meta
+          (plist-put m :error err))
+    (carriage-ui--set-tooltip
+     (carriage-ui--render-state-tooltip 'error carriage--ui-state-meta))))
+
+(defun carriage-ui-note-stream-progress (plist)
+  "Update progress-related meta from PLIST and refresh tooltip for sending/streaming phases.
+Accepted keys: :model :provider :time-start :inc-chunk (t to increment) :time-last."
+  (let* ((m (or carriage--ui-state-meta '()))
+         (m (if (plist-get plist :model)     (plist-put m :model (plist-get plist :model)) m))
+         (m (if (plist-get plist :provider)  (plist-put m :provider (plist-get plist :provider)) m))
+         (m (if (plist-get plist :time-start) (plist-put m :time-start (plist-get plist :time-start)) m))
+         (m (if (plist-get plist :time-last) (plist-put m :time-last (plist-get plist :time-last)) m))
+         (chunks (or (plist-get m :chunks) 0))
+         (m (if (plist-get plist :inc-chunk) (plist-put m :chunks (1+ chunks)) m)))
+    (setq carriage--ui-state-meta m)
+    (when (memq (or carriage--ui-state 'idle) '(sending streaming waiting dispatch reasoning))
+      (carriage-ui--set-tooltip
+       (carriage-ui--render-state-tooltip carriage--ui-state carriage--ui-state-meta)))))
+
+(defun carriage-ui-note-reasoning-chunk (text)
+  "Update reasoning tail in meta and tooltip with TEXT."
+  (let* ((m (or carriage--ui-state-meta '()))
+         (old (or (plist-get m :reasoning-tail) ""))
+         (tail (concat old (or text ""))))
+    (setq carriage--ui-state-meta (plist-put m :reasoning-tail tail))
+    (when (eq carriage--ui-state 'reasoning)
+      (carriage-ui--set-tooltip
+       (carriage-ui--render-state-tooltip 'reasoning carriage--ui-state-meta)))))
+
+(defun carriage-ui-note-apply-summary (plist)
+  "Update apply/dry-run summary in meta and refresh tooltip accordingly.
+PLIST keys: :phase ('apply|'dry-run), :ok :skip|:skipped :fail :total."
+  (let* ((m (or carriage--ui-state-meta '()))
+         (sum (list :ok (or (plist-get plist :ok) 0)
+                    :skipped (or (plist-get plist :skipped) (plist-get plist :skip) 0)
+                    :fail (or (plist-get plist :fail) 0)
+                    :total (or (plist-get plist :total) 0))))
+    (setq carriage--ui-state-meta
+          (plist-put (plist-put m :apply-summary sum) :phase (plist-get plist :phase)))
+    (let ((st (pcase (plist-get plist :phase)
+                ('apply 'apply) ('dry-run 'dry-run) (_ carriage--ui-state))))
+      (carriage-ui--set-tooltip
+       (carriage-ui--render-state-tooltip st carriage--ui-state-meta)))))
+
+;;;###autoload
+(defun carriage-show-state-details ()
+  "Show the current state tooltip in the echo area as a fallback for TTY."
+  (interactive)
+  (let ((help (or carriage--ui-state-tooltip
+                  (carriage-ui--render-state-tooltip))))
+    (if (and (stringp help) (> (length (string-trim help)) 0))
+        (message "%s" help)
+      (message "Нет подробностей статуса"))))
 
 (provide 'carriage-ui)
 ;;; carriage-ui.el ends here
