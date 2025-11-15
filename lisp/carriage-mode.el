@@ -555,7 +555,10 @@ Consults engine capabilities; safe when registry is not yet loaded."
          (i (mod (or carriage--preloader-index 0) (max 1 n)))
          (frame (aref frames i)))
     (when (overlayp carriage--preloader-overlay)
-      (overlay-put carriage--preloader-overlay 'after-string (propertize frame 'face 'shadow)))
+      (overlay-put carriage--preloader-overlay 'after-string (propertize frame 'face 'shadow))
+      ;; Refresh any windows showing this buffer so the preloader advances in background windows.
+      (dolist (w (get-buffer-window-list (current-buffer) t t))
+        (force-window-update w)))
     (setq carriage--preloader-index (1+ i))))
 
 (defun carriage--preloader-start ()

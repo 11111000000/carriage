@@ -203,13 +203,15 @@ Negative values move icons up; positive move them down."
 
 (defun carriage-ui--spinner-tick (buf)
   "Advance spinner in BUF and update mode-line.
-Update only when BUF is visible and selected to avoid unnecessary redisplay churn."
-  (let ((win (and (buffer-live-p buf) (get-buffer-window buf t))))
-    (when (and win (eq (selected-window) win))
+Update only when BUF is visible; refresh any windows showing it."
+  (let ((wins (and (buffer-live-p buf) (get-buffer-window-list buf t t))))
+    (when wins
       (with-current-buffer buf
         (setq carriage--ui-spinner-index (1+ carriage--ui-spinner-index))
         ;; Local refresh only; avoid (force-mode-line-update t) which repaints all windows.
-        (force-mode-line-update)))))
+        (force-mode-line-update))
+      ;; Nudge redisplay for specific windows showing BUF.
+      (dolist (w wins) (force-window-update w)))))
 
 (defun carriage-ui--spinner-start ()
   "Start buffer-local spinner timer if not running."
