@@ -961,13 +961,14 @@ Truncation order: outline → buffer → project."
   "Build header-line: [icon] project › [icon] buffer › org-outline-path (no icon for heading).
 - Graceful degradation in TTY and narrow windows (hide outline).
 - Outline segment is clickable in org-mode to jump to the heading.
-- Visuals: all text sections except the last are muted gray; icons keep their colors."
+- Visuals: all text sections except the last are muted gray; icons keep their colors.
+Optimized with caching to reduce allocations on redisplay."
   (let* ((project (carriage-ui--project-name))
          (bufname (buffer-name))
          (outline (and carriage-mode-headerline-show-outline (or carriage-ui--last-outline-path-str "")))
          (use-icons (carriage-ui--icons-available-p))
-         (p-icon (and use-icons (carriage-ui--icon 'project)))
-         (f-icon (and use-icons (carriage-ui--icon 'file)))
+         ;; Include icon env in cache key to handle theme/icon changes
+         (icon-env (and use-icons (carriage-ui--icon-cache-env-current)))
          (sep (carriage-ui--hl-sep))
          ;; Window width and policy
          (w (or (ignore-errors (window-total-width)) 80))
@@ -978,22 +979,31 @@ Truncation order: outline → buffer → project."
          (avail (max 0 (- maxw reserve)))
          (tty (not (display-graphic-p)))
          (show-outline (carriage-ui--hl-show-outline-p tty outline avail))
-         (pseg (concat (carriage-ui--left-pad) (carriage-ui--hl-build-seg project p-icon)))
-         (bseg (carriage-ui--hl-build-seg bufname f-icon))
-         (oseg (or outline "")))
-    (cl-destructuring-bind (p1 b1 o1)
-        (carriage-ui--hl-fit pseg bseg oseg show-outline avail sep)
-      ;; Apply muted face to all but the last section
-      (let* ((p2 p1) (b2 b1))
-        (if show-outline
-            (progn
-              (setq p2 (carriage-ui--hl-mute-tail p2))
-              (setq b2 (carriage-ui--hl-mute-tail b2)))
-          (setq p2 (carriage-ui--hl-mute-tail p2)))
-        (let ((base (concat p2 sep b2)))
-          (if show-outline
-              (concat base sep (carriage-ui--hl-clickable-outline o1))
-            base))))))
+         (cache-key (list avail show-outline project bufname outline use-icons icon-env)))
+    (if (and (equal cache-key carriage-ui--hl-cache-key)
+             (stringp carriage-ui--hl-cache))
+        carriage-ui--hl-cache
+      (let* ((p-icon (and use-icons (carriage-ui--icon 'project)))
+             (f-icon (and use-icons (carriage-ui--icon 'file)))
+             (pseg (concat (carriage-ui--left-pad) (carriage-ui--hl-build-seg project p-icon)))
+             (bseg (carriage-ui--hl-build-seg bufname f-icon))
+             (oseg (or outline "")))
+        (cl-destructuring-bind (p1 b1 o1)
+            (carriage-ui--hl-fit pseg bseg oseg show-outline avail sep)
+          ;; Apply muted face to all but the last section
+          (let* ((p2 p1) (b2 b1))
+            (if show-outline
+                (progn
+                  (setq p2 (carriage-ui--hl-mute-tail p2))
+                  (setq b2 (carriage-ui--hl-mute-tail b2)))
+              (setq p2 (carriage-ui--hl-mute-tail p2)))
+            (let* ((base (concat p2 sep b2))
+                   (res (if show-outline
+                            (concat base sep (carriage-ui--hl-clickable-outline o1))
+                          base)))
+              (setq carriage-ui--hl-cache res
+                    carriage-ui--hl-cache-key cache-key)
+              res)))))))
 
 ;; Cache and refresh outline segment on cursor move to ensure timely header updates.
 (defvar-local carriage-ui--project-name-cached nil
