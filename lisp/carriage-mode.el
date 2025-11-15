@@ -849,6 +849,9 @@ TYPE is either 'text (default) or 'reasoning.
              (setq carriage--iteration-inline-marker-inserted t))))
        ;; Do not auto-close reasoning here; text is appended after all prior content.
        (carriage--stream-insert-at-end s))))
+  ;; Nudge redisplay for windows showing this buffer
+  (dolist (w (get-buffer-window-list (current-buffer) t t))
+    (force-window-update w))
   (point))
 
 ;;;###autoload
