@@ -372,7 +372,11 @@ When more are present, the tooltip shows a tail line like \"… (+K more)\"."
         ;; Drop modeline cache as well (theme/face/icon env changed)
         (when (boundp 'carriage-ui--ml-cache)
           (setq carriage-ui--ml-cache nil)
-          (setq carriage-ui--ml-cache-key nil))))))
+          (setq carriage-ui--ml-cache-key nil))
+        ;; Drop header-line cache too (icons/theme affect it)
+        (when (boundp 'carriage-ui--hl-cache)
+          (setq carriage-ui--hl-cache nil)
+          (setq carriage-ui--hl-cache-key nil))))))  
 
 (defun carriage-ui--set-modeline-blocks (sym val)
   "Setter for `carriage-ui-modeline-blocks' that refreshes modelines everywhere."
@@ -1009,6 +1013,12 @@ Optimized with caching to reduce allocations on redisplay."
 (defvar-local carriage-ui--project-name-cached nil
   "Cached project name for header-line; computed once per buffer.")
 
+(defvar-local carriage-ui--hl-cache nil
+  "Cached header-line string for the current buffer.")
+
+(defvar-local carriage-ui--hl-cache-key nil
+  "Signature (key) of the last rendered header-line for quick short-circuit.")
+
 (defvar-local carriage-ui--last-outline-path-str nil
   "Cached outline path string for the current buffer's header-line refresh.")
 (defvar-local carriage-ui--last-outline-level nil
@@ -1020,6 +1030,8 @@ Optimized with caching to reduce allocations on redisplay."
   "Cached count of #+begin_patch blocks in the current buffer.")
 (defvar-local carriage-ui--patch-count-tick nil
   "Buffer tick corresponding to `carriage-ui--patch-count-cache'.")
+(defvar-local carriage-ui--patch-count-cache-time 0
+  "Timestamp (float seconds) of the last patch count recomputation.")
 
 (defcustom carriage-ui-apply-visibility-cache-ttl 0.1
   "TTL in seconds for caching visibility of [Dry]/[Apply] buttons in the modeline.
