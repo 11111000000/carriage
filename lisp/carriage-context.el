@@ -46,10 +46,11 @@ Each value is a plist: (:mtime MT :size SZ :time TS :ok BOOL :data STRING-OR-REA
       default-directory))
 
 (defun carriage-context--inside-root-p (truename root)
-  "Return non-nil if TRUENAME lies within ROOT."
+  "Return non-nil if TRUENAME lies within ROOT.
+Assumes TRUENAME is already a truename; avoids re-normalizing it."
   (let* ((rt (file-name-as-directory (file-truename root)))
-         (pt (file-truename truename)))
-    (string-prefix-p rt (file-name-as-directory pt))))
+         (pt (file-name-as-directory truename)))
+    (string-prefix-p rt pt)))
 
 (defun carriage-context--normalize-path (path root)
   "Normalize PATH relative to ROOT; reject unsafe/TRAMP paths.

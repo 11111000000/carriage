@@ -301,6 +301,17 @@ keys change (buffer content, toggle states)."
                  (const :tag "Unlimited (until buffer changes)" nil))
   :group 'carriage-ui)
 
+(defcustom carriage-ui-context-async-refresh t
+  "When non-nil, compute the [Ctx:N] badge off the redisplay path on an idle timer.
+The modeline uses the last cached value and schedules a lightweight refresh."
+  :type 'boolean
+  :group 'carriage-ui)
+
+(defcustom carriage-ui-context-refresh-delay 0.05
+  "Idle delay (seconds) before recomputing context badge when cache is stale."
+  :type 'number
+  :group 'carriage-ui)
+
 (defcustom carriage-ui-context-tooltip-max-items 50
   "Maximum number of context items to list in the [Ctx:N] tooltip.
 When more are present, the tooltip shows a tail line like \"… (+K more)\"."
@@ -414,6 +425,9 @@ Unknown symbols are ignored."
   "Buffer-local cache for context badge computation.
 Plist keys: :doc :gpt :tick :time :value.")
 
+(defvar-local carriage-ui--ctx-refresh-timer nil
+  "Idle timer for asynchronous context badge refresh (buffer-local).")
+
 (defvar-local carriage-ui--ml-cache nil
   "Cached rendered modeline string for Carriage (buffer-local).")
 
@@ -518,7 +532,8 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
                          "\n"))))))
 
 (defun carriage-ui--context-badge ()
-  "Return cached or freshly computed context badge cons cell (LABEL . HINT)."
+  "Return cached (LABEL . HINT) for [Ctx:N]; refresh asynchronously when stale.
+Heavy recomputation is moved off the redisplay path to reduce churn."
   (let* ((inc-doc (if (boundp 'carriage-mode-include-doc-context)
                       carriage-mode-include-doc-context
                     t))
@@ -532,30 +547,67 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
          (ttl-ok (or (null ttl)
                      (and (numberp ttl) (> ttl 0)
                           cache
-                          (< (- now (or (plist-get cache :time) 0)) ttl)))))
-    (if (and cache
-             (eq inc-doc (plist-get cache :doc))
-             (eq inc-gpt (plist-get cache :gpt))
-             (= tick (plist-get cache :tick))
-             ttl-ok)
-        (progn
-          (when carriage-ui-debug
-            (let* ((val (plist-get cache :value))
-                   (lbl (and (consp val) (car val))))
-              (carriage-ui--dbg "ctx-badge: cache HIT (doc=%s gpt=%s tick=%s) → %s"
-                                inc-doc inc-gpt tick lbl)))
-          (plist-get cache :value))
+                          (< (- now (or (plist-get cache :time) 0)) ttl))))
+         (valid (and cache
+                     (eq inc-doc (plist-get cache :doc))
+                     (eq inc-gpt (plist-get cache :gpt))
+                     (= tick (plist-get cache :tick))
+                     ttl-ok)))
+    (cond
+     ;; Valid cache → return instantly
+     (valid
       (when carriage-ui-debug
-        (carriage-ui--dbg "ctx-badge: cache MISS (doc=%s gpt=%s tick=%s ttl-ok=%s)"
-                          inc-doc inc-gpt tick ttl-ok))
+        (let* ((val (plist-get cache :value))
+               (lbl (and (consp val) (car val))))
+          (carriage-ui--dbg "ctx-badge: cache HIT (doc=%s gpt=%s tick=%s) → %s"
+                            inc-doc inc-gpt tick lbl)))
+      (plist-get cache :value))
+
+     ;; Stale cache and async mode → schedule refresh, return last known value
+     ((and carriage-ui-context-async-refresh cache)
+      (unless carriage-ui--ctx-refresh-timer
+        (let* ((buf (current-buffer))
+               (doc inc-doc) (gpt inc-gpt) (tk tick)
+               (delay (max 0.0 (or carriage-ui-context-refresh-delay 0.05))))
+          (setq carriage-ui--ctx-refresh-timer
+                (run-at-time delay nil
+                             (lambda ()
+                               (when (buffer-live-p buf)
+                                 (with-current-buffer buf
+                                   (let* ((val (carriage-ui--compute-context-badge doc gpt))
+                                          (t2 (float-time)))
+                                     (setq carriage-ui--ctx-cache
+                                           (list :doc doc :gpt gpt :tick tk :time t2 :value val))
+                                     (setq carriage-ui--ctx-refresh-timer nil)
+                                     ;; Local refresh only
+                                     (force-mode-line-update)))))))))
+      (plist-get cache :value))
+
+     ;; No cache yet and async mode → schedule refresh, show placeholder
+     (carriage-ui-context-async-refresh
+      (unless carriage-ui--ctx-refresh-timer
+        (let* ((buf (current-buffer))
+               (doc inc-doc) (gpt inc-gpt) (tk tick)
+               (delay (max 0.0 (or carriage-ui-context-refresh-delay 0.05))))
+          (setq carriage-ui--ctx-refresh-timer
+                (run-at-time delay nil
+                             (lambda ()
+                               (when (buffer-live-p buf)
+                                 (with-current-buffer buf
+                                   (let* ((val (carriage-ui--compute-context-badge doc gpt))
+                                          (t2 (float-time)))
+                                     (setq carriage-ui--ctx-cache
+                                           (list :doc doc :gpt gpt :tick tk :time t2 :value val))
+                                     (setq carriage-ui--ctx-refresh-timer nil)
+                                     (force-mode-line-update)))))))))
+      (cons "[Ctx:?]" "Вычисление контекста…"))
+
+     ;; Synchronous recompute fallback
+     (t
       (let ((value (carriage-ui--compute-context-badge inc-doc inc-gpt)))
         (setq carriage-ui--ctx-cache
-              (list :doc inc-doc
-                    :gpt inc-gpt
-                    :tick tick
-                    :time now
-                    :value value))
-        value))))
+              (list :doc inc-doc :gpt inc-gpt :tick tick :time now :value value))
+        value)))))
 
 ;; -------------------------------------------------------------------
 ;; Header-line and Mode-line builders (M3: icons (optional) + outline click)
