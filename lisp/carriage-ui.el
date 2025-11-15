@@ -1169,9 +1169,10 @@ To avoid regex scans on every redisplay, the result is cached briefly per buffer
 (defun carriage-ui--last-iteration-present-p ()
   "Return non-nil when there are blocks of the last iteration in the buffer.
 
-Detection strategy:
-- If `carriage--last-iteration-id' is non-nil, scan for any #+begin_patch line
-  with text property 'carriage-iteration-id equal to that id.
+Detection strategy (optimized):
+- If `carriage--last-iteration-id' is non-nil, search for any text position
+  with property 'carriage-iteration-id equal to that id using text-property-any
+  (C-implemented scan), avoiding regex over the whole buffer.
 - Results are cached per buffer and invalidated on buffer tick changes
   or when the last-iteration id changes."
   (let* ((id (and (boundp 'carriage--last-iteration-id) carriage--last-iteration-id))
@@ -1179,17 +1180,9 @@ Detection strategy:
     (if (and (equal id carriage-ui--last-iter-cache-id)
              (eq tick carriage-ui--last-iter-cache-tick))
         carriage-ui--last-iter-cache-result
-      (let ((found
-             (and id
-                  (save-excursion
-                    (goto-char (point-min))
-                    (let ((ok nil))
-                      (while (and (not ok)
-                                  (re-search-forward "^[ \t]*#\\+begin_patch\\b" nil t))
-                        (let ((lb (line-beginning-position)))
-                          (when (equal (get-text-property lb 'carriage-iteration-id) id)
-                            (setq ok t))))
-                      ok)))))
+      (let* ((pos (and id (text-property-any (point-min) (point-max)
+                                             'carriage-iteration-id id)))
+             (found (and pos t)))
         (setq carriage-ui--last-iter-cache-id id
               carriage-ui--last-iter-cache-tick tick
               carriage-ui--last-iter-cache-result found)
