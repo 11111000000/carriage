@@ -663,4 +663,35 @@ DATA may be a plist (:CAR_* …) or an alist of (\"CAR_*\" . VAL)."
   (advice-add 'carriage-doc-state-hide :after (lambda (&rest _)
                                                 (ignore-errors (carriage-doc-state--hide-carriage-block)))))
 
+;; Auto-fold the #+begin_carriage block on visit and after save (non-intrusive).
+(defun carriage-doc-state--fold-carriage-block-now (&optional buffer)
+  "Fold the #+begin_carriage block in BUFFER (or current) if present."
+  (with-current-buffer (or buffer (current-buffer))
+    (when (derived-mode-p 'org-mode)
+      (condition-case _e
+          (let* ((range (carriage-doc-state--carriage-block-range)))
+            (when (and range (consp range))
+              (require 'org)
+              (save-excursion
+                (goto-char (car range))
+                (cond
+                 ((fboundp 'org-hide-block-toggle)
+                  (org-hide-block-toggle t))
+                 ((fboundp 'org-fold-region)
+                  (let ((a (line-beginning-position))
+                        (b (progn
+                             (goto-char (cdr range))
+                             (line-end-position))))
+                    (org-fold-region a b t)))))))
+        (error nil)))))
+
+(defun carriage-doc-state--fold-on-visit ()
+  "Fold the #+begin_carriage block when visiting an Org document and on saves."
+  (when (derived-mode-p 'org-mode)
+    (carriage-doc-state--fold-carriage-block-now)
+    (add-hook 'after-save-hook #'carriage-doc-state--fold-carriage-block-now nil t)))
+
+;; Install visit hook (lightweight guard by checking major-mode in the handler).
+(add-hook 'find-file-hook #'carriage-doc-state--fold-on-visit)
+
 ;;; carriage-doc-state.el ends here
