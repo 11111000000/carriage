@@ -10,19 +10,25 @@
 - Изменения через UI/команды — автоматически отражаются в документе.
 
 * Модель хранения (источник истины в документе)
-- Каноническое хранение — строки верхнего уровня:
+- Каноническое хранение — блок настроек в начале файла:
   #+begin_example
-  #+PROPERTY: CARRIAGE_MODE t
-  #+PROPERTY: CARRIAGE_INTENT Code
-  #+PROPERTY: CARRIAGE_SUITE udiff
-  #+PROPERTY: CARRIAGE_MODEL_ID gptel:provider:model
-  #+PROPERTY: CARRIAGE_ENGINE git
-  #+PROPERTY: CARRIAGE_BRANCH_POLICY ephemeral
-  #+PROPERTY: CARRIAGE_CTX_GPTEL t
-  #+PROPERTY: CARRIAGE_CTX_DOC t
-  #+PROPERTY: CARRIAGE_REPORT_POLICY on-error
-  #+PROPERTY: CARRIAGE_STAGE_POLICY index
+  #+begin_carriage
+  CARRIAGE_MODE t
+  CARRIAGE_INTENT Code
+  CARRIAGE_SUITE udiff
+  CARRIAGE_MODEL_ID gptel:provider:model
+  CARRIAGE_ENGINE git
+  CARRIAGE_BRANCH_POLICY ephemeral
+  CARRIAGE_CTX_GPTEL t
+  CARRIAGE_CTX_DOC t
+  CARRIAGE_REPORT_POLICY on-error
+  CARRIAGE_STAGE_POLICY index
+  #+end_carriage
   #+end_example
+- Блок #+begin_carriage располагается в начале документа, скрыт по умолчанию (fold); восстанавливается при включении режима и обновляется:
+  - при изменении параметров (carriage-doc-state-sync-on-change=t по умолчанию);
+  - перед сохранением файла (carriage-doc-state-save-on-save=t по умолчанию).
+- Fallback для совместимости: допускаются строки #+PROPERTY: CARRIAGE_* и/или заголовок «Carriage State» с drawer; запись всегда производится в блок.
 - Обязательные ключи (v1):
   - CAR_MODE: t|nil — включать ли carriage-mode при открытии (auto-enable).
   - CAR_INTENT: Ask|Code|Hybrid.

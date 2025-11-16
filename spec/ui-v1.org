@@ -140,7 +140,8 @@
 - Включение режима:
   - Если carriage-mode-show-header-line=t → установить header-line-format на (:eval (carriage-ui--header-line)).
   - Если carriage-mode-show-mode-line-ui=t → добавить буферно-локальный сегмент (:eval (carriage-ui--modeline)).
-  - При наличии carriage-doc-state: восстановить параметры документа и скрыть служебные настройки (property drawer «Carriage State» или строки #+PROPERTY: CARRIAGE_*).
+- При наличии carriage-doc-state: восстановить параметры и свернуть блок настроек (# +begin_carriage …) по умолчанию.
+- Сворачивание блока begin_carriage после enable carriage-mode.  
 - Выключение режима:
   - Восстановить предыдущее значение header-line-format (по умолчанию nil).
   - Удалить буферно-локальные вставки модлайна, оставив только lighter минор-режима.
