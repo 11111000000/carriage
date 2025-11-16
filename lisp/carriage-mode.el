@@ -437,11 +437,11 @@ Consults engine capabilities; safe when registry is not yet loaded."
   "Enable Carriage mode in the current buffer (internal)."
   (carriage-mode--init-state)
   (carriage-mode--init-ui)
-  ;; Restore state from document and hide the drawer; persist current snapshot.
+  ;; Restore state from document, persist snapshot, then fold the block; install save hook.
   (when (require 'carriage-doc-state nil t)
     (ignore-errors (carriage-doc-state-restore))
-    (ignore-errors (carriage-doc-state-hide))
     (ignore-errors (carriage-doc-state-write-current))
+    (ignore-errors (carriage-doc-state-hide))
     (ignore-errors
       (when (and (boundp 'carriage-doc-state-save-on-save)
                  carriage-doc-state-save-on-save)

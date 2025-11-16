@@ -618,7 +618,7 @@ normalized to file-style CARRIAGE_* inside the block."
              (t nil))))))))
 
 ;; Override readers/writers to prioritize the carriage block
-
+;;
 (defun carriage-doc-state--read-preferring-file (&optional buffer)
   "Read state with priority:
 1) #+begin_carriage block,
@@ -687,9 +687,15 @@ DATA may be a plist (:CAR_* …) or an alist of (\"CAR_*\" . VAL)."
 
 (defun carriage-doc-state--fold-on-visit ()
   "Fold the #+begin_carriage block when visiting an Org document and on saves."
-  (when (derived-mode-p 'org-mode)
-    (carriage-doc-state--fold-carriage-block-now)
-    (add-hook 'after-save-hook #'carriage-doc-state--fold-carriage-block-now nil t)))
+  (let ((buf (current-buffer)))
+    (run-at-time
+     0 nil
+     (lambda ()
+       (when (buffer-live-p buf)
+         (with-current-buffer buf
+           (when (derived-mode-p 'org-mode)
+             (carriage-doc-state--fold-carriage-block-now)
+             (add-hook 'after-save-hook #'carriage-doc-state--fold-carriage-block-now nil t))))))))
 
 ;; Install visit hook (lightweight guard by checking major-mode in the handler).
 (add-hook 'find-file-hook #'carriage-doc-state--fold-on-visit)
