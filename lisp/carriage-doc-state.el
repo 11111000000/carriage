@@ -405,13 +405,24 @@ Falls back to drawer-based heading when file-level properties are absent."
         ;; Fallback to drawer
         (carriage-doc-state--alist->plist (carriage-doc-state--read-drawer))))))
 
+(defun carriage-doc-state--on-before-save ()
+  "Before-save: apply state from begin_carriage (if present), then persist normalized block and fold."
+  (when (derived-mode-p 'org-mode)
+    (condition-case _e
+        (progn
+          ;; Apply user-edited state first (if valid), then normalize/write and fold.
+          (ignore-errors (carriage-doc-state-restore (current-buffer)))
+          (ignore-errors (carriage-doc-state-write-current (current-buffer)))
+          (ignore-errors (carriage-doc-state--fold-carriage-block-now (current-buffer))))
+      (error nil))))
+
 (defun carriage-doc-state-install-save-hook ()
-  "Install before-save hook to persist current state to #+PROPERTY lines."
-  (add-hook 'before-save-hook #'carriage-doc-state-write-current nil t))
+  "Install before-save hook to apply and persist document state, buffer-locally."
+  (add-hook 'before-save-hook #'carriage-doc-state--on-before-save nil t))
 
 (defun carriage-doc-state-remove-save-hook ()
-  "Remove before-save hook for persisting document state."
-  (remove-hook 'before-save-hook #'carriage-doc-state-write-current t))
+  "Remove before-save hook for applying and persisting document state."
+  (remove-hook 'before-save-hook #'carriage-doc-state--on-before-save t))
 
 (defvar-local carriage-doc-state--props-overlay nil
   "Overlay covering folded file-level Carriage property lines.")
@@ -697,7 +708,10 @@ DATA may be a plist (:CAR_* …) or an alist of (\"CAR_*\" . VAL)."
              (carriage-doc-state--fold-carriage-block-now)
              (add-hook 'after-save-hook #'carriage-doc-state--fold-carriage-block-now nil t))))))))
 
-;; Install visit hook (lightweight guard by checking major-mode in the handler).
+;; Install visit hooks: fold at visit, after major mode activation, and on revert; ensure after-save handled per-buffer.
 (add-hook 'find-file-hook #'carriage-doc-state--fold-on-visit)
+(add-hook 'after-change-major-mode-hook #'carriage-doc-state--fold-on-visit)
+(add-hook 'org-mode-hook #'carriage-doc-state--fold-carriage-block-now)
+(add-hook 'after-revert-hook #'carriage-doc-state--fold-carriage-block-now)
 
 ;;; carriage-doc-state.el ends here
