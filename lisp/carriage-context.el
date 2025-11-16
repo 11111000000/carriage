@@ -77,6 +77,30 @@ When nil, cache entries are considered valid until file size or mtime changes."
   :type '(choice (const :tag "Unlimited (until file changes)" nil) number)
   :group 'carriage-context)
 
+(defcustom carriage-visible-ignore-modes
+  '(exwm-mode image-mode pdf-view-mode doc-view-mode dired-mode help-mode special-mode
+              context-navigator-view-mode test-flow-panel-mode test-flow-status-mode)
+  "List of major-modes to ignore when collecting visible buffers."
+  :type '(repeat symbol)
+  :group 'carriage-context)
+
+(defcustom carriage-visible-ignore-buffer-regexps
+  '("^\\*carriage-" "^\\*Warnings\\*\\'" "^\\*Compile-Log\\*\\'" "^\\*Help\\*\\'" "^\\*Backtrace\\*\\'")
+  "Regexps for buffer names to ignore when collecting visible buffers."
+  :type '(repeat string)
+  :group 'carriage-context)
+
+(defcustom carriage-visible-terminal-tail-lines 256
+  "Number of last lines to include for terminal/comint/messages-like buffers."
+  :type 'integer
+  :group 'carriage-context)
+
+(defcustom carriage-visible-exclude-current-buffer t
+  "When non-nil, exclude the buffer that initiated context collection from the 'visible source.
+This helps avoid self-duplication and reduces noise/budget usage."
+  :type 'boolean
+  :group 'carriage-context)
+
 (defvar carriage-context--normalize-cache (make-hash-table :test 'equal)
   "Memo table for carriage-context--normalize-path keyed by (ROOT . PATH).")
 
@@ -286,8 +310,8 @@ Fallback: search whole buffer."
 ;; Internal helpers for context collection and counting
 
 (defun carriage-context--include-flags (buf)
-  "Return plist with include toggles for BUF: (:gptel BOOL :doc BOOL).
-Defaults are ON when variables are unbound."
+  "Return plist with include toggles for BUF: (:gptel BOOL :doc BOOL :visible BOOL).
+Defaults: gptel/doc ON when variables are unbound; visible OFF by default."
   (with-current-buffer buf
     (list
      :gptel (if (boundp 'carriage-mode-include-gptel-context)
@@ -295,7 +319,9 @@ Defaults are ON when variables are unbound."
               t)
      :doc   (if (boundp 'carriage-mode-include-doc-context)
                 (buffer-local-value 'carriage-mode-include-doc-context buf)
-              t))))
+              t)
+     :visible (and (boundp 'carriage-mode-include-visible-context)
+                   (buffer-local-value 'carriage-mode-include-visible-context buf)))))
 
 (defun carriage-context--limits (buf)
   "Return plist with limits for BUF: (:max-files N :max-bytes N)."
@@ -335,25 +361,27 @@ Defaults are ON when variables are unbound."
     (delete-dups acc)))
 
 (defun carriage-context--source-counts-from-items (items)
-  "Count items by :source and return list: ((doc . N) (gptel . N) (both . N))."
-  (let ((d 0) (g 0) (b 0))
+  "Count items by :source and return list: ((doc . N) (gptel . N) (both . N) (visible . N))."
+  (let ((d 0) (g 0) (b 0) (v 0))
     (dolist (it items)
       (pcase (plist-get it :source)
         ('doc (setq d (1+ d)))
         ('gptel (setq g (1+ g)))
         ('both (setq b (1+ b)))
+        ('visible (setq v (1+ v)))
         (_ nil)))
-    (list (cons 'doc d) (cons 'gptel g) (cons 'both b))))
+    (list (cons 'doc d) (cons 'gptel g) (cons 'both b) (cons 'visible v))))
 
 (defun carriage-context--collect-config (buf root)
   "Build config plist for collection for BUF and ROOT.
-Keys: :root :include-gptel :include-doc :max-files :max-bytes."
+Keys: :root :include-gptel :include-doc :include-visible :max-files :max-bytes."
   (let* ((r (or root (carriage-context--project-root)))
          (flags (carriage-context--include-flags buf))
          (lims (carriage-context--limits buf)))
     (list :root r
           :include-gptel (plist-get flags :gptel)
           :include-doc (plist-get flags :doc)
+          :include-visible (plist-get flags :visible)
           :max-files (plist-get lims :max-files)
           :max-bytes (plist-get lims :max-bytes))))
 
@@ -482,13 +510,82 @@ Return updated STATE."
   (let* ((root (plist-get config :root))
          (include-gptel (plist-get config :include-gptel))
          (include-doc (plist-get config :include-doc))
+         (include-visible (plist-get config :include-visible))
          (max-files (plist-get config :max-files))
          (max-bytes (plist-get config :max-bytes))
          (state (carriage-context--collect-init-state config))
          (candidates (carriage-context--gather-candidates buf include-doc include-gptel)))
-    (carriage-context--dbg "collect: root=%s include{gptel=%s,doc=%s} limits{files=%s,bytes=%s}"
-                           root include-gptel include-doc max-files max-bytes)
+    (carriage-context--dbg "collect: root=%s include{gptel=%s,doc=%s,vis=%s} limits{files=%s,bytes=%s}"
+                           root include-gptel include-doc include-visible max-files max-bytes)
+    ;; Doc/GPT candidates
     (setq state (carriage-context--collect-iterate candidates state))
+    ;; Visible buffers (files + non-file buffers)
+    (when (and include-visible (carriage-context--state-under-file-limit-p state))
+      (let ((seen (make-hash-table :test 'eq))
+            (ignored-modes (and (boundp 'carriage-visible-ignore-modes) carriage-visible-ignore-modes))
+            (ignored-names (and (boundp 'carriage-visible-ignore-buffer-regexps) carriage-visible-ignore-buffer-regexps))
+            (tail (or (and (boundp 'carriage-visible-terminal-tail-lines) carriage-visible-terminal-tail-lines) 256)))
+        (walk-windows
+         (lambda (w)
+           (let ((b (window-buffer w)))
+             (unless (gethash b seen)
+               (puthash b t seen)
+               (with-current-buffer b
+                 (let* ((nm (buffer-name b))
+                        (mm major-mode)
+                        (skip
+                         (or (and (boundp 'carriage-visible-exclude-current-buffer)
+                                  carriage-visible-exclude-current-buffer
+                                  (eq b buf))
+                             (minibufferp b)
+                             (eq mm 'exwm-mode)
+                             (and (listp ignored-modes) (memq mm ignored-modes))
+                             (and (listp ignored-names)
+                                  (seq-some (lambda (rx) (and (stringp rx) (string-match-p rx nm)))
+                                            ignored-names)))))
+                   (unless skip
+                     (let ((bf (buffer-file-name b)))
+                       (cond
+                        ;; File-visiting (local) buffers: reuse file pipeline
+                        ((and (stringp bf) (not (file-remote-p bf)))
+                         (when (carriage-context--state-under-file-limit-p state)
+                           (setq state (carriage-context--collect-process-path bf state))))
+                        ;; Non-file buffers (or TRAMP): include content (tail for terminals)
+                        (t
+                         (when (carriage-context--state-under-file-limit-p state)
+                           (let* ((rel (format "visible:/%s" nm))
+                                  (is-term (or (derived-mode-p 'comint-mode)
+                                               (derived-mode-p 'eshell-mode)
+                                               (derived-mode-p 'term-mode)
+                                               (ignore-errors (derived-mode-p 'vterm-mode))
+                                               (derived-mode-p 'compilation-mode)
+                                               (eq mm 'messages-buffer-mode)
+                                               (string= nm "*Messages*")))
+                                  (text
+                                   (save-excursion
+                                     (save-restriction
+                                       (widen)
+                                       (if (not is-term)
+                                           (buffer-substring-no-properties (point-min) (point-max))
+                                         (goto-char (point-max))
+                                         (forward-line (- tail))
+                                         (buffer-substring-no-properties (point) (point-max))))))
+                                  (sz (string-bytes text))
+                                  (total (plist-get state :total-bytes)))
+                             (if (> (+ total sz) max-bytes)
+                                 (progn
+                                   (setq state (carriage-context--push-warning
+                                                (format "limit reached, include path only: %s" rel) state))
+                                   (setq state (carriage-context--push-file
+                                                (list :rel rel :true nil :content nil :reason 'size-limit)
+                                                state))
+                                   (setq state (plist-put state :skipped (1+ (plist-get state :skipped)))))
+                               (setq state (carriage-context--push-file
+                                            (list :rel rel :true nil :content text)
+                                            state))
+                               (setq state (plist-put state :total-bytes (+ total sz)))
+                               (setq state (plist-put state :included (1+ (plist-get state :included))))))))))))))))
+         nil (selected-frame))))
     (carriage-context--collect-finalize state)))
 
 (defun carriage-context-collect (&optional buffer root)
@@ -583,10 +680,24 @@ Supports new and legacy variables; defaults ON."
       (cons inc-gpt inc-doc))))
 
 (defun carriage-context--count-root+toggles (buf)
-  "Return plist with root and inclusion toggles for BUF: (:root R :inc-gpt B :inc-doc B)."
+  "Return plist with root and inclusion toggles for BUF: (:root R :inc-gpt B :inc-doc B :inc-vis B)."
   (let* ((root (carriage-context--project-root))
-         (toggles (carriage-context--count-include-flags buf)))
-    (list :root root :inc-gpt (car toggles) :inc-doc (cdr toggles))))
+         (inc-gpt (with-current-buffer buf
+                    (or (and (boundp 'carriage-mode-include-gptel-context)
+                             (buffer-local-value 'carriage-mode-include-gptel-context buf))
+                        (and (boundp 'carriage-mode-use-context)
+                             (buffer-local-value 'carriage-mode-use-context buf))
+                        t)))
+         (inc-doc (with-current-buffer buf
+                    (or (and (boundp 'carriage-mode-include-doc-context)
+                             (buffer-local-value 'carriage-mode-include-doc-context buf))
+                        (and (boundp 'carriage-mode-context-attach-files)
+                             (buffer-local-value 'carriage-mode-context-attach-files buf))
+                        t)))
+         (inc-vis (with-current-buffer buf
+                    (and (boundp 'carriage-mode-include-visible-context)
+                         (buffer-local-value 'carriage-mode-include-visible-context buf)))))
+    (list :root root :inc-gpt inc-gpt :inc-doc inc-doc :inc-vis inc-vis)))
 
 (defun carriage-context--true-map (trues)
   "Build and return a hash-table mapping TRUES for quick membership checks."
@@ -594,8 +705,8 @@ Supports new and legacy variables; defaults ON."
     (dolist (tru trues) (puthash tru tru h))
     h))
 
-(defun carriage-context--count-gather-trues (buf root inc-gpt inc-doc)
-  "Collect truenames and maps for DOC and GPTEL sources given BUF and ROOT."
+(defun carriage-context--count-gather-trues (buf root inc-gpt inc-doc inc-vis)
+  "Collect truenames and maps for DOC, GPTEL and VISIBLE sources given BUF and ROOT."
   (let* ((doc-trues (if inc-doc
                         (carriage-context--unique-truenames-under-root
                          (ignore-errors (carriage-context--doc-paths buf)) root)
@@ -603,14 +714,48 @@ Supports new and legacy variables; defaults ON."
          (gpt-trues (if inc-gpt
                         (carriage-context--unique-truenames-under-root
                          (ignore-errors (carriage-context--maybe-gptel-files)) root)
-                      '())))
+                      '()))
+         (vis-trues
+          (if inc-vis
+              (let ((acc '())
+                    (seen (make-hash-table :test 'eq))
+                    (ignored-modes (and (boundp 'carriage-visible-ignore-modes) carriage-visible-ignore-modes))
+                    (ignored-names (and (boundp 'carriage-visible-ignore-buffer-regexps) carriage-visible-ignore-buffer-regexps)))
+                (walk-windows
+                 (lambda (w)
+                   (let ((b (window-buffer w)))
+                     (unless (gethash b seen)
+                       (puthash b t seen)
+                       (with-current-buffer b
+                         (let* ((nm (buffer-name b))
+                                (mm major-mode)
+                                (skip (or (and (boundp 'carriage-visible-exclude-current-buffer)
+                                               carriage-visible-exclude-current-buffer
+                                               (eq b buf))
+                                          (minibufferp b)
+                                          (eq mm 'exwm-mode)
+                                          (and (listp ignored-modes) (memq mm ignored-modes))
+                                          (and (listp ignored-names)
+                                               (seq-some (lambda (rx) (and (stringp rx) (string-match-p rx nm)))
+                                                         ignored-names)))))
+                           (unless skip
+                             (when (and buffer-file-name (not (file-remote-p buffer-file-name)))
+                               (let* ((norm (carriage-context--normalize-candidate buffer-file-name root)))
+                                 (when (plist-get norm :ok)
+                                   (push (plist-get norm :true) acc))))))))))
+
+                 nil (selected-frame))
+                (delete-dups acc))
+            '())))
     (list :doc-trues doc-trues
           :gpt-trues gpt-trues
+          :vis-trues vis-trues
           :doc-map (carriage-context--true-map doc-trues)
-          :gpt-map (carriage-context--true-map gpt-trues))))
+          :gpt-map (carriage-context--true-map gpt-trues)
+          :vis-map (carriage-context--true-map vis-trues))))
 
-(defun carriage-context--count-build-items (files doc-map gpt-map)
-  "Build item list for count from FILES using DOC-MAP and GPT-MAP."
+(defun carriage-context--count-build-items (files doc-map gpt-map vis-map)
+  "Build item list for count from FILES using DOC-MAP, GPT-MAP and VIS-MAP."
   (mapcar
    (lambda (f)
      (let* ((rel (plist-get f :rel))
@@ -619,10 +764,13 @@ Supports new and legacy variables; defaults ON."
             (reason (plist-get f :reason))
             (docp (and tru (gethash tru doc-map)))
             (gptp (and tru (gethash tru gpt-map)))
+            (visp (or (and tru (gethash tru vis-map))
+                      (and (stringp rel) (string-prefix-p "visible:/" rel))))
             (src (cond
                   ((and docp gptp) 'both)
                   (docp 'doc)
                   (gptp 'gptel)
+                  (visp 'visible)
                   (t nil))))
        (list :path rel
              :true tru
@@ -646,24 +794,27 @@ Supports new and legacy variables; defaults ON."
 
 Формат результата:
   (:count N
-   :items  ((:path REL :true TRU :source doc|gptel|both :included t|nil :reason REASON) ...)
-   :sources ((doc . ND) (gptel . NG) (both . NB))
+   :items  ((:path REL :true TRU :source doc|gptel|both|visible :included t|nil :reason REASON) ...)
+   :sources ((doc . ND) (gptel . NG) (both . NB) (visible . NV))
    :warnings (STR ...)
    :stats (:total-bytes N :included M :skipped K))"
   (let* ((buf (or buffer (current-buffer)))
          (cfg (carriage-context--count-root+toggles buf))
          (root (plist-get cfg :root))
          (inc-gpt (plist-get cfg :inc-gpt))
-         (inc-doc (plist-get cfg :inc-doc)))
-    (if (not (or inc-gpt inc-doc))
+         (inc-doc (plist-get cfg :inc-doc))
+         (inc-vis (plist-get cfg :inc-vis)))
+    (if (not (or inc-gpt inc-doc inc-vis))
         (progn
-          (carriage-context--dbg "count: both sources OFF → 0")
+          (carriage-context--dbg "count: all sources OFF → 0")
           (carriage-context--count-empty-result))
-      (let* ((true-data (carriage-context--count-gather-trues buf root inc-gpt inc-doc))
+      (let* ((true-data (carriage-context--count-gather-trues buf root inc-gpt inc-doc inc-vis))
              (doc-trues (plist-get true-data :doc-trues))
              (gpt-trues (plist-get true-data :gpt-trues))
+             (vis-trues (plist-get true-data :vis-trues))
              (doc-map (plist-get true-data :doc-map))
              (gpt-map (plist-get true-data :gpt-map))
+             (vis-map (plist-get true-data :vis-map))
              (col (carriage-context-collect buf root))
              (files (or (plist-get col :files) '()))
              (warnings (or (plist-get col :warnings) '()))
@@ -674,9 +825,10 @@ Supports new and legacy variables; defaults ON."
                                        (or (plist-get stats :skipped) 0)
                                        (or (plist-get stats :total-bytes) 0)
                                        (length warnings)))
-             (items (carriage-context--count-build-items files doc-map gpt-map)))
-        (carriage-context--dbg "count: doc-trues=%s gpt-trues=%s files=%s count=%s warns=%s"
-                               (length doc-trues) (length gpt-trues) (length files) (length items) (length warnings))
+             (items (carriage-context--count-build-items files doc-map gpt-map vis-map)))
+        (carriage-context--dbg "count: doc=%s gpt=%s vis=%s files=%s items=%s warns=%s"
+                               (length doc-trues) (length gpt-trues) (length vis-trues)
+                               (length files) (length items) (length warnings))
         (carriage-context--count-assemble items warnings stats)))))
 
 (provide 'carriage-context)

@@ -113,6 +113,8 @@
                             (en . "Results: ok=%d, skip=%d, fail=%d (total %d)")))
     (:state-tt-dry       . ((ru . "Предпросмотр: ok=%d, skip=%d, fail=%d (всего %d)")
                             (en . "Dry-run: ok=%d, skip=%d, fail=%d (total %d)")))
+    ;; Visible toggle (source 'visible)
+    (:visible-tooltip    . ((ru . "Переключить видимые буферы") (en . "Toggle visible buffers")))
     )
   "Translation table: KEY → ((ru . STR) (en . STR)).")
 

@@ -208,9 +208,14 @@ This toggle has no effect."
 (make-variable-buffer-local 'carriage-mode-include-gptel-context)
 
 (defcustom carriage-mode-include-doc-context t
-  "When non-nil, include file contents listed in the nearest #+begin_context block."
+  "When non-nil, include file contents from the nearest #+begin_context block."
   :type 'boolean :group 'carriage)
 (make-variable-buffer-local 'carriage-mode-include-doc-context)
+
+(defcustom carriage-mode-include-visible-context nil
+  "When non-nil, include visible buffers (current frame) into the request context."
+  :type 'boolean :group 'carriage)
+(make-variable-buffer-local 'carriage-mode-include-visible-context)
 
 (defcustom carriage-mode-context-injection 'system
   "Where to inject collected context: 'system (default) or 'user."
@@ -1959,6 +1964,21 @@ FN must be a zero-argument function that cancels the ongoing activity."
   (when (fboundp 'carriage-ui--reset-context-cache)
     (carriage-ui--reset-context-cache))
   (message "Include #+begin_context files: %s" (if carriage-mode-include-doc-context "on" "off"))
+  (force-mode-line-update t))
+
+;;;###autoload
+(defun carriage-toggle-include-visible-context ()
+  "Toggle including visible buffers (current frame) into the request context."
+  (interactive)
+  (setq-local carriage-mode-include-visible-context
+              (not (and (boundp 'carriage-mode-include-visible-context)
+                        carriage-mode-include-visible-context)))
+  (when (fboundp 'carriage-ui--reset-context-cache)
+    (carriage-ui--reset-context-cache))
+  (message "Include visible buffers: %s"
+           (if (and (boundp 'carriage-mode-include-visible-context)
+                    carriage-mode-include-visible-context)
+               "on" "off"))
   (force-mode-line-update t))
 
 ;; -------------------------------------------------------------------

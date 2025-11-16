@@ -360,6 +360,7 @@ When more are present, the tooltip shows a tail line like \"… (+K more)\"."
     ediff
     toggle-ctx
     toggle-files
+    toggle-visible
     context
     suite
     engine
@@ -483,8 +484,8 @@ Plist keys: :doc :gpt :tick :time :value.")
 (defun carriage-ui--context-item->line (item)
   "Format ITEM from carriage-context-count into a single tooltip line."
   (let* ((p   (plist-get item :path))
-         (src (pcase (plist-get item :source)
-                ('doc "doc") ('gptel "gptel") ('both "both") (_ "?")))
+         (src   (pcase (plist-get item :source)
+                  ('doc "doc") ('gptel "gptel") ('both "both") ('visible "visible") (_ "?")))
          (inc (plist-get item :included))
          (rsn (plist-get item :reason)))
     (concat " - [" src "] " (or p "-")
@@ -517,13 +518,13 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
                                (and item-lines (mapconcat #'identity item-lines "\n"))))
                "\n")))
 
-(defun carriage-ui--compute-context-badge (inc-doc inc-gpt)
-  "Compute context badge (LABEL . HINT) for INC-DOC/INC-GPT toggles.
-Основано на carriage-context-count — показывает ровно то, что уйдёт в запрос."
+(defun carriage-ui--compute-context-badge (inc-doc inc-gpt inc-vis)
+  "Compute context badge (LABEL . HINT) for INC-DOC/INC-GPT/INC-VIS toggles.
+ Основано на carriage-context-count — показывает ровно то, что уйдёт в запрос."
   (require 'carriage-context nil t)
-  (let* ((off (not (or inc-doc inc-gpt))))
+  (let* ((off (not (or inc-doc inc-gpt inc-vis))))
     (if off
-        (cons "[Ctx:-]" "Контекст выключен (doc=off, gptel=off)")
+        (cons "[Ctx:-]" "Контекст выключен (doc=off, gptel=off, vis=off)")
       (let* ((res (and (fboundp 'carriage-context-count)
                        (ignore-errors
                          (carriage-context-count (current-buffer) (point)))))
@@ -538,8 +539,8 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
                         (cl-subseq items 0 (min n limit))
                       items))
              (more (max 0 (- n (length shown))))
-             (head-line (format "Контекст: файлов=%d — источники: doc=%s, gptel=%s"
-                                cnt (if inc-doc "on" "off") (if inc-gpt "on" "off")))
+             (head-line (format "Контекст: файлов=%d — источники: doc=%s, gptel=%s, vis=%s"
+                                cnt (if inc-doc "on" "off") (if inc-gpt "on" "off") (if inc-vis "on" "off")))
              (warn-lines (when warns
                            (cons "Предупреждения:"
                                  (mapcar (lambda (w) (concat " - " w)) warns))))
@@ -548,9 +549,8 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
                                  (append (mapcar #'carriage-ui--context-item->line shown)
                                          (when (> more 0)
                                            (list (format "… (+%d more)" more))))))))
-
-        (carriage-ui--dbg "Ctx badge: inc-doc=%s inc-gpt=%s cnt=%s items=%s warns=%s"
-                          inc-doc inc-gpt cnt n (length warns))
+        (carriage-ui--dbg "Ctx badge: inc-doc=%s inc-gpt=%s inc-vis=%s cnt=%s items=%s warns=%s"
+                          inc-doc inc-gpt inc-vis cnt n (length warns))
         (cons (format "[Ctx:%d]" cnt)
               (mapconcat #'identity
                          (delq nil (list head-line
@@ -567,6 +567,8 @@ Heavy recomputation is moved off the redisplay path to reduce churn."
          (inc-gpt (if (boundp 'carriage-mode-include-gptel-context)
                       carriage-mode-include-gptel-context
                     t))
+         (inc-vis (and (boundp 'carriage-mode-include-visible-context)
+                       carriage-mode-include-visible-context))
          (tick (buffer-chars-modified-tick))
          (now (float-time))
          (ttl carriage-ui-context-cache-ttl)
@@ -578,6 +580,7 @@ Heavy recomputation is moved off the redisplay path to reduce churn."
          (valid (and cache
                      (eq inc-doc (plist-get cache :doc))
                      (eq inc-gpt (plist-get cache :gpt))
+                     (eq inc-vis (plist-get cache :vis))
                      (= tick (plist-get cache :tick))
                      ttl-ok)))
     (cond
@@ -586,15 +589,15 @@ Heavy recomputation is moved off the redisplay path to reduce churn."
       (when carriage-ui-debug
         (let* ((val (plist-get cache :value))
                (lbl (and (consp val) (car val))))
-          (carriage-ui--dbg "ctx-badge: cache HIT (doc=%s gpt=%s tick=%s) → %s"
-                            inc-doc inc-gpt tick lbl)))
+          (carriage-ui--dbg "ctx-badge: cache HIT (doc=%s gpt=%s vis=%s tick=%s) → %s"
+                            inc-doc inc-gpt inc-vis tick lbl)))
       (plist-get cache :value))
 
      ;; Stale cache and async mode → schedule refresh, return last known value
      ((and carriage-ui-context-async-refresh cache)
       (unless carriage-ui--ctx-refresh-timer
         (let* ((buf (current-buffer))
-               (doc inc-doc) (gpt inc-gpt) (tk tick)
+               (doc inc-doc) (gpt inc-gpt) (vis inc-vis) (tk tick)
                (delay (max 0.0 (or carriage-ui-context-refresh-delay 0.05))))
           (setq carriage-ui--ctx-refresh-timer
                 (run-at-time delay nil
@@ -602,10 +605,10 @@ Heavy recomputation is moved off the redisplay path to reduce churn."
                                (when (and (buffer-live-p buf)
                                           (get-buffer-window buf t))
                                  (with-current-buffer buf
-                                   (let* ((val (carriage-ui--compute-context-badge doc gpt))
+                                   (let* ((val (carriage-ui--compute-context-badge doc gpt vis))
                                           (t2 (float-time)))
                                      (setq carriage-ui--ctx-cache
-                                           (list :doc doc :gpt gpt :tick tk :time t2 :value val))
+                                           (list :doc doc :gpt gpt :vis vis :tick tk :time t2 :value val))
                                      (setq carriage-ui--ctx-refresh-timer nil)
                                      ;; Local refresh only
                                      (force-mode-line-update)))))))))
@@ -615,7 +618,7 @@ Heavy recomputation is moved off the redisplay path to reduce churn."
      (carriage-ui-context-async-refresh
       (unless carriage-ui--ctx-refresh-timer
         (let* ((buf (current-buffer))
-               (doc inc-doc) (gpt inc-gpt) (tk tick)
+               (doc inc-doc) (gpt inc-gpt) (vis inc-vis) (tk tick)
                (delay (max 0.0 (or carriage-ui-context-refresh-delay 0.05))))
           (setq carriage-ui--ctx-refresh-timer
                 (run-at-time delay nil
@@ -623,19 +626,19 @@ Heavy recomputation is moved off the redisplay path to reduce churn."
                                (when (and (buffer-live-p buf)
                                           (get-buffer-window buf t))
                                  (with-current-buffer buf
-                                   (let* ((val (carriage-ui--compute-context-badge doc gpt))
+                                   (let* ((val (carriage-ui--compute-context-badge doc gpt vis))
                                           (t2 (float-time)))
                                      (setq carriage-ui--ctx-cache
-                                           (list :doc doc :gpt gpt :tick tk :time t2 :value val))
+                                           (list :doc doc :gpt gpt :vis vis :tick tk :time t2 :value val))
                                      (setq carriage-ui--ctx-refresh-timer nil)
                                      (force-mode-line-update)))))))))
       (cons "[Ctx:?]" "Вычисление контекста…"))
 
      ;; Synchronous recompute fallback
      (t
-      (let ((value (carriage-ui--compute-context-badge inc-doc inc-gpt)))
+      (let ((value (carriage-ui--compute-context-badge inc-doc inc-gpt inc-vis)))
         (setq carriage-ui--ctx-cache
-              (list :doc inc-doc :gpt inc-gpt :tick tick :time now :value value))
+              (list :doc inc-doc :gpt inc-gpt :vis inc-vis :tick tick :time now :value value))
         value)))))
 
 ;; -------------------------------------------------------------------
@@ -1347,6 +1350,19 @@ Important: the cache key includes label's text properties to ensure visual updat
                                              :height carriage-mode-icon-height
                                              :v-adjust carriage-mode-icon-v-adjust
                                              :face fplist)))
+                  ('visible
+                   (cond
+                    ((fboundp 'all-the-icons-material)
+                     (all-the-icons-material "visibility"
+                                             :height carriage-mode-icon-height
+                                             :v-adjust carriage-mode-icon-v-adjust
+                                             :face fplist))
+                    ((fboundp 'all-the-icons-octicon)
+                     (all-the-icons-octicon "eye"
+                                            :height carriage-mode-icon-height
+                                            :v-adjust carriage-mode-icon-v-adjust
+                                            :face fplist))
+                    (t nil)))
                   (_ nil))))
           (when (stringp res)
             (puthash ckey res cache))
@@ -1489,7 +1505,9 @@ Uses pulse.el when available, otherwise temporary overlays."
           (and (boundp 'carriage-mode-include-gptel-context)
                carriage-mode-include-gptel-context)
           (and (boundp 'carriage-mode-include-doc-context)
-               carriage-mode-include-doc-context))))
+               carriage-mode-include-doc-context)
+          (and (boundp 'carriage-mode-include-visible-context)
+               carriage-mode-include-visible-context))))
 
 (defun carriage-ui--ml-seg-intent ()
   "Build Intent segment."
@@ -1715,6 +1733,17 @@ Uses pulse.el when available, otherwise temporary overlays."
                          #'carriage-toggle-include-doc-context
                          help 'files)))
 
+(defun carriage-ui--ml-seg-toggle-visible ()
+  "Build Visible-buffers context toggle."
+  (let* ((_ (require 'carriage-i18n nil t))
+         (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                   (carriage-i18n :visible-tooltip)
+                 "Toggle including visible frame buffers")))
+    (carriage-ui--toggle "[Vis]" 'carriage-mode-include-visible-context
+                         #'carriage-toggle-include-visible-context
+                         help 'visible)))
+
+
 (defun carriage-ui--ml-seg-settings ()
   "Build Settings button."
   (carriage-ui--settings-btn))
@@ -1739,6 +1768,7 @@ Uses pulse.el when available, otherwise temporary overlays."
     ('report        (carriage-ui--ml-seg-report))
     ('toggle-ctx    (carriage-ui--ml-seg-toggle-ctx))
     ('toggle-files  (carriage-ui--ml-seg-toggle-files))
+    ('toggle-visible (carriage-ui--ml-seg-toggle-visible))
     ('settings      (carriage-ui--ml-seg-settings))
     (_ nil)))
 
