@@ -36,6 +36,7 @@
 (require 'carriage-ui)
 (require 'carriage-suite)
 (require 'carriage-sre-core)
+(require 'carriage-doc-state nil t)
 ;; Autoload stub ensures calling carriage-global-mode works even if file isn't loaded yet.
 (autoload 'carriage-global-mode "carriage-global-mode" "Global Carriage prefix/menu." t)
 (require 'carriage-global-mode)
@@ -435,10 +436,22 @@ Consults engine capabilities; safe when registry is not yet loaded."
 (defun carriage-mode--enable ()
   "Enable Carriage mode in the current buffer (internal)."
   (carriage-mode--init-state)
-  (carriage-mode--init-ui))
+  (carriage-mode--init-ui)
+  ;; Restore state from document and hide the drawer; persist current snapshot.
+  (when (require 'carriage-doc-state nil t)
+    (ignore-errors (carriage-doc-state-restore))
+    (ignore-errors (carriage-doc-state-hide))
+    (ignore-errors (carriage-doc-state-write-current))
+    (ignore-errors
+      (when (and (boundp 'carriage-doc-state-save-on-save)
+                 carriage-doc-state-save-on-save)
+        (carriage-doc-state-install-save-hook)))))
 
 (defun carriage-mode--disable ()
   "Disable Carriage mode in the current buffer (internal)."
+  ;; Optionally reflect mode off in the document (soft; no autosave).
+  (when (require 'carriage-doc-state nil t)
+    (ignore-errors (carriage-doc-state-write '(:CAR_MODE "nil"))))
   ;; Disable: restore header-line and remove modeline segment (buffer-local)
   (unless (bound-and-true-p noninteractive)
     (when (local-variable-p 'header-line-format)
@@ -2065,6 +2078,21 @@ Creates an org-mode buffer with carriage-mode enabled and default-directory boun
                          total created modified deleted renamed files-str)))))
       (error nil)))
   (advice-add 'carriage-report-open :after #'carriage--announce--after-report-open))
+
+;; Persist document state after key parameter changes (advice hooks).
+(with-eval-after-load 'carriage-doc-state
+  (defun carriage--doc-state-write-safe (&rest _)
+    (ignore-errors (carriage-doc-state-write-current)))
+  (dolist (fn '(carriage-toggle-intent
+                carriage-select-suite
+                carriage-select-model
+                carriage-select-backend
+                carriage-select-apply-engine
+                carriage-toggle-include-gptel-context
+                carriage-toggle-include-doc-context
+                carriage-toggle-auto-open-report))
+    (when (fboundp fn)
+      (advice-add fn :after #'carriage--doc-state-write-safe))))
 
 (provide 'carriage-mode)
 ;;; carriage-mode.el ends here

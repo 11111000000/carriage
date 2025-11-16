@@ -67,8 +67,13 @@ which-key hints are registered if available."
           (dolist (pref prefixes)
             (define-key global-map (kbd pref) #'carriage-keys-open-menu))
           (ignore-errors (carriage-keys-which-key-register))
+          ;; Auto-enable carriage-mode on visiting Org files when CAR_MODE=t
+          (when (require 'carriage-doc-state nil t)
+            (add-hook 'find-file-hook #'carriage-doc-state-auto-enable))
           (message "carriage-global-mode enabled (menu)"))
       (ignore-errors (carriage-keys-which-key-unregister))
+      (when (featurep 'carriage-doc-state)
+        (remove-hook 'find-file-hook #'carriage-doc-state-auto-enable))
       (message "carriage-global-mode disabled"))))
 
 (provide 'carriage-global-mode)

@@ -194,6 +194,11 @@
 - lisp/carriage-i18n.el
   - Слой локализации (ru/en) для UI/which-key/transient.
   - Ключевые: carriage-i18n, carriage-i18n-set-locale.
+- lisp/carriage-doc-state.el
+  - Хранение/восстановление состояния документа (property drawer «Carriage State», #+PROPERTY fallback).
+  - Ключевые: carriage-doc-state-read, carriage-doc-state-write, carriage-doc-state-restore,
+    carriage-doc-state-hide, carriage-doc-state-auto-enable.
+  - Спецификация: spec/doc-state-v1.org.
 - lisp/carriage-iteration.el
   - Маркировка/чтение «последней итерации» (inline marker + text properties).
   - Ключевые: carriage-mark-last-iteration, carriage-current-iteration-id, carriage-begin-iteration.

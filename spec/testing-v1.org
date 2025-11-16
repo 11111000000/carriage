@@ -271,4 +271,3 @@
   - Заглушка через advice для перехвата вызова без фактического воспроизведения.
 - Reasoning folding:
   - После вставки "#+end_reasoning" тело reasoning-блока невидимо (org-fold/invisible overlay); org-cycle раскрывает блок обратно.
-#+end_src
