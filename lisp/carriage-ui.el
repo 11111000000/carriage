@@ -1039,7 +1039,7 @@ Optimized with caching to reduce allocations on redisplay."
 (defvar-local carriage-ui--patch-count-cache-time 0
   "Timestamp (float seconds) of the last patch count recomputation.")
 
-(defcustom carriage-ui-apply-visibility-cache-ttl 0.1
+(defcustom carriage-ui-apply-visibility-cache-ttl 0.3
   "TTL in seconds for caching visibility of [Dry]/[Apply] buttons in the modeline.
 When 0 or nil, the cache is disabled."
   :type '(choice (const :tag "Disabled" 0) number)
