@@ -1056,6 +1056,18 @@ When nil, the cache is considered always valid (until explicitly invalidated)."
   :type '(choice (const :tag "Unlimited (never auto-refresh)" nil) number)
   :group 'carriage-ui)
 
+(defcustom carriage-ui-branch-async-refresh t
+  "When non-nil, fetch Git branch name asynchronously off the redisplay path.
+If `vc-mode' provides a branch name, it is used immediately. Heavy fallbacks
+(vc/git) run on an idle timer and the modeline updates when finished."
+  :type 'boolean
+  :group 'carriage-ui)
+
+(defcustom carriage-ui-branch-refresh-delay 0.07
+  "Idle delay (seconds) before attempting an asynchronous branch refresh."
+  :type 'number
+  :group 'carriage-ui)
+
 (defvar-local carriage-ui--branch-cache-string nil
   "Cached branch name for current buffer modeline (or nil).")
 

@@ -680,7 +680,8 @@ DATA may be a plist (:CAR_* …) or an alist of (\"CAR_*\" . VAL)."
 
 ;; Auto-fold the #+begin_carriage block on visit and after save (non-intrusive).
 (defun carriage-doc-state--fold-carriage-block-now (&optional buffer)
-  "Fold the #+begin_carriage block in BUFFER (or current) if present."
+  "Fold the #+begin_carriage block in BUFFER (or current) if present.
+This is idempotent: it only hides the block; it never reveals it."
   (with-current-buffer (or buffer (current-buffer))
     (when (derived-mode-p 'org-mode)
       (condition-case _e
@@ -690,15 +691,20 @@ DATA may be a plist (:CAR_* …) or an alist of (\"CAR_*\" . VAL)."
               (save-excursion
                 (goto-char (car range))
                 (cond
-                 ((fboundp 'org-hide-block-toggle)
-                  (org-hide-block-toggle t))
+                 ;; Prefer explicit fold to avoid accidental toggles.
                  ((fboundp 'org-fold-region)
                   (let ((a (line-beginning-position))
                         (b (progn
                              (goto-char (cdr range))
                              (line-end-position))))
-                    (org-fold-region a b t)))))))
+                    (org-fold-region a b t)))
+                 ;; Fallback: request hide; avoid toggling by always asking to hide.
+                 ((fboundp 'org-hide-block-toggle)
+                  (let ((inhibit-redisplay t))
+                    (org-hide-block-toggle t)))
+                 (t nil)))))
         (error nil)))))
+
 
 (defun carriage-doc-state--fold-on-visit ()
   "Fold the #+begin_carriage block when visiting an Org document and on saves."
