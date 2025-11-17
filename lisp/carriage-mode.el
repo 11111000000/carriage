@@ -1041,6 +1041,21 @@ May include :context-text and :context-target per v1.1."
                        (buffer-substring-no-properties beg end)))
                  (buffer-substring-no-properties (point-min) (point-max))))
               (_ (buffer-substring-no-properties (point-min) (point-max)))))
+           ;; Filter out any #+begin_carriage … #+end_carriage blocks from the payload
+           (payload
+            (let ((text (or payload "")))
+              (with-temp-buffer
+                (insert text)
+                (goto-char (point-min))
+                (let ((case-fold-search t))
+                  (while (re-search-forward "^[ \t]*#\\+begin_carriage\\b" nil t)
+                    (let ((beg (match-beginning 0)))
+                      (if (re-search-forward "^[ \t]*#\\+end_carriage\\b" nil t)
+                          (let ((end (line-end-position)))
+                            (delete-region beg end)
+                            (when (looking-at "\n") (delete-char 1)))
+                        (delete-region beg (point-max))))))
+                (buffer-substring-no-properties (point-min) (point-max)))))
            (target (if (boundp 'carriage-mode-context-injection)
                        carriage-mode-context-injection
                      'system))

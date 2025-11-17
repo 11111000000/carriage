@@ -63,19 +63,34 @@ If MODEL cannot be interned meaningfully, return it unchanged."
    (t model)))
 
 (defun carriage--gptel--prompt (source buffer mode)
-  "Build prompt string for GPTel from SOURCE and BUFFER in MODE."
+  "Build prompt string for GPTel from SOURCE and BUFFER in MODE.
+Strips any #+begin_carriage … #+end_carriage blocks from the outgoing text."
   (with-current-buffer buffer
-    (pcase source
-      ('subtree
-       (if (eq mode 'org-mode)
-           (save-excursion
-             (require 'org)
-             (ignore-errors (org-back-to-heading t))
-             (let ((beg (save-excursion (org-back-to-heading t) (point)))
-                   (end (save-excursion (org-end-of-subtree t t) (point))))
-               (buffer-substring-no-properties beg end)))
-         (buffer-substring-no-properties (point-min) (point-max))))
-      (_ (buffer-substring-no-properties (point-min) (point-max))))))
+    (let* ((raw
+            (pcase source
+              ('subtree
+               (if (eq mode 'org-mode)
+                   (save-excursion
+                     (require 'org)
+                     (ignore-errors (org-back-to-heading t))
+                     (let ((beg (save-excursion (org-back-to-heading t) (point)))
+                           (end (save-excursion (org-end-of-subtree t t) (point))))
+                       (buffer-substring-no-properties beg end)))
+                 (buffer-substring-no-properties (point-min) (point-max))))
+              (_ (buffer-substring-no-properties (point-min) (point-max))))))
+      ;; Filter out carriage state blocks to avoid leaking configuration into prompts
+      (with-temp-buffer
+        (insert (or raw ""))
+        (goto-char (point-min))
+        (let ((case-fold-search t))
+          (while (re-search-forward "^[ \t]*#\\+begin_carriage\\b" nil t)
+            (let ((beg (match-beginning 0)))
+              (if (re-search-forward "^[ \t]*#\\+end_carriage\\b" nil t)
+                  (let ((end (line-end-position)))
+                    (delete-region beg end)
+                    (when (looking-at "\n") (delete-char 1)))
+                (delete-region beg (point-max))))))
+        (buffer-substring-no-properties (point-min) (point-max))))))
 
 (defun carriage--gptel--maybe-open-logs ()
   "Open log/traffic buffers if user prefs demand and we are interactive."

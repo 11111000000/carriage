@@ -201,6 +201,10 @@ Fallback to #+PROPERTY: CARRIAGE_* when the heading is absent."
       (and branch (cons "CAR_BRANCH_POLICY" (format "%s" branch)))
       (cons "CAR_CTX_GPTEL" (carriage-doc-state--bool->str ctx-g))
       (cons "CAR_CTX_DOC"   (carriage-doc-state--bool->str ctx-d))
+      (cons "CAR_CTX_VISIBLE"
+            (carriage-doc-state--bool->str
+             (and (boundp 'carriage-mode-include-visible-context)
+                  carriage-mode-include-visible-context)))
       (and rpt   (cons "CAR_REPORT_POLICY" (format "%s" rpt)))
       (and stage (cons "CAR_STAGE_POLICY" (format "%s" stage)))
       (cons "CAR_ICONS"        (carriage-doc-state--bool->str icons))
