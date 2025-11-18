@@ -138,7 +138,9 @@ Uses a small memo to avoid repeated (file-truename root) calls."
 
 (defun carriage-context--normalize-path (path root)
   "Normalize PATH relative to ROOT; reject unsafe/TRAMP paths.
-Paths outside ROOT are allowed; REL is the absolute truename. Return cons (ok . (rel . truename)) or (nil . reason-symbol). Uses memoization."
+Paths outside ROOT are allowed (for context collection only); REL is the absolute truename.
+Apply pipeline still enforces project-root boundaries (see `carriage-normalize-path' and spec/security-v1.org).
+Return cons (ok . (rel . truename)) or (nil . reason-symbol). Uses memoization."
   (let* ((key (cons root path))
          (hit (and carriage-context--normalize-cache
                    (gethash key carriage-context--normalize-cache))))

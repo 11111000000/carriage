@@ -1039,6 +1039,39 @@ Optimized with caching to reduce allocations on redisplay."
 (defvar-local carriage-ui--patch-count-cache-time 0
   "Timestamp (float seconds) of the last patch count recomputation.")
 
+(defvar-local carriage-ui--patch-ranges nil
+  "Cached list of (BEG . END) ranges for #+begin_patch…#+end_patch blocks in the current buffer.")
+(defvar-local carriage-ui--patch-ranges-tick nil
+  "Buffer tick corresponding to `carriage-ui--patch-ranges'.")
+
+(defun carriage-ui--get-patch-ranges ()
+  "Return cached list of patch block ranges as cons cells (BEG . END).
+Ranges are recomputed at most once per buffer-chars-modified-tick."
+  (if (not (derived-mode-p 'org-mode))
+      nil
+    (let ((tick (buffer-chars-modified-tick)))
+      (if (and carriage-ui--patch-ranges
+               carriage-ui--patch-ranges-tick
+               (= tick carriage-ui--patch-ranges-tick))
+          carriage-ui--patch-ranges
+        (let ((ranges '()))
+          (save-excursion
+            (goto-char (point-min))
+            (let ((case-fold-search t))
+              (while (re-search-forward "^[ \t]*#\\+begin_patch\\b" nil t)
+                (let ((beg (match-beginning 0)))
+                  (if (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
+                      (let ((end (match-beginning 0)))
+                        (push (cons beg end) ranges))
+                    (push (cons beg (point-max)) ranges)))))))
+        (setq ranges (nreverse ranges))
+        (setq carriage-ui--patch-ranges ranges
+              carriage-ui--patch-ranges-tick tick
+              ;; keep count cache in sync for free
+              carriage-ui--patch-count-cache (length ranges)
+              carriage-ui--patch-count-tick tick)
+        ranges))))
+
 (defcustom carriage-ui-apply-visibility-cache-ttl 0.3
   "TTL in seconds for caching visibility of [Dry]/[Apply] buttons in the modeline.
 When 0 or nil, the cache is disabled."
@@ -1047,7 +1080,7 @@ When 0 or nil, the cache is disabled."
 
 (defvar-local carriage-ui--apply-visibility-cache nil
   "Cached result for carriage-ui--show-apply-buttons-p.
-Plist keys: :value :tick :point :beg :end :time (float seconds).")
+Plist keys: :value :tick :beg :end :rng :time (float seconds).")
 
 ;; Branch name cache (to avoid heavy VC/git calls on every modeline render)
 (defcustom carriage-ui-branch-cache-ttl 5.0
@@ -1512,7 +1545,9 @@ Uses pulse.el when available, otherwise temporary overlays."
           (and (boundp 'carriage-mode-model)   carriage-mode-model)
           (and (boundp 'carriage-mode-backend) carriage-mode-backend)
           (and (boundp 'carriage-mode-provider) carriage-mode-provider)
-          (and (fboundp 'carriage-apply-engine) (carriage-apply-engine))
+          ;; Include raw variable (engine) and branch policy to ensure cache reacts to selection changes
+          (and (boundp 'carriage-apply-engine) carriage-apply-engine)
+          (and (boundp 'carriage-git-branch-policy) carriage-git-branch-policy)
           branch
           (and (boundp 'carriage-mode-include-gptel-context)
                carriage-mode-include-gptel-context)
