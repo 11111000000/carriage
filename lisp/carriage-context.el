@@ -138,7 +138,7 @@ Uses a small memo to avoid repeated (file-truename root) calls."
 
 (defun carriage-context--normalize-path (path root)
   "Normalize PATH relative to ROOT; reject unsafe/TRAMP paths.
-Return cons (ok . (rel . truename)) or (nil . reason-symbol). Uses memoization."
+Paths outside ROOT are allowed; REL is the absolute truename. Return cons (ok . (rel . truename)) or (nil . reason-symbol). Uses memoization."
   (let* ((key (cons root path))
          (hit (and carriage-context--normalize-cache
                    (gethash key carriage-context--normalize-cache))))
@@ -157,9 +157,10 @@ Return cons (ok . (rel . truename)) or (nil . reason-symbol). Uses memoization."
                       (true (ignore-errors (file-truename abs))))
                  (cond
                   ((null true) (cons nil 'unresolvable))
-                  ((not (carriage-context--inside-root-p true root)) (cons nil 'outside-root))
                   (t
-                   (let* ((rel (file-relative-name true root)))
+                   (let* ((rel (if (carriage-context--inside-root-p true root)
+                                   (file-relative-name true root)
+                                 true)))
                      (cons t (cons rel true))))))))))
         (puthash key res carriage-context--normalize-cache)
         res))))
@@ -352,7 +353,7 @@ Defaults: gptel/doc ON when variables are unbound; visible OFF by default."
       (list :ok nil :reason (cdr norm)))))
 
 (defun carriage-context--unique-truenames-under-root (paths root)
-  "Return a deduped list of truenames from PATHS that lie under ROOT."
+  "Return a deduped list of truenames from PATHS (inside or outside ROOT)."
   (let ((acc '()))
     (dolist (p paths)
       (let* ((norm (carriage-context--normalize-candidate p root)))
