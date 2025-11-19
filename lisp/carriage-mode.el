@@ -267,7 +267,7 @@ If nil (default v1 behavior), such cases are considered a failure in dry-run."
   "When non-nil, add a buffer-local modeline segment for Carriage."
   :type 'boolean :group 'carriage)
 
-(defcustom carriage-mode-spinner-interval 0.35
+(defcustom carriage-mode-spinner-interval 0.7
   "Spinner update interval in seconds for sending/streaming states."
   :type 'number :group 'carriage)
 
@@ -596,9 +596,10 @@ Consults engine capabilities; safe when registry is not yet loaded."
          (frame (aref frames i)))
     (when (overlayp carriage--preloader-overlay)
       (overlay-put carriage--preloader-overlay 'after-string (propertize frame 'face 'shadow))
-      ;; Refresh any windows showing this buffer so the preloader advances in background windows.
-      (dolist (w (get-buffer-window-list (current-buffer) t t))
-        (force-window-update w)))
+      ;; Refresh a visible window showing this buffer; avoid repainting all windows.
+      (let ((w (get-buffer-window (current-buffer) t)))
+        (when (window-live-p w)
+          (force-window-update w))))
     (setq carriage--preloader-index (1+ i))))
 
 (defun carriage--preloader-start ()

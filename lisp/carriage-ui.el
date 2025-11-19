@@ -225,15 +225,13 @@ Negative values move icons up; positive move them down."
 
 (defun carriage-ui--spinner-tick (buf)
   "Advance spinner in BUF and update mode-line.
-Update only when BUF is visible; refresh any windows showing it."
+Update only when BUF is visible; avoid forcing window repaints."
   (let ((wins (and (buffer-live-p buf) (get-buffer-window-list buf t t))))
     (when wins
       (with-current-buffer buf
         (setq carriage--ui-spinner-index (1+ carriage--ui-spinner-index))
-        ;; Local refresh only; avoid (force-mode-line-update t) which repaints all windows.
-        (force-mode-line-update))
-      ;; Nudge redisplay for specific windows showing BUF.
-      (dolist (w wins) (force-window-update w)))))
+        ;; Local refresh only; avoid repainting windows explicitly.
+        (force-mode-line-update)))))
 
 (defun carriage-ui--spinner-start ()
   "Start buffer-local spinner timer if not running."
@@ -352,9 +350,7 @@ When more are present, the tooltip shows a tail line like \"… (+K more)\"."
     model
     state
     abort
-    apply
     all
-    dry
     context
     toggle-ctx
     toggle-files
@@ -410,8 +406,6 @@ Recognized block symbols:
 - `state' — Carriage state indicator with spinner.
 - `context' — context badge.
 - `patch' — patch block counter.
-- `dry' — Dry-run action button.
-- `apply' — Apply action button.
 - `all' — Apply last iteration button.
 - `abort' — Abort button.
 - `report' — Report buffer shortcut.
@@ -428,8 +422,6 @@ Unknown symbols are ignored."
                          (const :tag "State indicator" state)
                          (const :tag "Context badge" context)
                          (const :tag "Patch counter" patch)
-                         (const :tag "Dry-run button" dry)
-                         (const :tag "Apply button" apply)
                          (const :tag "Apply last iteration button" all)
                          (const :tag "Diff button" diff)
                          (const :tag "Ediff button" ediff)
@@ -1032,6 +1024,9 @@ Optimized with caching to reduce allocations on redisplay."
 (defvar-local carriage-ui--patch-ranges-tick nil
   "Buffer tick corresponding to `carriage-ui--patch-ranges'.")
 
+(defvar-local carriage-ui--last-patch-range nil
+  "Cached (BEG . END) of the last patch block that contained point for fast rechecks.")
+
 (defun carriage-ui--get-patch-ranges ()
   "Return cached list of patch block ranges as cons cells (BEG . END).
 Ranges are recomputed at most once per buffer-chars-modified-tick."
@@ -1051,27 +1046,28 @@ Ranges are recomputed at most once per buffer-chars-modified-tick."
                   (if (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
                       (let ((end (match-beginning 0)))
                         (push (cons beg end) ranges))
-                    (push (cons beg (point-max)) ranges)))))))
-        (setq ranges (nreverse ranges))
-        (setq carriage-ui--patch-ranges ranges
-              carriage-ui--patch-ranges-tick tick
-              ;; keep count cache in sync for free
-              carriage-ui--patch-count-cache (length ranges)
-              carriage-ui--patch-count-tick tick)
-        ranges))))
+                    (push (cons beg (point-max)) ranges))))))
+          (setq ranges (nreverse ranges))
+          (setq carriage-ui--patch-ranges ranges
+                carriage-ui--patch-ranges-tick tick
+                ;; keep count cache in sync for free
+                carriage-ui--patch-count-cache (length ranges)
+                carriage-ui--patch-count-tick tick)
+          ranges)))))
 
-(defcustom carriage-ui-apply-visibility-cache-ttl 0.3
-  "TTL in seconds for caching visibility of [Dry]/[Apply] buttons in the modeline.
-When 0 or nil, the cache is disabled."
+(defcustom carriage-ui-apply-visibility-cache-ttl 0
+  "Deprecated: Dry/Apply buttons removed from modeline; cache TTL unused."
   :type '(choice (const :tag "Disabled" 0) number)
   :group 'carriage-ui)
 
 (defvar-local carriage-ui--apply-visibility-cache nil
-  "Cached result for carriage-ui--show-apply-buttons-p.
-Plist keys: :value :tick :beg :end :rng :time (float seconds).")
+  "Deprecated: no longer used (Dry/Apply removed).")
+
+(defvar-local carriage-ui--apply-visible-snapshot nil
+  "Per-render snapshot of [Dry]/[Apply] visibility, set by carriage-ui--modeline to deduplicate computation.")
 
 ;; Branch name cache (to avoid heavy VC/git calls on every modeline render)
-(defcustom carriage-ui-branch-cache-ttl 5.0
+(defcustom carriage-ui-branch-cache-ttl 12.0
   "TTL in seconds for cached VCS branch name used in the modeline.
 When nil, the cache is considered always valid (until explicitly invalidated)."
   :type '(choice (const :tag "Unlimited (never auto-refresh)" nil) number)
@@ -1148,16 +1144,24 @@ Respects `carriage-ui-branch-cache-ttl'."
           count)))))
 
 (defun carriage-ui--point-in-patch-block-p ()
-  "Return non-nil when point is inside a #+begin_patch … #+end_patch block."
+  "Return non-nil when point is inside a #+begin_patch … #+end_patch block.
+Uses precomputed patch ranges to avoid regex scans on redisplay."
   (when (derived-mode-p 'org-mode)
-    (save-excursion
-      (let ((pos (point))
-            (case-fold-search t))
-        (when (re-search-backward "^[ \t]*#\\+begin_patch\\b" nil t)
-          (let ((beg (match-beginning 0)))
-            (when (re-search-forward "^[ \t]*#\\+end_patch\\b" nil t)
-              (let ((end (match-beginning 0)))
-                (and (<= beg pos) (< pos end))))))))))
+    (let* ((pt (point))
+           (lr carriage-ui--last-patch-range))
+      (cond
+       ((and (consp lr) (<= (car lr) pt) (< pt (cdr lr))) t)
+       (t
+        (let* ((ranges (carriage-ui--get-patch-ranges))
+               (found nil)
+               (lst ranges))
+          (while (and lst (not found))
+            (let ((r (car lst)))
+              (when (and (<= (car r) pt) (< pt (cdr r)))
+                (setq carriage-ui--last-patch-range r)
+                (setq found t)))
+            (setq lst (cdr lst)))
+          found))))))
 
 (defun carriage-ui--region-has-patch-p ()
   "Return non-nil when the active region contains a patch block."
@@ -1170,33 +1174,8 @@ Respects `carriage-ui-branch-cache-ttl'."
         (re-search-forward "^[ \t]*#\\+begin_patch\\b" end t)))))
 
 (defun carriage-ui--show-apply-buttons-p ()
-  "Return non-nil when modeline should show Dry/Apply actions (with short-lived cache).
-
-Visible only when point is inside a #+begin_patch … #+end_patch block
-or when the active region contains at least one patch block.
-To avoid regex scans on every redisplay, the result is cached briefly per buffer."
-  (let* ((ttl (or carriage-ui-apply-visibility-cache-ttl 0))
-         (now (float-time))
-         (tick (buffer-chars-modified-tick))
-         (pt (point))
-         (rb (and (use-region-p) (region-beginning)))
-         (re (and (use-region-p) (region-end)))
-         (c carriage-ui--apply-visibility-cache)
-         (fresh (and (numberp ttl) (> ttl 0)
-                     (plist-get c :value)
-                     (= (plist-get c :tick) tick)
-                     (= (plist-get c :point) pt)
-                     (eq (plist-get c :beg) rb)
-                     (eq (plist-get c :end) re)
-                     (< (- now (or (plist-get c :time) 0)) ttl))))
-    (if fresh
-        (plist-get c :value)
-      (let ((val (or (carriage-ui--point-in-patch-block-p)
-                     (carriage-ui--region-has-patch-p))))
-        (when (and (numberp ttl) (> ttl 0))
-          (setq carriage-ui--apply-visibility-cache
-                (list :value val :tick tick :point pt :beg rb :end re :time now)))
-        val))))
+  "Deprecated: Dry/Apply buttons removed; always returns nil."
+  nil)
 
 (defvar-local carriage-ui--last-iter-cache-id nil
   "Cached last iteration id used to detect presence of last-iteration blocks.")
@@ -1375,20 +1354,20 @@ Important: the cache key includes label's text properties to ensure visual updat
                      (ignore-errors
                        (all-the-icons-material "toc"
                                                :height carriage-mode-icon-height
-                                               :v-adjust carriage-mode-icon-v-adjust
+                                               :v-adjust (- carriage-mode-icon-v-adjust 0.12)
                                                :face fplist))))
                   ('files
                    (when (fboundp 'all-the-icons-material)
                      (all-the-icons-material "description"
                                              :height carriage-mode-icon-height
-                                             :v-adjust carriage-mode-icon-v-adjust
+                                             :v-adjust (- carriage-mode-icon-v-adjust 0.14)
                                              :face fplist)))
                   ('visible
                    (cond
                     ((fboundp 'all-the-icons-material)
                      (all-the-icons-material "visibility"
                                              :height carriage-mode-icon-height
-                                             :v-adjust carriage-mode-icon-v-adjust
+                                             :v-adjust (- carriage-mode-icon-v-adjust 0.12)
                                              :face fplist))
                     ((fboundp 'all-the-icons-octicon)
                      (all-the-icons-octicon "eye"
@@ -1511,14 +1490,14 @@ Uses pulse.el when available, otherwise temporary overlays."
 (defun carriage-ui--ml-cache-key ()
   "Compute cache key for the modeline string based on current UI environment."
   (let* ((uicons (carriage-ui--icons-available-p))
-         (ctx-badge (carriage-ui--context-badge))
-         (patch-count (carriage-ui--patch-count))
-         (show-patch (carriage-ui--show-apply-buttons-p))
-         (has-last (carriage-ui--last-iteration-present-p))
          (blocks (if (and (listp carriage-ui-modeline-blocks)
                           carriage-ui-modeline-blocks)
                      carriage-ui-modeline-blocks
                    carriage-ui--modeline-default-blocks))
+         (ctx-badge (and (memq 'context blocks) (carriage-ui--context-badge)))
+         (patch-count (carriage-ui--patch-count))
+         (has-last (and (memq 'all blocks)
+                        (carriage-ui--last-iteration-present-p)))
          (state  (and (boundp 'carriage--ui-state) carriage--ui-state))
          (spin   (and (memq state '(sending streaming dispatch waiting reasoning))
                       (carriage-ui--spinner-char)))
@@ -1527,13 +1506,12 @@ Uses pulse.el when available, otherwise temporary overlays."
     (list uicons
           state spin
           (and ctx-badge (car ctx-badge))
-          patch-count show-patch has-last abortp blocks
+          patch-count has-last abortp blocks
           (and (boundp 'carriage-mode-intent)  carriage-mode-intent)
           (and (boundp 'carriage-mode-suite)   carriage-mode-suite)
           (and (boundp 'carriage-mode-model)   carriage-mode-model)
           (and (boundp 'carriage-mode-backend) carriage-mode-backend)
           (and (boundp 'carriage-mode-provider) carriage-mode-provider)
-          ;; Include raw variable (engine) and branch policy to ensure cache reacts to selection changes
           (and (boundp 'carriage-apply-engine) carriage-apply-engine)
           (and (boundp 'carriage-git-branch-policy) carriage-git-branch-policy)
           branch
@@ -1703,18 +1681,12 @@ Uses pulse.el when available, otherwise temporary overlays."
                   'help-echo "Количество #+begin_patch блоков в буфере"))))
 
 (defun carriage-ui--ml-seg-dry ()
-  "Build Dry-run button."
-  (when (carriage-ui--show-apply-buttons-p)
-    (let* ((uicons (carriage-ui--icons-available-p))
-           (label (or (and uicons (carriage-ui--icon 'dry)) "[Dry]")))
-      (carriage-ui--ml-button label #'carriage-dry-run-at-point "Dry-run at point"))))
+  "Dry-run button removed from modeline."
+  nil)
 
 (defun carriage-ui--ml-seg-apply ()
-  "Build Apply button."
-  (when (carriage-ui--show-apply-buttons-p)
-    (let* ((uicons (carriage-ui--icons-available-p))
-           (label (or (and uicons (carriage-ui--icon 'apply)) "[Apply]")))
-      (carriage-ui--ml-button label #'carriage-apply-at-point-or-region "Apply at point or region"))))
+  "Apply button removed from modeline."
+  nil)
 
 (defun carriage-ui--ml-seg-all ()
   "Build Apply-all button."
@@ -1794,8 +1766,8 @@ Uses pulse.el when available, otherwise temporary overlays."
     ('state         (carriage-ui--ml-seg-state))
     ('context       (carriage-ui--ml-seg-context))
     ('patch         (carriage-ui--ml-seg-patch))
-    ('dry           (carriage-ui--ml-seg-dry))
-    ('apply         (carriage-ui--ml-seg-apply))
+    ;; 'dry removed
+    ;; 'apply removed
     ('all           (carriage-ui--ml-seg-all))
     ('abort         (carriage-ui--ml-seg-abort))
     ('report        (carriage-ui--ml-seg-report))
@@ -1810,19 +1782,21 @@ Uses pulse.el when available, otherwise temporary overlays."
   (let* ((blocks (if (and (listp carriage-ui-modeline-blocks)
                           carriage-ui-modeline-blocks)
                      carriage-ui-modeline-blocks
-                   carriage-ui--modeline-default-blocks))
-         (key (carriage-ui--ml-cache-key)))
-    (if (and (equal key carriage-ui--ml-cache-key)
-             (stringp carriage-ui--ml-cache))
-        carriage-ui--ml-cache
-      (let* ((segments (cl-loop for blk in blocks
-                                for seg = (carriage-ui--ml-render-block blk)
-                                if (stringp seg)
-                                collect seg))
-             (res (if segments (mapconcat #'identity segments " ") "")))
-        (setq carriage-ui--ml-cache-key key
-              carriage-ui--ml-cache     res)
-        res))))
+                   carriage-ui--modeline-default-blocks)))
+    ;; Compute once per render; Dry/Apply removed, snapshot unused.
+    (setq carriage-ui--apply-visible-snapshot nil)
+    (let* ((key (carriage-ui--ml-cache-key)))
+      (if (and (equal key carriage-ui--ml-cache-key)
+               (stringp carriage-ui--ml-cache))
+          carriage-ui--ml-cache
+        (let* ((segments (cl-loop for blk in blocks
+                                  for seg = (carriage-ui--ml-render-block blk)
+                                  if (stringp seg)
+                                  collect seg))
+               (res (if segments (mapconcat #'identity segments " ") "")))
+          (setq carriage-ui--ml-cache-key key
+                carriage-ui--ml-cache     res)
+          res)))))
 
 ;; -------------------------------------------------------------------
 ;; State tooltips: buffer-local meta, helpers and public note-* API
