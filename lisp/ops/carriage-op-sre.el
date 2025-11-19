@@ -59,7 +59,8 @@
    "#+begin_to\nTO text\n#+end_to\n"
    "#+end_patch\n"
    "- For :occur all, :expect is required.\n"
-   "- If a line inside a block is exactly \"#+end_from\" or \"#+end_to\", add one leading space to escape it.\n"))
+   "- Empty TO block is allowed (delete matched text).\n"
+"- If a line inside a block is exactly \"#+end_from\" or \"#+end_to\", add one leading space to escape it.\n"))
 
 ;;;; Internal helpers (SRE core)
 
