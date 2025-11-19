@@ -309,9 +309,9 @@ Return cons (PAYLOAD . NEXT-INDEX). Applies single-space unescape for end marker
   "Build normalized SRE pair with merged opts from PENDING."
   (let ((opts (carriage--sre-merge-opts (or pending '()))))
     (carriage--sre--ensure-segment-limits from to)
-    ;; Empty segment check (v1.1 hardening)
-    (when (or (null from) (null to) (string-empty-p from) (string-empty-p to))
-      (signal (carriage-error-symbol 'SRE_E_EMPTY_SEGMENT) (list "Empty FROM/TO segment")))
+    ;; Empty FROM check (allow empty TO for deletions)
+    (when (or (null from) (string-empty-p from))
+      (signal (carriage-error-symbol 'SRE_E_EMPTY_SEGMENT) (list "Empty FROM segment")))
     ;; Reject unsupported PCRE-like constructs early (defensive).
     ;; This makes validator tests fail fast during parsing.
     (when (and (stringp from)
