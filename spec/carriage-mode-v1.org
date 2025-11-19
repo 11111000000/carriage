@@ -80,7 +80,7 @@
 - Бинарные патчи — см. ./security-v1.org (в v1 запрещены).
 
 * Конфигурация (Customize)
-- carriage-mode-default-intent ('Ask | 'Code | 'Hybrid)
+- carriage-mode-default-intent ('Ask | 'Code | 'Hybrid) — по умолчанию 'Ask (чат)
 - carriage-mode-default-suite ('udiff)
 - carriage-mode-default-backend (symbol|string), carriage-mode-default-model (string)
 - carriage-mode-state-file (string) — путь к файлу персистентного состояния в проекте (".context/carriage/carriage-state.el")

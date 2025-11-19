@@ -57,7 +57,7 @@
   (unless (fboundp 'carriage-transport-begin)
     (ignore-errors (require 'carriage-transport))))
 
-(defcustom carriage-mode-default-intent 'Code
+(defcustom carriage-mode-default-intent 'Ask
   "Default Intent for Carriage: 'Ask | 'Code | 'Hybrid."
   :type '(choice (const Ask) (const Code) (const Hybrid))
   :group 'carriage)
@@ -202,7 +202,7 @@ This toggle has no effect."
   :group 'carriage)
 
 ;; v1.1 — Context toggles and limits
-(defcustom carriage-mode-include-gptel-context t
+(defcustom carriage-mode-include-gptel-context nil
   "When non-nil, include gptel-context (buffers/files) into the request context."
   :type 'boolean :group 'carriage)
 (make-variable-buffer-local 'carriage-mode-include-gptel-context)

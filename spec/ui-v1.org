@@ -56,7 +56,7 @@
   - [ShowDiffs] — carriage-mode-show-diffs (t/nil) — требовать предпросмотр диффов перед применением.
   - [ConfirmAll] — carriage-mode-confirm-apply-all (t/nil) — подтверждение перед C-c e A.
   - [Icons] — carriage-mode-use-icons (t/nil) — использовать иконки.
-  - [Ctx] — carriage-mode-include-gptel-context (t/nil) — включать gptel-контекст (буферы/файлы; см. ./context-integration-v1.org).
+  - [Ctx] — carriage-mode-include-gptel-context (t/nil) — включать gptel-контекст (буферы/файлы; см. ./context-integration-v1.org). По умолчанию выключен.
   - [Files] — carriage-mode-include-doc-context (t/nil) — прикладывать файлы из блока #+begin_context документа (лимиты см. ./index.org).
   - [Vis] — carriage-mode-include-visible-context (t/nil) — включать видимые буферы текущего фрейма; по умолчанию OFF (см. ./context-integration-v1.org).
   - Все тумблеры — буферно-локальные; изменение влияет только на текущий carriage-буфер. реализация: переменные объявляются через make-variable-buffer-local, а команды-тумблеры используют setq-local.
