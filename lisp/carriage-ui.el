@@ -353,15 +353,13 @@ When more are present, the tooltip shows a tail line like \"… (+K more)\"."
     state
     abort
     apply
-    patch
     all
     dry
-    diff
-    ediff
+    context
     toggle-ctx
     toggle-files
     toggle-visible
-    context
+    patch
     suite
     engine
     branch
@@ -871,16 +869,6 @@ Results are cached per-buffer and invalidated when theme or UI parameters change
                                                    :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-red-face)))))
                  ('report (when (fboundp 'all-the-icons-octicon)
                             (all-the-icons-octicon "file-text"
-                                                   :height carriage-mode-icon-height
-                                                   :v-adjust carriage-mode-icon-v-adjust
-                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
-                 ('diff   (when (fboundp 'all-the-icons-octicon)
-                            (all-the-icons-octicon "git-compare"
-                                                   :height carriage-mode-icon-height
-                                                   :v-adjust carriage-mode-icon-v-adjust
-                                                   :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-orange-face)))))
-                 ('ediff  (when (fboundp 'all-the-icons-octicon)
-                            (all-the-icons-octicon "diff"
                                                    :height carriage-mode-icon-height
                                                    :v-adjust carriage-mode-icon-v-adjust
                                                    :face (list :inherit nil :foreground (carriage-ui--accent-hex 'carriage-ui-accent-purple-face)))))
@@ -1809,8 +1797,6 @@ Uses pulse.el when available, otherwise temporary overlays."
     ('dry           (carriage-ui--ml-seg-dry))
     ('apply         (carriage-ui--ml-seg-apply))
     ('all           (carriage-ui--ml-seg-all))
-    ('diff          (carriage-ui--ml-seg-diff))
-    ('ediff         (carriage-ui--ml-seg-ediff))
     ('abort         (carriage-ui--ml-seg-abort))
     ('report        (carriage-ui--ml-seg-report))
     ('toggle-ctx    (carriage-ui--ml-seg-toggle-ctx))
