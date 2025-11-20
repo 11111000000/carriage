@@ -2124,7 +2124,7 @@ If no begin_context is present, insert a minimal header and block at point-max."
           ;; Ensure begin_context contains the absolute path
           (carriage--file-chat--ensure-context-block abs)
           (goto-char (point-min)))))
-  (current-buffer))
+    (current-buffer)))
 
 ;; Freeze Carriage UI during transient menus to reduce redisplay churn.
 (when (fboundp 'transient--recursive-edit)
