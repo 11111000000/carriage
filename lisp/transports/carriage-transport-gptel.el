@@ -235,131 +235,131 @@ On backend mismatch, logs and completes with error."
                          (text (plist-get cls :text))
                          (thinking (plist-get cls :thinking)))
                     (pcase kind
-              ;; Reasoning stream (before main text)
-              ('reasoning
-               (when first-event
-                 (setq first-event nil)
-                 (with-current-buffer gptel-buffer
-                   (carriage-ui-set-state 'reasoning)))
-               (if any-text-seen
-                   (carriage-traffic-log 'in "[reasoning] %s" (or text ""))
-                 (with-current-buffer gptel-buffer
-                   (carriage-insert-stream-chunk (or text "") 'reasoning)
-                   (ignore-errors (carriage-ui-note-reasoning-chunk (or text ""))))))
-              ;; Mixed: thinking + text in one event
-              ('both
-               (when first-event
-                 (setq first-event nil)
-                 (with-current-buffer gptel-buffer
-                   (carriage-ui-set-state 'reasoning)))
-               ;; Print thinking only until we see first text
-               (when (and (stringp thinking) (not any-text-seen))
-                 (with-current-buffer gptel-buffer
-                   (carriage-insert-stream-chunk thinking 'reasoning))
-                 (carriage-traffic-log 'in "[reasoning] %s" thinking))
-               ;; Then print main text (auto-closes reasoning if needed)
-               (when (stringp text)
-                 ;; transition to streaming on first text
-                 (when (not any-text-seen)
-                   (with-current-buffer gptel-buffer
-                     (carriage-transport-streaming)))
-                 (with-current-buffer gptel-buffer
-                   (carriage-insert-stream-chunk text 'text)
-                   (ignore-errors (carriage-ui-note-stream-progress (list :inc-chunk t :time-last (float-time))))))
-               ;; Accumulate response summary head/tail
-               (setq carriage--resp-bytes (+ carriage--resp-bytes (string-bytes text)))
-               (when (< (length carriage--resp-head) carriage--resp-head-limit)
-                 (let* ((need (max 0 (- carriage--resp-head-limit (length carriage--resp-head))))
-                        (take (min need (length text))))
-                   (setq carriage--resp-head
-                         (concat carriage--resp-head (substring text 0 take)))
-                   (setq text (substring text take))))
-               (when (> (length text) 0)
-                 (let* ((concatd (concat carriage--resp-tail text))
-                        (len (length concatd)))
-                   (setq carriage--resp-tail
-                         (if (<= len carriage--resp-tail-limit)
-                             concatd
-                           (substring concatd (- len carriage--resp-tail-limit) len)))))
-               (setq any-text-seen t)
-               (carriage-traffic-log 'in "%s" text))
-              ;; Reasoning end marker
-              ('reasoning-end
-               (with-current-buffer gptel-buffer
-                 (ignore-errors (carriage-end-reasoning)))
-               (carriage-traffic-log 'in "[reasoning] end"))
-              ;; Main text tokens
-              ('text
-               (when first-event
-                 (setq first-event nil)
-                 (with-current-buffer gptel-buffer
-                   (carriage-transport-streaming)))
-               (when (stringp text)
-                 (with-current-buffer gptel-buffer
-                   ;; This will auto-close an open reasoning block
-                   (carriage-insert-stream-chunk text 'text)
-                   (ignore-errors (carriage-ui-note-stream-progress (list :inc-chunk t :time-last (float-time))))))
-               ;; Accumulate response summary head/tail
-               (setq carriage--resp-bytes (+ carriage--resp-bytes (string-bytes text)))
-               (when (< (length carriage--resp-head) carriage--resp-head-limit)
-                 (let* ((need (max 0 (- carriage--resp-head-limit (length carriage--resp-head))))
-                        (take (min need (length text))))
-                   (setq carriage--resp-head
-                         (concat carriage--resp-head (substring text 0 take)))
-                   (setq text (substring text take))))
-               (when (> (length text) 0)
-                 (let* ((concatd (concat carriage--resp-tail text))
-                        (len (length concatd)))
-                   (setq carriage--resp-tail
-                         (if (<= len carriage--resp-tail-limit)
-                             concatd
-                           (substring concatd (- len carriage--resp-tail-limit) len)))))
-               (setq any-text-seen t)
-               (when (stringp text)
-                 (carriage-traffic-log 'in "%s" text)))
-              ;; Tool telemetry
-              ('tool
-               (carriage-traffic-log 'in "[tool] ..."))
-              ;; Done
-              ('done
-               (carriage-traffic-log 'in "gptel: done")
-               (with-current-buffer gptel-buffer
-                 (ignore-errors (carriage-ui-note-stream-progress (list :time-last (float-time)))))
-               ;; Structured response summary
-               (carriage-traffic-log-response-summary
-                gptel-buffer
-                (concat carriage--resp-head
-                        (when (> carriage--resp-bytes
-                                 (+ (string-bytes carriage--resp-head)
-                                    (string-bytes carriage--resp-tail)))
-                          "…")
-                        carriage--resp-tail))
-               (with-current-buffer gptel-buffer
-                 (carriage-stream-finalize nil t)
-                 (carriage-transport-complete nil)))
-              ;; Abort or error
-              ('abort
-               (let ((msg (or (plist-get info :status) "error/abort")))
-                 (carriage-traffic-log 'in "gptel: %s" msg)
-                 (with-current-buffer gptel-buffer
-                   (ignore-errors
-                     (carriage-ui-note-error
-                      (list :code 'LLM_ABORT :message msg :source 'transport)))))
-               ;; Emit summary for what we've got so far
-               (carriage-traffic-log-response-summary
-                gptel-buffer
-                (concat carriage--resp-head
-                        (when (> carriage--resp-bytes
-                                 (+ (string-bytes carriage--resp-head)
-                                    (string-bytes carriage--resp-tail)))
-                          "…")
-                        carriage--resp-tail))
-               (with-current-buffer gptel-buffer
-                 (carriage-stream-finalize t nil)
-                 (carriage-transport-complete t)))
-              ;; Unknown chunk kinds
-              (_
-               (carriage-traffic-log 'in "[unknown] %S" response)))))))))
+                      ;; Reasoning stream (before main text)
+                      ('reasoning
+                       (when first-event
+                         (setq first-event nil)
+                         (with-current-buffer gptel-buffer
+                           (carriage-ui-set-state 'reasoning)))
+                       (if any-text-seen
+                           (carriage-traffic-log 'in "[reasoning] %s" (or text ""))
+                         (with-current-buffer gptel-buffer
+                           (carriage-insert-stream-chunk (or text "") 'reasoning)
+                           (ignore-errors (carriage-ui-note-reasoning-chunk (or text ""))))))
+                      ;; Mixed: thinking + text in one event
+                      ('both
+                       (when first-event
+                         (setq first-event nil)
+                         (with-current-buffer gptel-buffer
+                           (carriage-ui-set-state 'reasoning)))
+                       ;; Print thinking only until we see first text
+                       (when (and (stringp thinking) (not any-text-seen))
+                         (with-current-buffer gptel-buffer
+                           (carriage-insert-stream-chunk thinking 'reasoning))
+                         (carriage-traffic-log 'in "[reasoning] %s" thinking))
+                       ;; Then print main text (auto-closes reasoning if needed)
+                       (when (stringp text)
+                         ;; transition to streaming on first text
+                         (when (not any-text-seen)
+                           (with-current-buffer gptel-buffer
+                             (carriage-transport-streaming)))
+                         (with-current-buffer gptel-buffer
+                           (carriage-insert-stream-chunk text 'text)
+                           (ignore-errors (carriage-ui-note-stream-progress (list :inc-chunk t :time-last (float-time))))))
+                       ;; Accumulate response summary head/tail
+                       (setq carriage--resp-bytes (+ carriage--resp-bytes (string-bytes text)))
+                       (when (< (length carriage--resp-head) carriage--resp-head-limit)
+                         (let* ((need (max 0 (- carriage--resp-head-limit (length carriage--resp-head))))
+                                (take (min need (length text))))
+                           (setq carriage--resp-head
+                                 (concat carriage--resp-head (substring text 0 take)))
+                           (setq text (substring text take))))
+                       (when (> (length text) 0)
+                         (let* ((concatd (concat carriage--resp-tail text))
+                                (len (length concatd)))
+                           (setq carriage--resp-tail
+                                 (if (<= len carriage--resp-tail-limit)
+                                     concatd
+                                   (substring concatd (- len carriage--resp-tail-limit) len)))))
+                       (setq any-text-seen t)
+                       (carriage-traffic-log 'in "%s" text))
+                      ;; Reasoning end marker
+                      ('reasoning-end
+                       (with-current-buffer gptel-buffer
+                         (ignore-errors (carriage-end-reasoning)))
+                       (carriage-traffic-log 'in "[reasoning] end"))
+                      ;; Main text tokens
+                      ('text
+                       (when first-event
+                         (setq first-event nil)
+                         (with-current-buffer gptel-buffer
+                           (carriage-transport-streaming)))
+                       (when (stringp text)
+                         (with-current-buffer gptel-buffer
+                           ;; This will auto-close an open reasoning block
+                           (carriage-insert-stream-chunk text 'text)
+                           (ignore-errors (carriage-ui-note-stream-progress (list :inc-chunk t :time-last (float-time))))))
+                       ;; Accumulate response summary head/tail
+                       (setq carriage--resp-bytes (+ carriage--resp-bytes (string-bytes text)))
+                       (when (< (length carriage--resp-head) carriage--resp-head-limit)
+                         (let* ((need (max 0 (- carriage--resp-head-limit (length carriage--resp-head))))
+                                (take (min need (length text))))
+                           (setq carriage--resp-head
+                                 (concat carriage--resp-head (substring text 0 take)))
+                           (setq text (substring text take))))
+                       (when (> (length text) 0)
+                         (let* ((concatd (concat carriage--resp-tail text))
+                                (len (length concatd)))
+                           (setq carriage--resp-tail
+                                 (if (<= len carriage--resp-tail-limit)
+                                     concatd
+                                   (substring concatd (- len carriage--resp-tail-limit) len)))))
+                       (setq any-text-seen t)
+                       (when (stringp text)
+                         (carriage-traffic-log 'in "%s" text)))
+                      ;; Tool telemetry
+                      ('tool
+                       (carriage-traffic-log 'in "[tool] ..."))
+                      ;; Done
+                      ('done
+                       (carriage-traffic-log 'in "gptel: done")
+                       (with-current-buffer gptel-buffer
+                         (ignore-errors (carriage-ui-note-stream-progress (list :time-last (float-time)))))
+                       ;; Structured response summary
+                       (carriage-traffic-log-response-summary
+                        gptel-buffer
+                        (concat carriage--resp-head
+                                (when (> carriage--resp-bytes
+                                         (+ (string-bytes carriage--resp-head)
+                                            (string-bytes carriage--resp-tail)))
+                                  "…")
+                                carriage--resp-tail))
+                       (with-current-buffer gptel-buffer
+                         (carriage-stream-finalize nil t)
+                         (carriage-transport-complete nil)))
+                      ;; Abort or error
+                      ('abort
+                       (let ((msg (or (plist-get info :status) "error/abort")))
+                         (carriage-traffic-log 'in "gptel: %s" msg)
+                         (with-current-buffer gptel-buffer
+                           (ignore-errors
+                             (carriage-ui-note-error
+                              (list :code 'LLM_ABORT :message msg :source 'transport)))))
+                       ;; Emit summary for what we've got so far
+                       (carriage-traffic-log-response-summary
+                        gptel-buffer
+                        (concat carriage--resp-head
+                                (when (> carriage--resp-bytes
+                                         (+ (string-bytes carriage--resp-head)
+                                            (string-bytes carriage--resp-tail)))
+                                  "…")
+                                carriage--resp-tail))
+                       (with-current-buffer gptel-buffer
+                         (carriage-stream-finalize t nil)
+                         (carriage-transport-complete t)))
+                      ;; Unknown chunk kinds
+                      (_
+                       (carriage-traffic-log 'in "[unknown] %S" response)))))))))))
 
 ;; Entry-point: carriage-transport-gptel-dispatch
 
