@@ -2069,6 +2069,63 @@ Creates an org-mode buffer with carriage-mode enabled and default-directory boun
         (carriage-mode 1)))
     buf))
 
+;;; File chat buffers (one per source file)
+
+(defvar carriage--file-chat-buffers (make-hash-table :test 'equal)
+  "Map of absolute truenames → live buffers for Carriage file-chat buffers.")
+
+(defun carriage--file-chat--ensure-context-block (abs-path)
+  "Ensure current buffer contains a single begin_context block with ABS-PATH.
+If no begin_context is present, insert a minimal header and block at point-max."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((case-fold-search t))
+      (unless (re-search-forward "^[ \t]*#\\+begin_context\\b" nil t)
+        (goto-char (point-max))
+        (unless (bolp) (insert "\n"))
+        (let ((title (format "File chat: %s" (file-name-nondirectory abs-path))))
+          (insert (format "#+title: %s\n\n" title)))
+        (insert "#+begin_context\n")
+        ;; One absolute path per spec; leading space matches common formatting.
+        (insert (format " %s\n" abs-path))
+        (insert "#+end_context\n")))))
+
+;;;###autoload
+(defun carriage-open-file-chat ()
+  "Open or switch to a unique Carriage chat buffer for the current file.
+- Intent is set to Ask.
+- Only document begin_context is enabled (GPTel/visible context disabled).
+- A begin_context block with the absolute file path is ensured."
+  (interactive)
+  (let* ((file buffer-file-name))
+    (unless (and (stringp file) (file-exists-p file))
+      (user-error "Текущий буфер не посещает локальный файл"))
+    (when (file-remote-p file)
+      (user-error "Remote/TRAMP файлы не поддерживаются для File chat"))
+    (let* ((abs (file-truename file))
+           (root (or (carriage-project-root) default-directory))
+           (buf (gethash abs carriage--file-chat-buffers))
+           (name (format "*carriage-file:%s*" (file-name-nondirectory abs))))
+      (if (and (bufferp buf) (buffer-live-p buf))
+          (pop-to-buffer buf)
+        (setq buf (get-buffer-create name))
+        (puthash abs buf carriage--file-chat-buffers)
+        (pop-to-buffer buf)
+        (with-current-buffer buf
+          (setq default-directory (file-name-as-directory (expand-file-name root)))
+          (unless (derived-mode-p 'org-mode)
+            (ignore-errors (org-mode)))
+          (ignore-errors (carriage-mode 1))
+          ;; Configure intent and context toggles (buffer-local)
+          (setq-local carriage-mode-intent 'Ask)
+          (setq-local carriage-mode-include-doc-context t)
+          (setq-local carriage-mode-include-gptel-context nil)
+          (setq-local carriage-mode-include-visible-context nil)
+          ;; Ensure begin_context contains the absolute path
+          (carriage--file-chat--ensure-context-block abs)
+          (goto-char (point-min)))))
+  (current-buffer))
+
 ;; Freeze Carriage UI during transient menus to reduce redisplay churn.
 (when (fboundp 'transient--recursive-edit)
   (defvar-local carriage--ui-pre-transient-state nil
