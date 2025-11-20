@@ -199,6 +199,12 @@
   - Ключевые: carriage-doc-state-read, carriage-doc-state-write, carriage-doc-state-restore,
     carriage-doc-state-hide, carriage-doc-state-auto-enable.
   - Спецификация: spec/doc-state-v1.org.
+- lisp/carriage-block-fold.el
+  - Переиспользуемое сворачивание begin_<kind> блоков поверх оверлеев (без org-fold):
+    авто‑раскрытие при входе курсора и авто‑скрытие при выходе; компактная строка‑заглушка (before-string).
+  - Ключевые: carriage-block-fold-ensure-overlay, carriage-block-fold-reveal, carriage-block-fold-hide,
+    carriage-block-fold-install-cursor-watch, carriage-block-fold-install-change-watch.
+  - Используется из: carriage-doc-state.el (kind 'carriage).
 - lisp/carriage-iteration.el
   - Маркировка/чтение «последней итерации» (inline marker + text properties).
   - Ключевые: carriage-mark-last-iteration, carriage-current-iteration-id, carriage-begin-iteration.

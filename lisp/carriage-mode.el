@@ -1143,6 +1143,12 @@ May include :context-text and :context-target per v1.1."
                                          :mode (symbol-name (buffer-local-value 'major-mode srcbuf))
                                          :insert-marker origin-marker)
             t)
+        (quit
+         (carriage-log "send-buffer: keyboard-quit; aborting")
+         (ignore-errors (carriage-abort-current))
+         (ignore-errors (carriage-transport-complete t))
+         (carriage-ui-set-state 'idle)
+         nil)
         (error
          (carriage-log "send-buffer error: %s" (error-message-string err))
          (carriage-transport-complete t))))))

@@ -219,16 +219,18 @@ On backend mismatch, logs and completes with error."
                    :provider (or (plist-get args :provider) nil)
                    :time-start (float-time)
                    :time-last (float-time))))))
-      (gptel-request prompt
-        :system system
-        :stream t
-        :callback
-        (lambda (response info)
-          (let* ((cls (carriage--gptel--classify response))
-                 (kind (plist-get cls :kind))
-                 (text (plist-get cls :text))
-                 (thinking (plist-get cls :thinking)))
-            (pcase kind
+      (condition-case err
+          (gptel-request prompt
+            :system system
+            :stream t
+            :callback
+            (lambda (response info)
+              (condition-case qerr
+                  (let* ((cls (carriage--gptel--classify response))
+                         (kind (plist-get cls :kind))
+                         (text (plist-get cls :text))
+                         (thinking (plist-get cls :thinking)))
+                    (pcase kind
               ;; Reasoning stream (before main text)
               ('reasoning
                (when first-event

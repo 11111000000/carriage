@@ -23,6 +23,9 @@
 (require 'cl-lib)
 (require 'subr-x)
 (require 'org nil t)
+(require 'carriage-block-fold nil t)
+;; Share kinds setting with the generic block-fold module
+(defvaralias 'carriage-doc-state-fold-kinds 'carriage-block-fold-kinds)
 
 (declare-function carriage-project-root "carriage-utils" ())
 (declare-function carriage-llm-full-id "carriage-mode" (&optional backend provider model))
@@ -299,19 +302,16 @@ Gracefully ignores missing keys."
       t)))
 
 (defun carriage-doc-state-hide (&optional buffer)
-  "Fold property drawer of the Carriage State heading in BUFFER (or current)."
+  "Fold property drawer of the Carriage State heading and the begin_carriage block in BUFFER (or current)."
   (with-current-buffer (or buffer (current-buffer))
     (when (derived-mode-p 'org-mode)
+      ;; Keep property drawer behavior minimal (no org-fold toggles for our block).
       (let ((pos (carriage-doc-state--find-heading)))
         (when pos
-          (save-excursion
-            (goto-char pos)
-            (cond
-             ((fboundp 'org-fold-hide-drawer-or-block)
-              (org-fold-hide-drawer-or-block t))
-             ((fboundp 'org-hide-block-toggle)
-              (org-hide-block-toggle t))
-             (t nil))))))))
+          (ignore-errors
+            (save-excursion (goto-char pos) (outline-hide-subtree)))))
+      ;; Ensure our overlay fold for the Carriage block.
+      (ignore-errors (carriage-doc-state--ensure-carriage-block-hidden (current-buffer))))))
 
 (defun carriage-doc-state-auto-enable ()
   "Find-file hook: auto-enable carriage-mode when CAR_MODE=t in the document.
@@ -464,6 +464,41 @@ placeholder that can be toggled with `carriage-doc-state-toggle-visibility'."
             (setq carriage-doc-state--props-overlay ov)
             t))))))
 
+;; -------------------------------------------------------------------
+;; begin_carriage block folding via overlay (org-fold independent)
+
+(defvar-local carriage-doc-state--carriage-block-overlay nil
+  "Overlay that hides the #+begin_carriage … #+end_carriage block.")
+;; Generic registry of folded overlays per block kind (e.g., 'carriage, later 'context, …).
+(defvar-local carriage-doc-state--block-overlays nil
+  "Alist of (KIND . OVERLAY) for folded begin_<kind> blocks in this buffer.")
+
+(defun carriage-doc-state--carriage-block-overlay-range ()
+  "Return (BEG . END) for overlay covering the entire begin_carriage block lines.
+Returns nil when no block is present."
+  (let ((range (carriage-doc-state--carriage-block-range)))
+    (when range
+      (let* ((body-beg (car range))
+             (body-end (cdr range))
+             (beg (save-excursion
+                    (goto-char body-beg)
+                    (forward-line -1)
+                    (line-beginning-position)))
+             (end (save-excursion
+                    (goto-char body-end)
+                    (end-of-line)
+                    (point))))
+        (cons beg end)))))
+
+(defun carriage-doc-state--ensure-carriage-block-hidden (&optional buffer)
+  "Idempotently hide #+begin_carriage block in BUFFER (or current) using a reusable module."
+  (carriage-block-fold-ensure-overlay 'carriage (or buffer (current-buffer))))
+
+(defun carriage-doc-state--reveal-carriage-block (&optional buffer)
+  "Reveal #+begin_carriage block in BUFFER (or current) without removing its overlay."
+  (carriage-block-fold-reveal 'carriage (or buffer (current-buffer)))
+  t)
+
 ;; Hook into existing API:
 ;; - Override read/write to use file-level properties.
 ;; - After hide, also hide file-level property lines.
@@ -490,24 +525,29 @@ placeholder that can be toggled with `carriage-doc-state-toggle-visibility'."
 
 ;;;###autoload
 (defun carriage-doc-state-toggle-visibility ()
-  "Toggle visibility of document-level Carriage properties.
+  "Toggle visibility of document-level Carriage state.
 
-- When hidden, reveal file-level lines \"#+PROPERTY: CARRIAGE_*\".
-- When visible, hide them using a buffer-local invisibility spec.
+- When hidden, reveal:
+  • file-level lines \"#+PROPERTY: CARRIAGE_*\"
+  • the #+begin_carriage block (if present)
+- When visible, hide both using a buffer-local invisibility spec.
 
-Best-effort: if a \"Carriage State\" property drawer exists,
-this command does not force it open/closed; it focuses on file-level
-properties visibility."
+Best-effort: this command does not touch the legacy \"Carriage State\" property drawer."
   (interactive)
   (let* ((hidden (and (listp buffer-invisibility-spec)
                       (member 'carriage-doc-state buffer-invisibility-spec))))
     (if hidden
         (progn
           (carriage-doc-state--show-file-properties)
-          (message "Carriage: показаны строки #+PROPERTY: CARRIAGE_*"))
+          (ignore-errors (carriage-doc-state--reveal-carriage-block (current-buffer)))
+          (when (and (listp buffer-invisibility-spec)
+                     (member 'carriage-doc-state buffer-invisibility-spec))
+            (remove-from-invisibility-spec 'carriage-doc-state))
+          (message "Carriage: показаны свойства и блок begin_carriage"))
       (progn
         (carriage-doc-state--hide-file-properties)
-        (message "Carriage: скрыты строки #+PROPERTY: CARRIAGE_*"))))
+        (ignore-errors (carriage-doc-state--ensure-carriage-block-hidden (current-buffer)))
+        (message "Carriage: скрыты свойства и блок begin_carriage"))))
   t)
 
 (provide 'carriage-doc-state)
@@ -614,23 +654,8 @@ normalized to file-style CARRIAGE_* inside the block."
             t)))))))
 
 (defun carriage-doc-state--hide-carriage-block ()
-  "Fold the #+begin_carriage block if present (best-effort)."
-  (when (derived-mode-p 'org-mode)
-    (let ((range (carriage-doc-state--carriage-block-range)))
-      (when range
-        (save-excursion
-          (goto-char (car range))
-          (when (re-search-backward "^[ \t]*#\\+begin_carriage\\b" nil t)
-            (cond
-             ((fboundp 'org-hide-block-toggle)
-              (org-hide-block-toggle t))
-             ((fboundp 'org-fold-region)
-              (let ((a (line-beginning-position))
-                    (b (progn
-                         (when (re-search-forward "^[ \t]*#\\+end_carriage\\b" nil t)
-                           (line-end-position)))))
-                (when (and a b) (org-fold-region a b t))))
-             (t nil))))))))
+  "Hide the #+begin_carriage block using an overlay (idempotent)."
+  (carriage-doc-state--ensure-carriage-block-hidden (current-buffer)))
 
 ;; Override readers/writers to prioritize the carriage block
 ;;
@@ -680,30 +705,30 @@ DATA may be a plist (:CAR_* …) or an alist of (\"CAR_*\" . VAL)."
 
 ;; Auto-fold the #+begin_carriage block on visit and after save (non-intrusive).
 (defun carriage-doc-state--fold-carriage-block-now (&optional buffer)
-  "Fold the #+begin_carriage block in BUFFER (or current) if present.
-This is idempotent: it only hides the block; it never reveals it."
-  (with-current-buffer (or buffer (current-buffer))
-    (when (derived-mode-p 'org-mode)
-      (condition-case _e
-          (let* ((range (carriage-doc-state--carriage-block-range)))
-            (when (and range (consp range))
-              (require 'org)
-              (save-excursion
-                (goto-char (car range))
-                (cond
-                 ;; Prefer explicit fold to avoid accidental toggles.
-                 ((fboundp 'org-fold-region)
-                  (let ((a (line-beginning-position))
-                        (b (progn
-                             (goto-char (cdr range))
-                             (line-end-position))))
-                    (org-fold-region a b t)))
-                 ;; Fallback: request hide; avoid toggling by always asking to hide.
-                 ((fboundp 'org-hide-block-toggle)
-                  (let ((inhibit-redisplay t))
-                    (org-hide-block-toggle t)))
-                 (t nil)))))
-        (error nil)))))
+  "Ensure begin_<kind> blocks are folded in BUFFER (or current) using overlays.
+This delegates to the reusable carriage-block-fold module."
+  (let ((buf (or buffer (current-buffer))))
+    (with-current-buffer buf
+      (when (derived-mode-p 'org-mode)
+        ;; Immediate ensure for all enabled kinds
+        (dolist (cell carriage-doc-state-fold-kinds)
+          (when (cdr cell)
+            (ignore-errors (carriage-block-fold-ensure-overlay (car cell)))))
+        ;; Reinforce after other hooks run: re-ensure, (re)install watchers, and refresh overlays
+        (run-at-time
+         0 nil
+         (lambda (b)
+           (when (buffer-live-p b)
+             (with-current-buffer b
+               (when (derived-mode-p 'org-mode)
+                 (dolist (cell carriage-doc-state-fold-kinds)
+                   (when (cdr cell)
+                     (ignore-errors (carriage-block-fold-ensure-overlay (car cell)))))
+                 (ignore-errors (carriage-block-fold-install-cursor-watch b))
+                 (ignore-errors (carriage-block-fold-install-change-watch b))
+                 (ignore-errors (carriage-block-fold-schedule-overlay-refresh 0.05 b))))))
+         buf)
+        t))))
 
 
 (defun carriage-doc-state--fold-on-visit ()
@@ -723,5 +748,195 @@ This is idempotent: it only hides the block; it never reveals it."
 (add-hook 'after-change-major-mode-hook #'carriage-doc-state--fold-on-visit)
 (add-hook 'org-mode-hook #'carriage-doc-state--fold-carriage-block-now)
 (add-hook 'after-revert-hook #'carriage-doc-state--fold-carriage-block-now)
+
+;; -------------------------------------------------------------------
+;; Overlay-based folding for begin_<kind> blocks (generic, enabled for :carriage)
+;; NOTE: This supersedes org-fold for these blocks; do not use org-fold toggles here.
+;; The blocks are hidden via overlays and will not auto-unfold due to isearch/fragile logic.
+;; They are revealed automatically when the cursor enters the block, and hidden again on leave.
+;;
+;; Behavior:
+;; - Hidden by an overlay with a muted one-line placeholder (before-string).
+;; - When point enters the overlay range, the block is revealed (invisible=nil).
+;; - When point leaves, the overlay hides the block again and restores the placeholder.
+;; - No org-fold is used; overlays are idempotently ensured and rechecked after saves.
+
+(defface carriage-doc-state-block-summary-face
+  '((t :inherit shadow :slant italic :height 0.9))
+  "Face for the single-line placeholder of folded begin_<kind> blocks.")
+
+;; Use the generic kinds from carriage-block-fold; keep legacy name for compatibility.
+(defvaralias 'carriage-doc-state-fold-kinds 'carriage-block-fold-kinds)
+
+(defun carriage-doc-state--block-range-of (kind)
+  "Return (BEG . END) inclusive line bounds of the begin_<KIND>…end_<KIND> block, or nil."
+  (let* ((name (symbol-name kind)))
+    (when (derived-mode-p 'org-mode)
+      (save-excursion
+        (save-restriction
+          (widen)
+          (goto-char (point-min))
+          (let* ((case-fold-search t)
+                 (rb (and (re-search-forward (format "^[ \t]*#\\+begin_%s\\b" (regexp-quote name)) nil t)
+                          (line-beginning-position)))
+                 (re (and rb (progn
+                               (when (re-search-forward (format "^[ \t]*#\\+end_%s\\b" (regexp-quote name)) nil t)
+                                 (line-end-position))))))
+            (when (and rb re (> re rb)) (cons rb re))))))))
+
+(defun carriage-doc-state--block-summary-string (kind beg end)
+  "Build a one-line placeholder for folded block KIND covering BEG..END."
+  (let* ((arrow (if (display-graphic-p) "▸" ">"))
+         (nm (format "begin_%s" (symbol-name kind)))
+         (lines (max 1 (count-lines beg end)))
+         (txt (format "%s %s (%d lines) — mouse-1: toggle" arrow nm lines))
+         (s (propertize txt 'face 'carriage-doc-state-block-summary-face)))
+    ;; Make the placeholder clickable to reveal/hide this KIND.
+    (let ((map (make-sparse-keymap)))
+      (define-key map [mouse-1]
+                  (lambda () (interactive)
+                    (let ((ov (alist-get kind carriage-doc-state--block-overlays)))
+                      (if (and (overlayp ov) (overlay-get ov 'invisible))
+                          (carriage-doc-state--reveal-block kind)
+                        (carriage-doc-state--hide-block kind)))))
+      (add-text-properties 0 (length s)
+                           (list 'local-map map
+                                 'mouse-face 'mode-line-highlight
+                                 'help-echo (format "Toggle %s block visibility" nm))
+                           s))
+    s))
+
+(defun carriage-doc-state--ensure-block-overlay (kind)
+  "Idempotently ensure an overlay hiding begin_<KIND>…end_<KIND> with a summary line.
+Returns the overlay or nil if block is absent."
+  (let* ((rg (carriage-doc-state--block-range-of kind)))
+    (when rg
+      (let* ((beg (car rg)) (end (cdr rg))
+             (ov (alist-get kind carriage-doc-state--block-overlays)))
+        (cond
+         ;; Reuse overlay when it already covers the correct range.
+         ((and (overlayp ov)
+               (= (overlay-start ov) beg)
+               (= (overlay-end   ov) end))
+          (unless (overlay-get ov 'carriage-block-revealed)
+            (overlay-put ov 'before-string (carriage-doc-state--block-summary-string kind beg end))
+            (overlay-put ov 'invisible 'carriage-doc-state))
+          (unless (member 'carriage-doc-state buffer-invisibility-spec)
+            (add-to-invisibility-spec 'carriage-doc-state))
+          ov)
+         (t
+          (when (overlayp ov) (delete-overlay ov))
+          (let ((new (make-overlay beg end)))
+            (overlay-put new 'evaporate t)
+            (overlay-put new 'category 'carriage-block-fold)
+            (overlay-put new 'carriage-block-kind kind)
+            (overlay-put new 'carriage-block-revealed nil)
+            (overlay-put new 'before-string (carriage-doc-state--block-summary-string kind beg end))
+            (overlay-put new 'invisible 'carriage-doc-state)
+            (add-to-invisibility-spec 'carriage-doc-state)
+            (setf (alist-get kind carriage-doc-state--block-overlays) new)
+            ;; Back-compat single var for 'carriage kind.
+            (when (eq kind 'carriage)
+              (setq carriage-doc-state--carriage-block-overlay new))
+            new)))))))
+
+(defun carriage-doc-state--reveal-block (kind)
+  "Reveal begin_<KIND> block if folded; keeps overlay for later rehiding."
+  (let ((ov (or (alist-get kind carriage-doc-state--block-overlays) nil)))
+    (when (overlayp ov)
+      (overlay-put ov 'before-string nil)
+      (overlay-put ov 'invisible nil)
+      (overlay-put ov 'carriage-block-revealed t))
+    ov))
+
+(defun carriage-doc-state--hide-block (kind)
+  "Hide begin_<KIND> block with a placeholder; creates overlay if missing."
+  (let* ((ov (or (alist-get kind carriage-doc-state--block-overlays)
+                 (carriage-doc-state--ensure-block-overlay kind))))
+    (when (overlayp ov)
+      (let ((beg (overlay-start ov))
+            (end (overlay-end ov)))
+        (overlay-put ov 'before-string (carriage-doc-state--block-summary-string kind beg end))
+        (overlay-put ov 'invisible 'carriage-doc-state)
+        (overlay-put ov 'carriage-block-revealed nil)
+        (unless (member 'carriage-doc-state buffer-invisibility-spec)
+          (add-to-invisibility-spec 'carriage-doc-state))))
+    ov))
+
+(defun carriage-doc-state--cursor-ensure-visibility ()
+  "Reveal folded blocks when point enters them; hide back when point leaves."
+  (when (and (derived-mode-p 'org-mode)
+             (listp carriage-doc-state-fold-kinds))
+    (dolist (cell carriage-doc-state-fold-kinds)
+      (let* ((kind (car cell))
+             (enabled (cdr cell)))
+        (when enabled
+          (let ((rg (carriage-doc-state--block-range-of kind)))
+            (when rg
+              (let* ((pos (point))
+                     (beg (car rg)) (end (cdr rg)))
+                (if (and (>= pos beg) (<= pos end))
+                    (carriage-doc-state--reveal-block kind)
+                  (carriage-doc-state--hide-block kind))))))))))
+
+(defun carriage-doc-state--install-cursor-watch ()
+  "Install buffer-local watcher to auto-reveal folded blocks on cursor enter."
+  (add-hook 'post-command-hook #'carriage-doc-state--cursor-ensure-visibility nil t))
+
+;; -----------------------------------------------------------------------------
+;; Overlay refresh on edits (keep folded overlays accurate when user edits)
+;;
+(defvar-local carriage-doc-state--overlay-refresh-timer nil
+  "Idle timer used to coalesce overlay refresh after buffer edits.")
+
+(defun carriage-doc-state--refresh-overlays (&optional kinds)
+  "Rescan and (re)ensure overlays for enabled KINDS (or all from defcustom).
+Deletes stale overlays when corresponding blocks disappear."
+  (when (derived-mode-p 'org-mode)
+    (let* ((kinds (or kinds (mapcar #'car carriage-doc-state-fold-kinds))))
+      (dolist (k kinds)
+        (let* ((enabled (alist-get k carriage-doc-state-fold-kinds))
+               (rg (and enabled (carriage-doc-state--block-range-of k)))
+               (ov (alist-get k carriage-doc-state--block-overlays)))
+          (cond
+           ;; Ensure overlay for present block
+           ((and enabled rg)
+            (ignore-errors (carriage-doc-state--ensure-block-overlay k)))
+           ;; Remove stale overlay if block missing or kind disabled
+           (ov
+            (when (overlayp ov) (delete-overlay ov))
+            (setf (alist-get k carriage-doc-state--block-overlays) nil))))))
+    t))
+
+(defun carriage-doc-state--schedule-overlay-refresh (&optional delay)
+  "Schedule a near-future overlays refresh (debounced).
+Optional DELAY in seconds; defaults to 0.1."
+  (when (timerp carriage-doc-state--overlay-refresh-timer)
+    (cancel-timer carriage-doc-state--overlay-refresh-timer))
+  (let* ((d (or delay 0.1))
+         (buf (current-buffer)))
+    (setq carriage-doc-state--overlay-refresh-timer
+          (run-at-time d nil
+                       (lambda (b)
+                         (when (buffer-live-p b)
+                           (with-current-buffer b
+                             (ignore-errors (carriage-doc-state--refresh-overlays))
+                             (setq carriage-doc-state--overlay-refresh-timer nil))))
+                       buf))
+    buf)
+  t)
+
+(defun carriage-doc-state--after-change (_beg _end _len)
+  "After-change hook to keep block overlays in sync with buffer edits."
+  (when (derived-mode-p 'org-mode)
+    (carriage-doc-state--schedule-overlay-refresh 0.1)))
+
+(defun carriage-doc-state--install-change-watch ()
+  "Install buffer-local after-change watcher to refresh folded overlays."
+  (add-hook 'after-change-functions #'carriage-doc-state--after-change nil t))
+
+(defun carriage-doc-state--remove-change-watch ()
+  "Remove buffer-local after-change watcher."
+  (remove-hook 'after-change-functions #'carriage-doc-state--after-change t))
 
 ;;; carriage-doc-state.el ends here
