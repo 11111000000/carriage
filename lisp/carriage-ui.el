@@ -161,7 +161,7 @@ Negative values move icons up; positive move them down."
   "Mode-line face for active reasoning/waiting/streaming/dispatch states (orange)."
   :group 'carriage-ui)
 
-;; Faces for patch block highlighting (spec/ui-v1.org)
+;; Faces for patch block highlighting (spec/ui-v2.org)
 (defface carriage-patch-valid-face
   '((t :inherit nil :background "#203a24"))
   "Face for visually marking valid patch blocks."

@@ -84,7 +84,7 @@ Applies to both index and working-tree apply operations."
       (signal (carriage-error-symbol 'GIT_E_APPLY) (list "Git repo not detected"))))
   t)
 
-;; Async helpers for non-blocking preflight (see spec/async-workflow-v1.org)
+;; Async helpers for non-blocking preflight (see spec/async-workflow-v2.org)
 
 (defun carriage-git--run-async (root argv on-done on-fail)
   "Run git ARGV in ROOT asynchronously and return TOKEN plist.

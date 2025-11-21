@@ -41,8 +41,8 @@
 ;; Specifications:
 ;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/compliance-checklist-v1.org
+;;   spec/errors-v2.org
+;;   spec/compliance-checklist-v2.org
 
 (require 'cl-lib)
 

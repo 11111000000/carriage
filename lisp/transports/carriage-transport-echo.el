@@ -94,7 +94,7 @@ Does not modify the Org buffer and does not call 'carriage-transport-begin'."
                       (buffer-local-value 'major-mode buffer))))
     (unless (eq (if (symbolp backend) backend (intern (format "%s" backend))) 'echo)
       (carriage-log "Transport[echo]: backend mismatch (%s), dropping" backend)
-      ;; Сигнализируем LLM_E_BACKEND согласно spec/errors-v1.org, затем завершаем транспорт
+      ;; Сигнализируем LLM_E_BACKEND согласно spec/errors-v2.org, затем завершаем транспорт
       (condition-case _
           (signal (carriage-error-symbol 'LLM_E_BACKEND)
                   (list (format "Unknown transport backend: %s" backend)))

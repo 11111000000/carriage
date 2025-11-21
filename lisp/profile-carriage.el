@@ -10,9 +10,9 @@
 ;; Specifications:
 ;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/compliance-checklist-v1.org
-;;   spec/testing-v1.org
+;;   spec/errors-v2.org
+;;   spec/compliance-checklist-v2.org
+;;   spec/testing-v2.org
 ;;
 ;;; Commentary:
 ;; Development profile helpers used by CI and local development.

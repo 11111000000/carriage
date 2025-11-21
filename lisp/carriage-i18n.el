@@ -12,8 +12,8 @@
 ;;   spec/index.org
 ;;   spec/errors-v2.org
 ;;   spec/compliance-checklist-v2.org
-;;   spec/i18n-v1.org
-;;   spec/ui-v1.org
+;;   spec/i18n-v2.org
+;;   spec/ui-v2.org
 ;;
 ;;; Commentary:
 ;; Lightweight internationalization layer for UI strings (RU/EN) used by the
