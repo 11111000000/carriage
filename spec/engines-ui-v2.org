@@ -1,0 +1,159 @@
+#+title: Engines UI v2 — Selection and capability display
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/ui/engines/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: ui, engines
+- Prompt-ABI: v1
+- Pack-Profiles: P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- LLM-Summary: Define UI for selecting engines and showing their capabilities.
+  - List engines with caps
+  - Selection action
+  - Error-safe display
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- UI-only; does not alter engine contracts.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Capability tag: simple human-readable badge (e.g., "patch:git-only").
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- REQ-eui-001: UI MUST reflect enforced rule “patch → git”.
+- REQ-eui-002: Selection MUST persist and be reflected in modeline.
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- IFC-eui-001: carriage-select-apply-engine → sets current engine
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- TST-eui-001: selected engine persists and displays capabilities
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Code:
+  - lisp/engines/carriage-apply-engine.el
+  - lisp/carriage-ui.el
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- FREEZE: ui-refresh-latency-ms-max = 150
+- INV-eui-001: Capability list ordering is deterministic (by engine id).
+- INV-eui-002: Selection UI does not alter engine contracts or capabilities.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Engine entry (plist):
+  - :id (symbol), :caps (plist), :selected (bool)
+- Capability tags (plist):
+  - :ops (list of symbol), :staging (bool), :notes (string|nil)
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- UI errors MUST not change engine selection; log and continue.
+- No new error codes are defined by this spec; reuse core errors for logging context.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- UI MUST NOT execute engine commands; selection only.
+- Respect security precedence; do not expose unsafe flags in UI.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- UI updates MUST be non-blocking; render within ui-refresh-latency-ms-max.
+- Expensive recomputations SHOULD be throttled/debounced.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Show enforced rule “patch → git” as a static badge.
+- Persist selection and reflect in modeline; provide which-key labels.
+
+Prompt Guidance
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Not applicable; this spec does not define LLM output templates.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Not included in prompts by default.
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Index REQ/IFC/INV sections for assistant hints; chunk ids CHK-carriage/ui/engines/v2-<ANCHOR>-NN.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Security > Errors > Formats > Interfaces > Algorithms > UI.
+- Engines spec is the source of truth for capabilities; UI reflects them only.
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none

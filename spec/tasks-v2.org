@@ -1,0 +1,164 @@
+#+title: Tasks v2 — Model and orchestration for Carriage tasks
+#+author: Carriage Team <dev@carriage>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/core/tasks/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: core, async
+- Prompt-ABI: v1
+- Pack-Profiles: P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- LLM-Summary: Define task model and orchestration used by async flows.
+  - Task lifecycle: new → running → done|error|aborted
+  - Callbacks on main thread
+  - Abort idempotency and metrics
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- In scope: task state model, lifecycle, callbacks, cancellation.
+- Out of scope: engine-specific processes (see tool-contracts and engines specs).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- token: handle carrying :abort-fn/:timer/:process and flags.
+- terminal outcome: exactly one of ok|fail|timeout|aborted.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- REQ-task-001: Each task MUST deliver exactly one terminal outcome.
+- REQ-task-002: Abort handler MUST be idempotent (multiple calls safe).
+- REQ-task-003: Callbacks MUST be marshalled to main thread.
+- REQ-task-004: Each task SHOULD record :elapsed-ms; :pid when applicable.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- FREEZE: default-timeout-seconds = 15
+- INV-task-001: Aborted tasks MUST cancel timers and ignore further sentinels.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Token (plist):
+  - :process process|nil, :abort-fn fn|nil, :timer timer|nil
+  - optional: :pid int, :aborted bool, :timed-out bool
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- IFC-task-001: carriage-task-start CFG OK FAIL → token
+- IFC-task-002: carriage-task-abort TOKEN → bool
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- ALG-task-001: Start → install timeout → finalize via OK/FAIL exactly once.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- TOOL_E_ABORT, TOOL_E_TIMEOUT per tool-contracts-v2; log minimal payloads.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- No external commands here; respect security-v2 in downstream engines.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Non-blocking orchestration; timers cleaned on finalize.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- UI MAY display progress and allow abort via :abort-fn.
+
+Prompt Guidance
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Not applicable.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Profile: P3-debug
+  - include: carriage/core/tasks/v2#REQ priority=P3 max-tokens=200 summarize=0.6
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Chunk: CHK-carriage/core/tasks/v2-REQ-01
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Security > Errors > Interfaces > Algorithms > UI.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- CHK-task-001: single terminal outcome per task.
+- CHK-task-002: abort idempotency verified.
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Code: lisp/carriage-task.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none

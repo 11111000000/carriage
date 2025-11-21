@@ -1,0 +1,66 @@
+#+title: Doc State v2 — Property drawers and begin_<kind> folding
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/doc-state/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: docs, ui
+- Prompt-ABI: v1
+- Pack-Profiles: P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- LLM-Summary: Define storage and restoration of document state and folding overlays.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- REQ-ds-001: begin_<kind> folding MUST be overlay-based; no org-fold reliance.
+- REQ-ds-002: Overlays MUST auto-reveal on cursor enter and auto-hide on leave.
+- REQ-ds-003: A begin_carriage block MUST be preferred over file-level #+PROPERTY when present; write
+  operations MUST upsert the begin_carriage body and keep storage normalized.
+- REQ-ds-004: File-level #+PROPERTY: CARRIAGE_* MAY be used for backward compatibility; the writer
+  MUST normalize to begin_carriage and hide file-level properties via a dedicated overlay.
+- REQ-ds-005: A before-save hook (when enabled) MUST restore state from the buffer, persist normalized
+  storage (begin_carriage + properties), and fold overlays idempotently.
+- REQ-ds-006: Folding MUST be maintained by overlay refresh on edits and cursor movement; watchers
+  MUST reveal on cursor enter and re-hide on leave without relying on org-fold.
+- REQ-ds-007: The begin_carriage storage MAY include provenance keys (CAR_TEMPLATE_ID,
+  CAR_TEMPLATE_VER, CAR_CONTEXT_PROFILE, CAR_INHERITED); writers SHOULD upsert and preserve them.
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- IFC-ds-001: carriage-block-fold-ensure-overlay KIND
+- IFC-ds-002: carriage-block-fold-reveal/hide KIND
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- TST-ds-001: overlays refreshed after edits; placeholders clickable
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Code:
+  - lisp/carriage-doc-state.el
+  - lisp/carriage-block-fold.el

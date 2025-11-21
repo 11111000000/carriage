@@ -1,0 +1,76 @@
+#+title: Compliance Checklist v2 — CI lint and acceptance gates
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/compliance/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: qa, docs
+- Prompt-ABI: v1
+- Pack-Profiles: P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Define CI checks to enforce SoS and critical contracts.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- REQ-comp-001: Lint mandatory sections and anchors in all specs.
+- REQ-comp-002: Verify code↔spec bidirectional links.
+- REQ-comp-003: Enforce REQ→TST coverage for MUST items.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+
+Compliance gates (CI MUST enforce)
+- CHK-comp-001: Mandatory sections present with exact anchors and section properties.
+- CHK-comp-002: All MUST items carry REQ- identifiers; Invariants include FREEZE constants.
+- CHK-comp-003: Traceability Map — every REQ has ≥1 TST; LLM-related REQ has ≥1 PRM.
+- CHK-comp-004: Errors catalog — ERR codes mapped to conditions; message templates provided.
+- CHK-comp-005: Output-Contracts — PRM strict templates with Forbidden-Phrases and Escape Policy.
+- CHK-comp-006: Pack-Profiles/Pack-Recipes present; P0/P1 budgets satisfied for target models.
+- CHK-comp-007: RAG chunking — CHK-<Spec-ID>-<ANCHOR>-NN ids exist; overlap/size within policy.
+- CHK-comp-008: Security — path/TRAMP/binary policies referenced and tested via negatives.
+- CHK-comp-009: Transport — single terminal event invariant; abort/timeout idempotent.
+- CHK-comp-010: Fingerprint present and updated for normative changes; Prompt-ABI changes bust caches.
+- CHK-comp-011: Code↔Spec links — Specifications blocks in code match spec/index; no dangling refs.
+- CHK-comp-012: Observability — required metrics/log fields present (pid, elapsed-ms, model-id,
+  token-usage), specs reference observability-v2; CI validates presence/shape.
+
+Evidence artifacts (per run)
+- Lint report (anchors, IDs, sections).
+- Coverage matrix REQ→TST→PRM→code.
+- Pack-Recipe token usage (P0/P1).
+- Golden fixtures diffs (T=0/T>0).
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Source of Truth:
+  - spec/spec-on-specs.org#TST
+  - spec/spec-on-specs.org#REQ
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none

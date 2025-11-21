@@ -8,13 +8,13 @@
 ;; Keywords: iteration
 ;;
 ;; Specifications:
-;;   spec/code-style-v1.org
+;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/compliance-checklist-v1.org
-;;   spec/iteration-markers-v1.org
-;;   spec/iteration-markers-placement-v1.org
-;;   spec/ui-v1.org
+;;   spec/errors-v2.org
+;;   spec/compliance-checklist-v2.org
+;;   spec/iteration-markers-v2.org
+;;   spec/iteration-markers-placement-v2.org
+;;   spec/ui-v2.org
 ;;
 ;;; Commentary:
 ;; Marking and querying "last iteration" blocks in source buffers.

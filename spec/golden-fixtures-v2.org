@@ -1,0 +1,178 @@
+#+title: Golden Fixtures v2 — Canonical prompts, outputs, and diffs
+#+author: Carriage Team <dev@carriage>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/golden-fixtures/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: qa, apply, transport
+- Prompt-ABI: v1
+- Pack-Profiles: P1-core, P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- LLM-Summary: Define golden (canonical) artifacts for deterministic and stochastic tests:
+  - Golden prompts (input context + PRM template)
+  - Golden outputs (patch/sre/aibo/file-ops)
+  - Golden reports and transport transcripts
+  - Negative fixtures (jailbreak/injection)
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- In scope: data layout, naming, stability policy, masking and normalization rules.
+- Out of scope: per-engine quirks; see apply-engines-v2 and llm-transport-v2.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Golden: canonical artifact frozen by hash and version.
+- Mask: deterministic placeholder for non-deterministic parts.
+- Fixture-set: collection grouped by topic and version.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- REQ-gold-001: Each fixture MUST be plaintext UTF-8; line length <= 100 chars.
+- REQ-gold-002: Golden prompts MUST include Pack-Recipe reference and PRM id(s).
+- REQ-gold-003: Golden outputs for patch/sre/aibo MUST satisfy the corresponding PRM templates.
+- REQ-gold-004: Transport golden transcripts MUST contain event order guarantees (begin→chunks→done/abort).
+- REQ-gold-005: Non-deterministic tokens MUST be masked using [[MASK:<KIND>]] placeholders.
+- REQ-gold-006: Each golden artifact MUST carry a stable header with ids and sha1 fingerprint.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- FREEZE: max-line-width = 100
+- FREEZE: mask-tokens = [[MASK:PID]], [[MASK:ELAPSED_MS]], [[MASK:TS]], [[MASK:RANDOM]]
+- INV-gold-001: Directory layout fixed per topic/version (see SCHEMA).
+- INV-gold-002: Negative fixtures MUST be present for every PRM family (udiff/sre/aibo).
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Directory layout:
+  - tests/golden/v2/<topic>/
+    - prompt/<id>.in.org          ; input prompt (system+user), Pack-Recipe ref
+    - output/<id>.out.org         ; model output (strict PRM format), masked as needed
+    - report/<id>.report.org      ; apply/dry-run report (plist-rendered/plain), masked
+    - traffic/<id>.trace.txt      ; transport events (order-checked), masked
+    - negative/<id>.counter.org   ; invalid example that MUST fail with a specific ERR code
+- Artifact header (first lines):
+  - ;; golden: <Spec-ID>#<ANCHOR>
+  - ;; ids: PRM-<topic>-NNN[, …] ; REQ-… ; TST-…
+  - ;; sha1: <sha1-of-body>
+- Masking rules:
+  - PID/elapsed/timestamps/random ids MUST be replaced with mask-tokens.
+  - Paths to temp files MUST be replaced with [[MASK:TMP]].
+  - Binary data is forbidden.
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-gold-001: golden-verify FILE → ok|fail
+  - Validates header, sha1, PRM conformance and mask policy.
+- IFC-gold-002: golden-update-hash FILE → FILE'
+  - Recomputes sha1 after a normative change only (Affects-Prompt accounted).
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- ALG-gold-001: Verify-output
+  - Parse header → check PRM → apply mask normalization → compare strict equality.
+- ALG-gold-002: Verify-traffic
+  - Ensure event order and single terminal event → allow masked fields only.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- GOLD_E_HEADER — malformed header (missing ids/sha1)
+- GOLD_E_PRM_MISMATCH — output contract violation
+- GOLD_E_MASK — masking rule violated
+- GOLD_E_ORDER — invalid event order in transcript
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Secrets MUST NOT appear in fixtures. Paths MUST be relative.
+- TRAMP/remote paths forbidden. No binary payloads.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Verification MUST be O(size) with single pass normalization.
+
+Prompt Guidance
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Golden outputs MUST exactly match PRM strict templates. Forbidden any extra prose.
+- Determinism Window:
+  - T=0: byte-stable; T>0: masked fields only, structure invariant.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- TST-gold-001: prompts/out/traffic/reports pass verification for T=0
+- TST-gold-002: T>0 run differs only at masked tokens; structure invariant
+- TST-gold-003: negative fixtures fail with expected ERR code
+- Traceability Map:
+  - REQ-gold-003 → TST-gold-001, TST-gold-002
+  - REQ-gold-005 → TST-gold-002, TST-gold-003
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Source of Truth:
+  - spec/spec-on-specs.org#TST
+  - spec/prompt-profiles-v2.org#PRM
+- Related:
+  - spec/patch-unified-diff-v2.org
+  - spec/sre-v2.org
+  - spec/aibo-v2.org
+  - spec/llm-transport-v2.org
+- Code:
+  - tests/golden/v2/**
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Affects-Prompt: low
+- Minor edits update sha1; PRM changes require prompt cache bust.

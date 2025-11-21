@@ -1,0 +1,163 @@
+#+title: Errors v2 — Centralized diagnostics and codes
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/core/errors/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: core
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: One source of truth for error codes, messages, severity, and mapping.
+- Define canonical error codes and their mapping to Emacs conditions and reports.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- In: error identifiers, severity, message templates, mapping to report rows.
+- Out: transport-specific error envelopes (see transport spec).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Severity: info|warn|error. Code: symbolic id like PATCH_E_DIFF_SYNTAX.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-err-001: All modules MUST use centralized error codes defined here.
+- REQ-err-002: Each error MUST specify severity and a concise, user-facing message.
+- REQ-err-003: Reports MUST aggregate per-item diagnostics in :messages.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- INV-err-001: Codes are stable across minor versions; add, do not rename/remove.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Error record:
+  - code (symbol), severity (enum), message (string), hints (optional).
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-err-001: carriage-define-errors installs codes and define-error symbols.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- n/a
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Example codes:
+  - MODE_E_DISPATCH: error — Unknown op/version or unsupported engine capability.
+  - PATCH_E_DIFF_SYNTAX: error — Unified diff syntax invalid.
+  - PATCH_E_MULTI_FILE: error — Multi-file diff not allowed.
+  - PATCH_E_BINARY: error — Binary patch detected.
+  - SRE_E_SEGMENTS_COUNT: error — No FROM→TO pairs found.
+  - SRE_E_UNPAIRED: error — FROM without following TO.
+  - SRE_E_OCCUR_EXPECT: error — :occur all requires :expect.
+  - SEC_E_PATH: error — Path invalid/outside root.
+  - SEC_E_REMOTE: error — TRAMP/remote refused.
+  - SEC_E_LIMITS: error — Limits exceeded.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Error payloads MUST avoid leaking sensitive content; clip long strings.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Rich errors SHOULD be constructed without blocking UI; defer heavy formatting.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- P0-min: include REQ and ERR.
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index only normative sections; chunk ids CHK-carriage/core/errors/v2-ERR-01..NN.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Errors precede Formats when conflicts in code mapping arise.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- CHK-err-001: All thrown errors map to known codes/severity.
+- CHK-err-002: Reports include :messages with aggregated diagnostics.
+- Test Matrix:
+  - TST-err-001: Throw unknown code → MODE_E_DISPATCH
+  - TST-err-002: Patch binary payload → PATCH_E_BINARY (severity=error)
+  - TST-err-003: Invalid path → SEC_E_PATH
+  - TST-err-004: TRAMP refused → SEC_E_REMOTE
+- Traceability Map:
+  - REQ-err-001 → TST-err-001, TST-err-002, TST-err-003, TST-err-004
+  - REQ-err-002 → CHK-err-001, TST-err-001..004
+  - REQ-err-003 → CHK-err-002
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth: spec/spec-on-specs.org#ERR
+- Related: spec/security-v2.org#SEC
+- Code: lisp/carriage-errors.el, lisp/**/*.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: low; update prompt fragments only when LLM-visible codes change.

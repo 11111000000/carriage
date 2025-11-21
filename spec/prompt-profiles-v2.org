@@ -1,0 +1,197 @@
+#+title: Prompt Profiles v2 — Intents, Suites, and PRM composition
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/prompt/suites/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: suite, formats
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Define Intents (Ask/Code/Hybrid), Suites ('sre, 'udiff), and how PRM fragments compose.
+  - White-list of ops per Suite
+  - Strict output contract for Intent=Code
+  - Hybrid allows prose but applies only patch blocks
+  - Overlays and overrides
+  - Token budget aware packing
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- In scope: allowed ops per suite, PRM fragments, override rules, guards.
+- Out of scope: vendor model selection (see llm-registry).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Intent: Ask|Code|Hybrid.
+- Suite: set of allowed ops and PRM fragments (sre|udiff).
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-pp-001: Intent=Code MUST output ONLY begin_patch blocks; no extra prose.
+- REQ-pp-002: Suite='sre MUST forbid udiff markers; Suite='udiff MUST forbid SRE markers.
+- REQ-pp-003: Fragment overrides MUST take precedence over registry defaults.
+- REQ-pp-004: AIBO fragments MUST forbid :match keys and regex language.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- INV-pp-001: One block = one operation (v2).
+- INV-pp-002: Paths MUST be relative; no absolute or ".." (security).
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- PRM fragment entry:
+  - :op symbol, :version "1", :fragment string|function(CTX→string)
+  - Optional: :guards list, :forbidden list
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-pp-001: carriage-suite-ops SUITE → list of ops
+- IFC-pp-002: carriage-build-prompt INTENT SUITE CTX → {:system :prompt}
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Build system prompt:
+  - Collect ops from suite → gather PRM fragments → apply overrides → enforce guards
+  - Append guardrails and fingerprints
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- ERR-pp-001: MODE_E_DISPATCH — unknown op in suite
+- ERR-pp-002: PRM_E_FORBIDDEN — forbidden markers detected
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Enforce path and TRAMP policies; forbid base64 unless tool fallback is in effect.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Token budgets for P0/P1; summarization ratios; section order.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Selection UI for Intent/Suite; show resolved overrides in tooltip.
+
+Prompt Guidance
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- PRM-pp-001: Intent=Code: output ONLY blocks; no prose.
+- PRM-pp-002: Suite='sre: NEVER use udiff markers ("--- a/", "+++ b/").
+- PRM-pp-003: Suite='udiff: NEVER use begin_from/begin_to.
+- Output-Format: ONLY Org #+begin_patch ... #+end_patch blocks. No text outside blocks.
+- Forbidden-Phrases: "Here is", "As an AI", Markdown fences (```), extra commentary.
+- Determinism Window: T=0, top_p=1.0. Allowed variance: whitespace within payload only.
+- Escape Policy: sentinel lines in SRE/AIBO payload equal to "#+end_from"/"# +end_to"
+  MUST be prefixed by one leading space; udiff MUST escape as per patch-v2.
+- Positive Example: a single #+begin_patch with a valid header and body; no stray lines.
+- Negative Example: any prose around block; udiff markers in SRE; SRE markers in udiff.
+
+Tool Contract
+- Anchor: TOOL
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Prompt builder MUST provide :system and :prompt fields; tool ids MUST be stable.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- P0-min:
+  - include: carriage/prompt/suites/v2#PRM priority=P0 max-tokens=800 summarize=off
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index REQ/PRM/SEC anchors; chunk ids CHK-carriage/prompt/suites/v2-PRM-01..NN.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Formats' specs are source of truth for per-op grammar; suites cannot weaken them.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- TST-pp-001: Suite='sre system contains no udiff markers
+- TST-pp-002: Suite='udiff system contains no SRE markers
+- Traceability Map:
+  - REQ-pp-001 → TST-pp-001, TST-pp-002
+  - REQ-pp-002 → TST-pp-001
+  - REQ-pp-004 → TST-pp-001
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Sources of Truth:
+  - spec/sre-v2.org#PRM
+  - spec/aibo-v2.org#PRM
+  - spec/patch-unified-diff-v2.org#PRM
+- Code:
+  - lisp/carriage-suite.el
+  - lisp/carriage-intent-registry.el
+  - lisp/carriage-format-registry.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: high
+- v2 formalizes PRM guards and profiles.

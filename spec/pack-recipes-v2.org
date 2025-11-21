@@ -1,0 +1,177 @@
+#+title: Pack Recipes v2 — Prompt packaging profiles and budgets
+#+author: Carriage Team <dev@carriage>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/pack-recipes/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: suite, architecture
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Define deterministic prompt packing profiles (P0..P3), section order,
+  token budgets, and summarization policies; centralize cross-spec recipes.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Applies to building prompts for all Intents/Suites; complements prompt-profiles-v2 and SoS.
+- Out of scope: vendor SDK parameters beyond Determinism Window.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Profile: named recipe selecting spec anchors with ordering, budgets, summarization ratio.
+- Budget: approximate token cap for included context before model input.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-pack-001: Profiles MUST define ordered include lines with <Spec-ID>#<ANCHOR>.
+- REQ-pack-002: Each line MUST declare priority, max-tokens, summarize ratio (or off).
+- REQ-pack-003: P0-min MUST include Security, Errors, and Suite PRM anchors.
+- REQ-pack-004: When budgets are exceeded, summarization MUST reduce non-PRM parts first.
+- REQ-pack-005: Changes to profile order or budgets with Affects-Prompt != none
+  MUST bump Prompt-ABI or Fingerprint.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- FREEZE: default-chunk-overlap = 120 tokens
+- FREEZE: profile-budgets = {P0: 900, P1: 1600, P2: 2600, P3: 3800}
+- INV-pack-001: PRM fragments MUST be included verbatim; no summarization.
+- INV-pack-002: Section order MUST be deterministic and stable across minor versions.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Pack-Recipe entry (line):
+  - include: <Spec-ID>#<ANCHOR> priority=<P?> max-tokens=<N> summarize=<ratio|off>
+- Profile block:
+  - Profile: <P?>
+    - include: ...
+    - include: ...
+- Determinism Window:
+  - temperature, top_p, seed, stop: per Suite; PRM defines Output-Contract.
+
+Profiles (reference recipes)
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Profile: P0-min (budget≈900)
+  - include: carriage/core/security/v2#SEC priority=P0 max-tokens=250 summarize=0.5
+  - include: carriage/core/errors/v2#ERR priority=P0 max-tokens=250 summarize=0.6
+  - include: carriage/prompt/suites/v2#PRM priority=P0 max-tokens=400 summarize=off
+- Profile: P1-core (budget≈1600)
+  - include: carriage/docs/spec-on-specs/v2#PRM priority=P1 max-tokens=200 summarize=0.7
+  - include: carriage/docs/index/v2#REQ priority=P1 max-tokens=200 summarize=0.6
+  - include: carriage/core/data-structures/v2#SCHEMA priority=P1 max-tokens=400 summarize=0.6
+  - include: carriage/prompt/suites/v2#PRM priority=P0 max-tokens=400 summarize=off
+  - include: carriage/transport/llm/v2#REQ priority=P1 max-tokens=200 summarize=0.6
+  - include: carriage/apply/engines/v2#REQ priority=P1 max-tokens=200 summarize=0.6
+- Profile: P2-full (budget≈2600)
+  - include: carriage/formats/patch/v2#PRM priority=P1 max-tokens=250 summarize=off
+  - include: carriage/formats/sre/v2#PRM priority=P1 max-tokens=250 summarize=off
+  - include: carriage/formats/aibo/v2#PRM priority=P1 max-tokens=200 summarize=off
+  - include: carriage/formats/file-ops/v2#PRM priority=P2 max-tokens=250 summarize=off
+  - include: carriage/docs/rag/v2#RAG priority=P2 max-tokens=200 summarize=0.6
+  - include: carriage/core/logging/v2#REQ priority=P2 max-tokens=150 summarize=0.7
+  - include: carriage/core/observability/v2#REQ priority=P2 max-tokens=150 summarize=0.7
+- Profile: P3-debug (budget≈3800)
+  - include: carriage/docs/spec-on-specs/v2#SCHEMA priority=P3 max-tokens=400 summarize=0.8
+  - include: carriage/docs/compliance/v2#REQ priority=P3 max-tokens=300 summarize=0.6
+  - include: carriage/docs/testing/v2#TST priority=P3 max-tokens=600 summarize=0.7
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-pack-001: pack-build PROFILE CTX → {:system :prompt :recipe :budget}
+- IFC-pack-002: pack-validate PROFILE → ok|fail with diagnostics
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- ALG-pack-001: Assemble
+  - Sort includes by priority → reserve PRM verbatim → distribute remaining budget
+  - Apply summarization only to eligible sections → emit recipe manifest
+- ALG-pack-002: Validate
+  - Check anchors exist and are normative when required → verify token caps
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- PACK_E_ANCHOR — missing or non-normative anchor in include
+- PACK_E_BUDGET — budget exceeded after summarization
+- PACK_E_PROFILE — unknown profile or malformed recipe
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Do not include secrets; PRM fragments MUST be sanitized for logging; no binary data.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- O(n) assembly by total size; caching of resolved anchors permitted.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- TST-pack-001: P0-min contains SEC/ERR/PRM in order; budgets respected
+- TST-pack-002: PRM never summarized; non-PRM sections summarized when over budget
+- TST-pack-003: Unknown anchors/profile → error with diagnostics
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth:
+  - spec/spec-on-specs.org#PACK
+- Related:
+  - spec/prompt-profiles-v2.org
+  - spec/index.org
+  - spec/rag-indexing-v2.org
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Affects-Prompt: high
+- Changing profile order/budgets may require Prompt-ABI bump.

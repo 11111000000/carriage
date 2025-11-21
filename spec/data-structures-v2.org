@@ -1,0 +1,170 @@
+#+title: Data Structures v2 — Plans, Reports, and Rows
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/core/data-structures/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: core
+- Prompt-ABI: v1
+- Pack-Profiles: P1-core
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Canonical plist/alist shapes for plan items, rows, and reports.
+- Provide stable shapes for inter-module communication and UI/reporting.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- In: plan items, dry-run/apply rows, report structure, embedded diagnostics.
+- Out: transport envelopes and UI widgets.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Row: result for one item; Report: collection of rows with summary/messages.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-ds-001: Report MUST include :summary, :items, and :messages keys.
+- REQ-ds-002: Row MUST include :op, :status ∈ {ok, fail, skip}, and path/file key.
+- REQ-ds-003: Plan item MUST include :op and op-specific keys (see formats).
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- INV-ds-001: Summary keys: (:ok N :fail M :skipped K).
+- INV-ds-002: Rows MAY carry :_plan and :_root for UI actions; tools preserve them.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Report (plist):
+  - :phase ('dry-run|'apply), :engine (symbol), :branch-policy (optional)
+  - :summary (plist), :items (list of rows), :messages (list of diag plists)
+- Row (plist):
+  - :op (symbol), :status ('ok|'fail|'skip), :file|string or :path|string, :details|string
+  - optional: :matches (int), :changed-bytes (int), :pid (int), :elapsed-ms (int), :engine (symbol)
+- Message (plist):
+  - :code (symbol), :severity (enum), :file (optional), :details (string)
+- Engine token (plist):
+  - :engine (symbol), :process (process|nil), :abort-fn (function|nil), :timer (timer|nil)
+  - optional: :pid (int), :argv (list), :aborted (bool), :timed-out (bool)
+- Engine result (plist):
+  - :exit (int), :stdout (string), :stderr (string), :pid (int|nil)
+  - optional: :reason (nil|'timeout|'aborted|'sentinel-error), :op (symbol), :path (string)
+- Transport event (plist):
+  - :type ('begin|'chunk|'reasoning|'tool-call|'done|'error|'abort)
+  - :id (string), :ts (number), :payload (plist)
+  - ordering invariant: 'begin → {chunk|reasoning|tool-call}* → {done|error|abort} (exactly one terminal)
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-ds-001: carriage-dry-run-plan PLAN ROOT → REPORT (see schema).
+- IFC-ds-002: carriage-apply-plan PLAN ROOT → REPORT.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- n/a
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- ERR-ds-001: DS_E_SHAPE — malformed row or report; CI SHOULD detect in tests.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Paths within rows MUST pass security policy (see security-v2).
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Rows SHOULD include :elapsed-ms for engine steps when available.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- P1-core: include SCHEMA and REQ.
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index SCHEMA and REQ sections; chunk ids CHK-...-SCHEMA-01..NN.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Errors and Security prevail on ambiguous shapes.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- CHK-ds-001: Reports in tests conform to schema and include required keys.
+- CHK-ds-002: Rows include :status and one of :file|:path.
+- TST-ds-001: Positive — minimal valid report with one ok row and empty :messages passes schema.
+- TST-ds-002: Negative — report missing :summary fails with DS_E_SHAPE (shape violation).
+- TST-ds-003: Negative — a row without :status or without :file|:path fails with DS_E_SHAPE.
+- TST-ds-004: Engine result in rows includes :pid and :elapsed-ms when available (observability).
+- Traceability Map:
+  - REQ-ds-001 → TST-ds-001, TST-ds-002
+  - REQ-ds-002 → TST-ds-003
+  - INV-ds-001 → TST-ds-001
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth: spec/spec-on-specs.org#SCHEMA
+- Related: spec/apply-pipeline-v2.org#IFC, spec/parser-registry-v2.org#SCHEMA
+- Code: lisp/carriage-apply.el, lisp/carriage-report.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: low; shape changes may affect PRM examples and tests.

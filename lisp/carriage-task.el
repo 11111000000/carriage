@@ -8,13 +8,12 @@
 ;; Keywords: task, org
 ;;
 ;; Specifications:
-;;   spec/code-style-v1.org
+;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/compliance-checklist-v1.org
-;;   spec/task-docs-v1.org
-;;   spec/keyspec-v1.org
-;;   spec/context-integration-v1.org
+;;   spec/errors-v2.org
+;;   spec/compliance-checklist-v2.org
+;;   spec/task-docs-v2.org
+;;   spec/testing-v2.org
 ;;
 ;;; Commentary:
 ;; Helpers to create per-heading task documents and links.

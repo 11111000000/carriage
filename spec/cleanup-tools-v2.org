@@ -1,0 +1,170 @@
+#+title: Cleanup Tools v2 — Remove applied patch blocks safely
+#+author: Carriage Team <dev@carriage>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/cleanup-tools/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: docs, ui
+- Prompt-ABI: v1
+- Pack-Profiles: P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- LLM-Summary: Define utilities that remove Org patch blocks after use.
+  - Remove #+begin_patch … #+end_patch blocks
+  - Respect region vs whole-buffer behavior
+  - Safety: no removal outside requested range
+  - Deterministic count of removed blocks
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- In scope: cleanup of patch blocks produced by Carriage.
+- Out of scope: semantic edits of code, SCM interactions.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- patch block: Org block delimited by #+begin_patch / #+end_patch.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- REQ-clean-001: When region active, cleanup MUST operate within region only.
+- REQ-clean-002: Outside a region, cleanup MUST operate on whole buffer.
+- REQ-clean-003: Function MUST return the number of removed patch blocks.
+- REQ-clean-004: Trailing blank lines immediately following a removed block SHOULD be trimmed.
+- REQ-clean-005: Cleanup MUST NOT throw on unmatched begin/end; it MUST remove from begin to
+  visible end and count one block.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- INV-clean-001: Removal is purely textual; no SCM or file I/O.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Block shape:
+  - begin: line matches "^[ \t]*#\\+begin_patch\\b"
+  - end:   line matches "^[ \t]*#\\+end_patch\\b"
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- IFC-clean-001: carriage-clear-patch-blocks () → integer
+  - Side effects: edits current buffer; trims trailing blanks per REQ-clean-004.
+  - Errors: MUST NOT signal on missing end marker (REQ-clean-005).
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- ALG-clean-001:
+  - Decide range = region or whole buffer.
+  - Narrow → scan forward for begin markers → for each, find end marker or use range end.
+  - delete-region → optionally trim trailing blanks → increment counter.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- No hard errors expected. Interactive feedback MAY message "removed: N".
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Operates in current buffer only; no path or TRAMP handling.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Linear in buffer range; interactive-safe.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Command SHOULD provide a concise message in interactive use.
+
+Prompt Guidance
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Not applicable.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Profile: P3-debug
+  - include: carriage/docs/cleanup-tools/v2#REQ priority=P3 max-tokens=200 summarize=0.6
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Chunk: CHK-carriage/docs/cleanup-tools/v2-REQ-01
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- UI follows Security; no changes to Formats.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- CHK-clean-001: region-limited removal only.
+- CHK-clean-002: count equals removed blocks.
+- TST-clean-001: unmatched end marker path removes to range end and counts one.
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Code: lisp/carriage-clean.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none

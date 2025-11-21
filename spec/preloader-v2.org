@@ -1,0 +1,58 @@
+#+title: Preloader v2 — Streaming preloader and UX constraints
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/ui/preloader/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: ui
+- Prompt-ABI: v1
+- Pack-Profiles: P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- LLM-Summary: Provide immediate visual feedback before first token arrives.
+  - Local overlay spinner
+  - Start/stop triggers
+  - Cleanup guarantees
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- REQ-pre-001: Start preloader on transport-begin; stop on first chunk or completion.
+- REQ-pre-002: Preloader MUST be buffer-local; cleanup on finalize or mode disable.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- TST-pre-001: spinner starts/stops with events; overlay cleanup verified
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Code:
+  - lisp/carriage-ui.el
+  - lisp/transports/*
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none

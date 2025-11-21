@@ -8,7 +8,7 @@
 ;; Keywords: dev, profile
 ;;
 ;; Specifications:
-;;   spec/code-style-v1.org
+;;   spec/code-style-v2.org
 ;;   spec/index.org
 ;;   spec/errors-v1.org
 ;;   spec/compliance-checklist-v1.org

@@ -8,12 +8,12 @@
 ;; Keywords: report, ui
 ;;
 ;; Specifications:
-;;   spec/code-style-v1.org
+;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/compliance-checklist-v1.org
-;;   spec/ui-v1.org
-;;   spec/apply-pipeline-v1.org
+;;   spec/errors-v2.org
+;;   spec/compliance-checklist-v2.org
+;;   spec/ui-v2.org
+;;   spec/apply-pipeline-v2.org
 ;;
 ;;; Commentary:
 ;; Render and actions for apply/dry-run reports.

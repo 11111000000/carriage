@@ -1,0 +1,171 @@
+#+title: AIBO v2 — Literal-only search/replace pairs for one file
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/formats/aibo/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: formats
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Affects-Prompt: high
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: A literal-only variant of SRE with no regex and strict occur semantics.
+- Target simple, robust replacements most LLMs can generate safely.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- One block → one file; literal FROM/TO payloads; 1..N pairs.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- literal: exact substring match; no regex.
+- occur: 'first|'all with :expect for 'all.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-aibo-001: Header: #+begin_patch (:version "1" :op "aibo" :file "REL/PATH")
+- REQ-aibo-002: :match key is forbidden; only literal matching is allowed.
+- REQ-aibo-003: :occur ∈ {first, all}; 'all requires :expect ≥ 0.
+- REQ-aibo-004: NOOP policy same as SRE; 'skip on no changes with counters.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- INV-aibo-001: Same escape rule for "#+end_from"/"# +end_to" lines as SRE.
+- FREEZE: max-pairs-per-block = 200
+- FREEZE: max-payload-side = 512 KiB
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Body mirrors SRE with "#+pair" applying to next pair; no :match key allowed.
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-aibo-001: carriage-parse-aibo HDR BODY ROOT → plan-item|error
+- IFC-aibo-002: carriage-dry-run-aibo ITEM ROOT → row
+- IFC-aibo-003: carriage-apply-aibo ITEM ROOT → row
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Parse follows SRE pipeline but rejects :match; defaults :occur first.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- SRE_E_OCCUR_VALUE, SRE_E_OCCUR_EXPECT, SRE_E_SEGMENTS_COUNT, SRE_E_UNPAIRED
+- SRE_E_REGEX_SYNTAX for presence of :match (regex forbidden in AIBO)
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Enforce security-v2 path rules; deny TRAMP.
+
+LLM Security
+- Anchor: LSEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Literal-only replacements with strict guards; no regex; redact and cap logging.
+- Threat model: prompt-injection through literal payloads and pair headers.
+- Separation: treat FROM/TO as untrusted; forbid any :match key and ignore hidden instructions.
+- Logging: redact secrets; cap retention; avoid echoing full payloads in errors.
+
+
+Prompt Guidance (LLM Output Contract)
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- PRM-aibo-001: Answer ONLY with an aibo block identical to SRE layout; never output udiff.
+- Forbidden-Phrases: "--- a/", "+++ b/", "diff --git"; any :match key.
+- Positive Example: two pairs, :occur all with :expect 2, literal-only replacements, no :match key.
+- Negative Example: presence of :match regex; or :occur all without :expect.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- CHK-aibo-001: Presence of :match → AIBO_E_MATCH_FORBIDDEN.
+- CHK-aibo-002: NOOP returns 'skip with counters.
+- TST-aibo-001: occur all without expect → SRE_E_OCCUR_EXPECT.
+- Traceability Map:
+  - REQ-aibo-001 → CHK-aibo-002
+  - REQ-aibo-002 → CHK-aibo-001
+  - REQ-aibo-003 → TST-aibo-001
+  - REQ-aibo-004 → CHK-aibo-002
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Related: spec/sre-v2.org#REQ
+- Code: lisp/ops/carriage-op-aibo.el
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Profile: P0-min
+  - include: carriage/formats/aibo/v2#REQ priority=P0 max-tokens=600 summarize=off
+  - include: carriage/core/errors/v2#ERR priority=P0 max-tokens=300 summarize=0.5
+  - include: carriage/core/security/v2#SEC priority=P0 max-tokens=300 summarize=0.5
+- Profile: P1-core
+  - include: carriage/formats/aibo/v2#SCHEMA priority=P0 max-tokens=800 summarize=0.6
+  - include: carriage/formats/aibo/v2#PRM priority=P0 max-tokens=600 summarize=off
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index normative sections: REQ, SCHEMA, ERR, SEC, PRM.
+- Chunk size target 800–1200 tokens; overlap 100–150 tokens.
+- Chunk IDs: CHK-carriage/formats/aibo/v2-<ANCHOR>-NN.
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: high
+- v2 clarifies forbidden keys and strengthens NOOP semantics.

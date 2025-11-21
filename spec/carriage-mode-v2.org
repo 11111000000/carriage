@@ -1,0 +1,69 @@
+#+title: Carriage Mode v2 — Commands, states, and integration points
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/mode/core/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: mode
+- Prompt-ABI: v1
+- Pack-Profiles: P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Define the minor mode, commands, and state flows connecting subsystems.
+  - Commands and keybindings
+  - State machine
+  - Hooks and toggles
+  - Abort routing
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- REQ-mode-001: Mode MUST not block the UI; async paths via timers.
+- REQ-mode-002: Commands MUST respect Specs and Security; refuse unsafe ops.
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- IFC-mode-001: carriage-mode (minor-mode)
+- IFC-mode-002: carriage-open-buffer, carriage-abort-current
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- TST-mode-001: abort handler registered and invoked
+- TST-mode-002: buffer remains writable; mode persists after apply
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Code:
+  - lisp/carriage-mode.el
+  - lisp/carriage-ui.el
+  - lisp/carriage-apply.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Affects-Prompt: low

@@ -1,0 +1,147 @@
+#+title: Project Overview v2 — Structure and Map
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/project-overview/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: architecture
+- Prompt-ABI: v1
+- Pack-Profiles: P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: High-level module map, layers, load order, and extension points.
+- Provide a concise map to place new code and understand dependencies.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- In: layers, directories, naming, load order; Out: API details (see topic specs).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Layer: ordered dependency band (Core → Domain → UI).
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- REQ-po-001: Dependencies MUST flow downward (UI does not import parser/apply).
+- REQ-po-002: Engines depend on core/utils/git only, not on UI.
+- REQ-po-003: Transports depend on errors/logging/utils only.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- INV-po-001: File feature names match file basenames (provide/provide-name).
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Directory overview (bullets):
+  - lisp/: core and domain modules (carriage-*.el)
+  - lisp/engines/: apply engines
+  - lisp/ops/: format modules
+  - lisp/transports/: LLM transports
+  - spec/: specifications (this corpus)
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- IFC-po-001: Entry point requires errors→logging→utils→git→registry→suite→parser→apply→mode.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- n/a
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- n/a
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Layering is enforced in CI to prevent privilege escalation via imports.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- n/a
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- P3-debug only; not included in production packing.
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Index for navigation only.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Security and Errors specs override overview when conflicting.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- CHK-po-001: No upward imports (UI→parser/apply) in lisp/.
+- CHK-po-002: Engines do not depend on UI.
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Source of Truth: spec/spec-on-specs.org#XREF
+- Related: spec/extensibility-points-v2.org
+- Code: lisp/**/*.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none; update when directory structure changes.

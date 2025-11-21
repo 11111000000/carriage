@@ -1,0 +1,151 @@
+#+title: Observability v2 — Metrics, logs, ids, and sampling policies
+#+author: Carriage Team <dev@carriage>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/core/observability/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: core, engines, transport
+- Prompt-ABI: v1
+- Pack-Profiles: P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Define standard metrics, logging fields, and sampling for engines and transport:
+  - Required fields (pid, elapsed-ms, bytes, model-id)
+  - Structured log lines and traffic summaries
+  - Masking and retention policies
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Engines, transport, and apply pipeline logging; UI is out of scope.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Token-usage: vendor reported usage summary; optional.
+- Traffic: per-request textual transcript and summary (head/tail bytes).
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- REQ-obs-001: Each tool/engine call MUST record :pid (if available) and :elapsed-ms.
+- REQ-obs-002: Transport MUST log ordered events with a single terminal outcome.
+- REQ-obs-003: Stdout/stderr bytes (length) SHOULD be recorded; payload sampled/masked.
+- REQ-obs-004: Traffic summaries MUST include head/tail windows and total bytes.
+- REQ-obs-005: Sensitive fields MUST be masked; secrets MUST NOT be stored.
+- REQ-obs-006: Model identification MUST be recorded; token-usage MUST be recorded when the vendor reports it (otherwise OPTIONAL).
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- FREEZE: default-retention-days = 7
+- INV-obs-001: Log line format stable across minor versions.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Engine result (log projection):
+  - fields: engine, op, pid?, elapsed-ms, exit, stdout-bytes, stderr-bytes, reason?
+- Transport event (log projection):
+  - fields: type, id, ts, bytes?, token-usage?, reason?
+- Traffic summary:
+  - fields: head, tail, total-bytes
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- IFC-obs-001: carriage-traffic-log-request/response-summary MUST obey masking rules.
+- IFC-obs-002: Engine callbacks MUST produce result plists with elapsed-ms and pid when possible.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- ALG-obs-001: Compute elapsed-ms from monotonic timestamps; avoid blocking waits.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- OBS_E_MASK — secret or PII leaked
+- OBS_E_FORMAT — malformed log line
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Logs MUST avoid secrets and TRAMP paths; redact vendors’ payloads as needed.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Logging SHOULD be non-blocking; I/O batching preferred.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- TST-obs-001: elapsed-ms and pid present when available
+- TST-obs-002: ordered events, single terminal outcome in traffic
+- TST-obs-003: masking enforced in summaries
+- TST-obs-004: traffic summaries include head/tail windows and total-bytes
+- Traceability Map:
+  - REQ-obs-001 → TST-obs-001
+  - REQ-obs-002 → TST-obs-002
+  - REQ-obs-005 → TST-obs-003
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Source of Truth:
+  - spec/apply-engines-v2.org#IFC
+  - spec/llm-transport-v2.org#IFC
+  - spec/errors-v2.org#ERR
+- Related:
+  - spec/logging-v2.org
+- Code:
+  - lisp/transports/carriage-transport.el
+  - lisp/engines/carriage-apply-engine.el
+  - lisp/transports/carriage-transport-gptel.el
+  - lisp/transports/carriage-transport-echo.el
+  - lisp/carriage-logging.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none
+- Future v2.x may extend fields with optional keys.

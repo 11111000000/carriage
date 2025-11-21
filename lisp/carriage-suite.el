@@ -8,12 +8,14 @@
 ;; Keywords: prompt, suite
 ;;
 ;; Specifications:
-;;   spec/code-style-v1.org
+;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/compliance-checklist-v1.org
-;;   spec/prompt-profiles-v1.org
-;;   spec/extensibility-points-v1.org
+;;   spec/errors-v2.org
+;;   spec/compliance-checklist-v2.org
+;;   spec/prompt-profiles-v2.org
+;;   spec/extensibility-points-v2.org
+;;   spec/project-overview-v2.org
+;;   spec/pack-recipes-v2.org
 ;;
 ;;; Commentary:
 ;; Composition of system prompt from op fragments and intent fragments.

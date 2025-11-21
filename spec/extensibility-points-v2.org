@@ -1,0 +1,149 @@
+#+title: Extensibility v2 — Ops, Engines, Transports, UI
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/extensibility/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: architecture
+- Prompt-ABI: v1
+- Pack-Profiles: P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Stable extension points and contracts to add ops, engines, transports, UI.
+- Define what to implement, register, and document to extend Carriage safely.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- In: extension types, registries, contracts, prompt fragments (PRM).
+- Out: style preferences (see code-style spec).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Op module: format unit (:op) with parse/dry-run/apply + PRM fragment.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- REQ-ext-001: New ops MUST register in the format registry with versioned id.
+- REQ-ext-002: Engines MUST declare capabilities; unsupported ops are refused cleanly.
+- REQ-ext-003: Transports MUST implement streaming, abort, and error contracts.
+- REQ-ext-004: UI components MUST be buffer-local and avoid global side effects.
+- REQ-ext-005: Each extension MUST add a spec file and be listed in the index.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- INV-ext-001: PRM fragments for ops are pure strings or functions (CTX → string).
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Registry record keys:
+  - :parse, :dry-run, :apply, :prompt-fragment, :capabilities (for engines).
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- IFC-ext-001: carriage-format-register OP VER PLIST → ok/error.
+- IFC-ext-002: carriage-register-apply-engine NAME PLIST → ok/error.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- n/a
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- ERR-ext-001: EXT_E_CAPABILITY — op unsupported by engine.
+- ERR-ext-002: EXT_E_REGISTRY — duplicate or malformed registration.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Extensions MUST follow security-v2 (paths, TRAMP, budgets).
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Engines SHOULD provide async variants for long-running tasks.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Include REQ/IFC in P2-full packs; exclude ALG.
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Index REQ/IFC sections for onboarding flows.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Security and Errors precede extension claims.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- CHK-ext-001: Registry entry present and valid.
+- CHK-ext-002: Capability mismatch fails gracefully.
+- CHK-ext-003: PRM fragment registered and linted.
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Source of Truth: spec/spec-on-specs.org#IFC
+- Related: spec/parser-registry-v2.org, spec/apply-engines-v2.org
+- Code: lisp/carriage-format-registry.el, lisp/engines/*.el, lisp/ops/*.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: low (PRM evolution); document deprecations and migrations.

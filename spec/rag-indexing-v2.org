@@ -1,0 +1,56 @@
+#+title: RAG Indexing v2 — Chunking rules, anchors, and summaries
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/rag/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: docs, infra
+- Prompt-ABI: v1
+- Pack-Profiles: P1-core
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- LLM-Summary: Define deterministic indexing, chunk ids, overlap, and section summaries.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- REQ-rag-001: Index only normative sections unless explicitly allowed.
+- REQ-rag-002: Chunk ids MUST be CHK-<Spec-ID>-<ANCHOR>-NN.
+- REQ-rag-003: Provide one-line LLM-Summary per section.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- FREEZE: chunk-size-target-tokens = 1000
+- FREEZE: overlap-tokens = 120
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- TST-rag-001: ids and overlap validated; only normative sections indexed
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth:
+  - spec/spec-on-specs.org#RAG

@@ -1,0 +1,219 @@
+#+title: Keyspec v2 — Centralized bindings and menu generation
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/ui/keyspec/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: ui, keyspec
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Define bindings model, contexts, and which-key/transient generation rules.
+  - Context-aware maps (carriage/report/global/org)
+  - Deterministic menu layout
+  - Collision linting policy
+  - Profile overlays and aliases
+  - Which-key/transient integration
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- In scope: keyspec schema, generation of keymaps/menus, collisions policy, which-key labels.
+- Out of scope: non-Carriage global key remaps, third-party package keymaps.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Keyspec: list of action plists that define Carriage bindings and menus.
+- Context: usage scope (carriage, report, log, traffic, org, global).
+- Section: logical group in menu (navigate, act, session, tools, logs).
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-keys-001: Bindings MUST be derived from keyspec; no ad-hoc define-key in modules.
+- REQ-keys-002: Collisions MUST be detected, reported, and resolved by policy.
+- REQ-keys-003: Prefix(es) MUST be configurable via Customize; defaults: "C-c e " (+ alias).
+- REQ-keys-004: Which-key labels and transient menu entries MUST reflect the keyspec.
+- REQ-keys-005: Context precedence MUST be deterministic; later contexts override earlier.
+- REQ-keys-006: Global mode MUST install only the prefix invoker by default (menu or prefix-map).
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- FREEZE: base-prefix = "C-c e "
+- FREEZE: sections = (navigate act session tools logs)
+- FREEZE: default-profile = classic
+- INV-keys-001: Keys are stable across sessions given identical keyspec and profile.
+- INV-keys-002: Menu layout is stable for the same keyspec and profile overlays.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Action (plist):
+  - :id (symbol) unique
+  - :cmd (symbol) interactive command
+  - :keys (list of string) suffix sequences relative to prefix (e.g., "d", "M-RET")
+  - :contexts (list of symbol) e.g., (carriage report global org)
+  - :section (symbol) one of sections (navigate act session tools logs)
+  - :desc-key (symbol) i18n key for label; optional :label string fallback
+- Profile overlays (alist):
+  - profile → plist with :add (list) and :remove (list) of (:id ID :keys (..))
+- Positive example (valid):
+  - (:id dry-run :cmd carriage-dry-run-at-point :keys ("d")
+     :contexts (carriage) :section act :desc-key :dry-run)
+- Negative example (invalid):
+  - (:id dry-run :cmd "not-a-symbol" :keys "d") ; wrong :cmd type, :keys shape
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-keys-001: carriage-keys-apply-known-keymaps
+  - Input: none. Effect: bind prefixes and install menu invokers across known maps.
+  - Errors: KEYS_E_COLLISION (warn/error by policy).
+- IFC-keys-002: carriage-keys-open-menu
+  - Opens transient-based or fallback completing-read menu, grouped by :section.
+- IFC-keys-003: carriage-keys-lint-collisions
+  - Output: list of (key . (ID1 ID2 ...)). Empty list means no collisions.
+- IFC-keys-004: carriage-keys-which-key-register
+  - Registers which-key hints for the base prefix and major subsections.
+- IFC-keys-005: carriage-keys-apply-to MAP CONTEXT
+  - Apply actions for context to a keymap; respects overlays and collisions policy.
+- IFC-keys-006: carriage-keys-apply-prefix-suffixes MAP CONTEXT
+  - Apply actions for context to an existing prefix keymap (already bound to the base
+    prefix) by installing suffix sequences relative to that map; respects profile
+    overlays and collisions policy.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- ALG-keys-001: Build menu
+  - Collect actions for contexts in priority order → apply overlays → dedupe by :id
+  - Partition by :section → allocate unique quick keys per section → render transient spec.
+- ALG-keys-002: Bind maps
+  - For each action → for each effective key suffix → bind under configured prefix
+  - Skip when conflicting with an already bound non-prefix key; record as collision.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- KEYS_E_COLLISION: two or more actions resolve to the same final key; severity=warn|error.
+- KEYS_E_BAD_ACTION: malformed action plist; severity=error; remediation: fix schema.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Do not remap security-sensitive global keys outside Carriage prefixes.
+- No file writes; diagnostics go to *Messages* or Carriage log buffer.
+
+LLM Security
+- Anchor: LSEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Not applicable to prompt outputs; no PRM generation here.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Binding application SHOULD be O(n) in number of actions; menu render amortized.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Which-key hints MUST match menu grouping; fallback completing-read MUST list section first.
+
+Prompt Guidance (LLM Output Contract)
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Not applicable (no model outputs defined here).
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Profile: P2-full
+  - include: carriage/ui/keyspec/v2#REQ priority=P2 max-tokens=300 summarize=0.6
+  - include: carriage/ui/keyspec/v2#IFC priority=P2 max-tokens=300 summarize=0.6
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Index REQ/IFC anchors; chunk ids CHK-carriage/ui/keyspec/v2-REQ-01..NN.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- UI follows Formats/Interfaces precedence; cannot override Security/Errors.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- CHK-keys-001: All actions valid per schema; collisions lint clean or resolved by policy.
+- CHK-keys-002: Which-key registrations present for base prefix and toggles.
+- TST-keys-001: collisions lint passes; menu opens
+- TST-keys-002: fallback menu works without transient; grouping matches :section
+- TST-keys-003: aliases (prefix-alias) invoke the same menu
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Source of Truth: spec/spec-on-specs.org#IFC
+- Related: spec/ui-v2.org, spec/i18n-v2.org
+- Code:
+  - lisp/carriage-keyspec.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none
+- Minor changes may extend sections; anchors remain stable.
+

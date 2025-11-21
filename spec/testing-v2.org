@@ -1,0 +1,79 @@
+#+title: Testing v2 — Traceability, golden files, and stochastic checks
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/testing/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: qa
+- Prompt-ABI: v1
+- Pack-Profiles: P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Define test strategy and REQ→TST traceability for SDD with LLM.
+  - Unit and integration
+  - Golden prompts/outputs
+  - Deterministic and stochastic runs
+  - Coverage of MUST items
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- REQ-test-001: Each MUST requirement MUST map to ≥1 TST.
+- REQ-test-002: For LLM outputs, run both T=0 and stochastic checks.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- TST-test-001: Verify REQ coverage and generate Traceability Map (REQ → TST → PRM → code).
+- TST-test-002: Golden prompts/outputs — validate strict Output-Contract (shape, fields, escape rules).
+- TST-test-003: Determinism Window — T=0 run must be byte-stable; stochastic run (T>0) preserves invariants.
+- TST-test-004: Engine/process tests — timeout/abort are idempotent; single terminal event delivered.
+- TST-test-005: Path/TRAMP policy enforced; negative tests for absolute/.. and remote paths.
+- TST-test-006: RAG chunk ids (CHK-*) present and stable across minor versions.
+- TST-test-007: Pack-Profiles budgets — P0/P1 recipes fit token caps; summarization ratios applied.
+- TST-test-008: Error mapping — ERR codes resolved to condition symbols with message templates.
+- TST-test-009: UI/Mode contracts — required commands and state transitions present; help-echo/tooltips stable.
+- TST-test-010: Observability — pid, elapsed-ms, model-id/token-usage, and traffic summaries (head/tail/bytes) present.
+
+Traceability Map (template)
+- REQ-<topic>-NNN → TST-<topic>-NNN[, …] → PRM-<topic>-NNN (if LLM) → code: lisp/<path>.el#<fn-or-glob>
+- Example:
+  - REQ-apply-002 (delete→rename→create→patch ordering)
+    → TST-apply-001 (plan ordering positive) ; TST-apply-003 (async abort)
+    → PRM-pp-001 (Suite contract forbids udiff markers in SRE)
+    → code: lisp/carriage-apply.el, lisp/ops/*
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Source of Truth:
+  - spec/spec-on-specs.org#TST
+- Related:
+  - spec/golden-fixtures-v2.org
+- Code:
+  - tests/**
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none

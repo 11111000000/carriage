@@ -1,0 +1,165 @@
+#+title: LLM Registry v2 — Backends, models, and canonical ids
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/transport/llm-registry/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: transports
+- Prompt-ABI: v1
+- Pack-Profiles: P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Define a registry for LLM backends/models and normalization of model ids.
+  - Canonical id format
+  - Model capability flags
+  - Default selection logic
+  - Listing and filtering
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- In scope: model identity, lookup, defaults; Out: vendor SDK details.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Canonical id: backend[:provider]:model.
+- Capability: flags like supports-reasoning, tool-use.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- REQ-llmr-001: Registry MUST normalize model ids to canonical form.
+- REQ-llmr-002: MUST expose available-models and default-candidate APIs.
+- REQ-llmr-003: Capabilities MUST be queryable by id.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- INV-llmr-001: Canonical id components use ASCII; no spaces.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Model record:
+  - :id string, :backend symbol, :provider string|nil, :model string
+  - :caps plist
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- IFC-llmr-001: carriage-llm-register-backend BACKEND CAP-FN
+- IFC-llmr-002: carriage-llm-available-models → list
+- IFC-llmr-003: carriage-llm-default-candidate → string
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Normalization and tie-breaking for defaults; filtering by capabilities.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- ERR-llmr-001: LLMR_E_UNKNOWN — unknown backend/model
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- No secrets stored in registry entries; lazy discovery only.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Cache with TTL; refresh triggers; avoid blocking UI.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Model picker shows canonical id and a short display name.
+
+Prompt Guidance
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- PRM-llmr-001: Avoid referring to backend-specific quirks in PRMs.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- P2-full:
+  - include: carriage/transport/llm-registry/v2#REQ priority=P2 max-tokens=400 summarize=0.5
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Chunk ids CHK-carriage/transport/llm-registry/v2-REQ-01..NN.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Registry is advisory; transport selects model ultimately.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- TST-llmr-001: id normalization
+- TST-llmr-002: default candidate selection
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Code:
+  - lisp/carriage-llm-registry.el
+  - lisp/carriage-ui.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none

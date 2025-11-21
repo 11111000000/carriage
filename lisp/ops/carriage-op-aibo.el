@@ -8,12 +8,14 @@
 ;; Keywords: ops, sre
 ;;
 ;; Specifications:
-;;   spec/code-style-v1.org
+;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/compliance-checklist-v1.org
-;;   spec/aibo-v1.org
-;;   spec/parser-impl-v1.org
+;;   spec/file-header-format-v2.org
+;;   spec/errors-v2.org
+;;   spec/compliance-checklist-v2.org
+;;   spec/aibo-v2.org
+;;   spec/parser-impl-v2.org
+;;   spec/parser-registry-v2.org
 ;;
 ;;; Commentary:
 ;; Literal-only search/replace op implemented on top of SRE core.

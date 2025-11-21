@@ -1,0 +1,151 @@
+#+title: Async Workflow v2 — Non-blocking execution and timers
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/core/async/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: core, apply
+- Prompt-ABI: v1
+- Pack-Profiles: P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Define non-blocking execution model, timers, abort, and callback delivery.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- In: timer-based FSM, background work, abort routing, callback delivery to main thread.
+- Out: engine internals, transport streaming details.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- token: opaque handle with :abort-fn usable to cancel current step.
+- state: plist carrying mutable fields for the FSM.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- REQ-async-001: UI MUST not block; long work uses timers or processes.
+- REQ-async-002: Each async request MUST signal exactly one completion (OK or FAIL).
+- REQ-async-003: Abort MUST be idempotent and cancel pending timers and active engine step.
+- REQ-async-004: Callbacks MUST be delivered on the main thread.
+- REQ-async-005: Timeouts MUST default to 15s unless overridden by the spec in effect.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- FREEZE: default-timeout-seconds = 15
+- INV-async-001: State counters (ok/fail/skipped) are monotonically non-decreasing.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- token (plist): :abort-fn (function|nil), :engine (symbol|nil), :process (process|nil).
+- state (plist): :queue (list), :items (list), :messages (list), :current (plist|nil),
+  :fs-timer (timer|nil), :aborted (bool).
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- IFC-async-001: INIT(plan, root) → state, token.
+- IFC-async-002: RUN(plan, root, state, token, callback) → start FSM.
+- IFC-async-003: ABORT(token) → t on success; idempotent.
+- IFC-async-004: FINISH(plan, state, callback) → final report.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- ALG-async-001: Schedule start via run-at-time 0; continue chaining via next-step.
+- ALG-async-002: For engine steps, store :current and wire :abort-fn.
+- ALG-async-003: For filesystem steps, use a short run-at-time thunk and catch errors.
+- ALG-async-004: On completion, build report, log summary, announce success, replace markers.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- ERR-async-001: ENG_E_TIMEOUT — timer exceeded; include elapsed and op context.
+- ERR-async-002: MODE_E_DISPATCH — unsupported op in this async context.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Async code MUST respect path and TRAMP policies (security-v2#SEC).
+- Do not escalate privileges; environment is inherited.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Time budget per step: <= default-timeout-seconds unless configured.
+- Wait loop slices: 50–100 ms for process IO.
+- Record :elapsed-ms and :pid when available.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- State changes SHOULD update UI tooltips; abort SHOULD reset spinners.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- TST-async-001: Abort cancels active step and is idempotent.
+- TST-async-002: Exactly one completion callback is invoked per run.
+- TST-async-003: Reports include summary and messages per data-structures-v2.
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Source of Truth:
+  - spec/apply-pipeline-v2.org#IFC
+  - spec/apply-engines-v2.org#REQ
+  - spec/security-v2.org#SEC
+  - spec/errors-v2.org#ERR
+- Code:
+  - lisp/carriage-apply.el (async FSM)
+  - lisp/engines/carriage-engine-*.el (abort hooks)
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Affects-Prompt: none
+- Future: structured cancellation reasons and per-step deadlines.

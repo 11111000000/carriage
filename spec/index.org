@@ -1,73 +1,192 @@
-#+title: Carriage-mode Spec Index (v1)
+#+title: Carriage Specifications Index v2 — Catalog and Anchors
 #+author: Peter Kosov <11111000000@email.com>
-#+language: ru
+#+language: en
 #+options: toc:2 num:t
 #+property: header-args :results silent
 
-* FREEZE (v1)
-  - (DELIM removed in v1.1 for :op create): содержимое файла берётся как есть между begin/end.
-  - SRE: без :delim; пары begin_from/begin_to.
-  - Макс. пар в SRE: 200 (превышение → SRE_E_LIMITS)
-  - Макс. сегмент FROM/TO: 512 KiB
-  - Макс. размер тела ответа: 4 MiB
-  - Тайм-аут git: 15 сек.
-  - Пути: только относительные, внутри корня проекта; symlink — deny escape.
-  - SRE: only :occur first|all, :expect обязателен для all (любые иные значения :occur → SRE_E_OCCUR_VALUE).
-  - AIBO: literal-only, регулярные выражения запрещены.
-  - NOOP: для SRE/AIBO, если after==before — статус 'skip; отчёт должен включать :matches и :changed-bytes.
-  - Patch: только один файл на блок; :strip=1 по умолчанию (a/ b/ префиксы обязательны).
-  - TRAMP и бинарные патчи — не поддерживаются.
-- Контекст (v1.1): максимум 100 файлов; максимум 1024 KiB суммарно включаемого содержимого.
+Meta
+- Spec-ID: carriage/docs/index/v2
+- Version: v2.0
+- Status: stable
+- Normativity: RFC 2119 applies
+- Ownership: architecture, docs
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
 
-* Источники истины (anchors)
-- Имя спец-блока (=begin_patch/end_patch=): ./parser-registry-v1.org.
-- FREEZE/лимиты/DELIM: ./index.org (секция FREEZE).
-- Политика путей, symlink, TRAMP: ./security-v1.org.
-- Конвейер применения и dry-run/подтверждение: ./apply-pipeline-v1.org.
-- Движки применения (Apply Engines): ./apply-engines-v1.org.
-- Правила unified diff: ./patch-unified-diff-v1.org.
-- Операции create/delete/rename: ./file-ops-v1.org.
-- Формат SRE: ./sre-v1.org.
-- UI/состояния/таблицы: ./ui-v1.org.
-- Git: ./git-integration-v1.org.
-- Коды ошибок: ./errors-v1.org.
-- Структуры данных: ./data-structures-v1.org.
-- Реестр и имплементация парсеров: ./parser-registry-v1.org, ./parser-impl-v1.org.
-- Неблокирующий пролог и Abort: ./async-workflow-v1.org.
-- Интеграция контекста запроса: ./context-integration-v1.org.
-- Модель биндингов клавиш (keyspec): ./keyspec-v1.org.
-- Состояние документа: ./doc-state-v1.org.
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Canonical catalog of specs, anchors, and priorities for CI and prompt packing.
+- Define the authoritative catalog of Carriage specs, their anchors, priorities, and status.
+- Serve as a map for CI linting, prompt packing, and cross-references.
 
-* Назначение
-- Этот индекс собирает спецификации форматов и самого мода.
-- Версия сводной спецификации: v1 (минимальная, надёжная, без алиасов).
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- In scope: spec list, anchors, group priorities, FREEZE constants for global limits.
+- Out of scope: per-topic requirements (see each topic spec).
 
-* Состав
-- Форматы патчей:
-  - ./sre-v1.org — Search/Replace формат (sre; пары begin_from/begin_to) в блоке =patch=.
-  - ./aibo-v1.org — Literal-only Search/Replace (aibo; без регулярок) в блоке =patch=.
-  - ./patch-unified-diff-v1.org — Unified Diff в блоке =patch=.
-  - ./file-ops-v1.org — Операции над файлами (create, delete, rename) в блоках =patch=.
-- Спецификация мода (основы и модули):
-  - ./carriage-mode-v1.org — основы мода, активация, команды, поведение.
-  - ./llm-transport-v1.org — абстракция транспорта LLM/агентов и адаптер к gptel (референс).
-  - ./project-structure-v1.org — структура проекта, слои и зависимости.
-  - ./extensibility-points-v1.org — точки расширения (ops, транспорты, UI).
-  - ./parser-registry-v1.org — диспетчеризация (:version,:op) → парсер/апплаер.
-  - ./apply-engines-v1.org — абстракция движков применения (реестр, контракты).
-  - ./apply-pipeline-v1.org — Dry-run, применение, атомарность, порядок.
-  - ./git-integration-v1.org — Git, ветка WIP, безопасность путей.
-  - ./security-v1.org — политики безопасности и ограничения.
-  - ./prompt-profiles-v1.org — Intent/Suite: реестр сьюитов и композиция промптов по ops.
-  - ./ui-v1.org — header-line, mode-line, keymap, буферы отчётов.
-  - ./readme-v1.org — структура README.org, обязательные разделы и ссылки на спецификации.
-- Нарратив и основания:
-  - ./carriage-whitepaper-v1.org — философия, мотивация и архитектурные решения без детализации реализации.
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Topic: coherent problem area with one primary spec file and stable anchors.
+- Anchor: machine-stable section id within a spec.
+- Tier: validation priority for CI and packing (P0..P3).
 
-* Инварианты v1
-- Блоки форматов используют имя =patch=:
-  - #+begin_patch (<plist>) ... #+end_patch
-- Алиасы не поддерживаются в v1.
-- Один блок = одна операция над одним целевым объектом (обычно файл).
-- Для SRE — один блок на один файл; внутри 1..N пар FROM→TO через пары begin_from/begin_to (без DELIM).
-- Для Unified Diff — ровно один файл на блок.
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-index-001: Each spec MUST appear in this index with Spec-ID, Version, and Status.
+- REQ-index-002: Anchors named in SoS MUST be present in every spec (see SoS).
+- REQ-index-003: CI MUST fail if a spec cited by code headers is missing here.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- FREEZE: max-spec-line-width = 100 chars
+- FREEZE: default-pack-profiles = (P0-min P1-core P2-full P3-debug)
+- INV-index-001: Anchors and file names are stable across minor versions.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index item schema (plist-like bullets):
+  - id: Spec-ID (string)
+  - file: relative path (string)
+  - tier: P0|P1|P2|P3
+  - status: draft|stable|deprecated
+  - affects-prompt: none|low|high
+  - anchors: list of anchor names present
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-index-001: Tooling MUST resolve spec paths and anchors for validation and packing.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- ALG-index-001: Resolve refs
+  - Input: list of code headers “Specifications:” blocks.
+  - Steps: normalize → match Spec-ID → verify file exists → check anchors.
+  - Output: report {missing, stale, ok}.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- ERR-index-001: INDEX_E_MISSING_SPEC — Spec-ID listed in code but absent in index.
+- ERR-index-002: INDEX_E_ANCHOR_MISSING — Anchor cited by code not found in spec.
+- ERR-index-003: INDEX_E_STATUS_DEPRECATED — Cited spec is deprecated (warn/error policy).
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Index content SHALL contain no secrets. Paths MUST be relative. Files MUST reside in repo.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- CI SHOULD cache index parsing. Recompute on changed files only.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Profile: P0-min
+  - include: carriage/docs/index/v2#REQ priority=P0 max-tokens=400 summarize=off
+- Profile: P1-core
+  - include: carriage/docs/index/v2#INV priority=P0 max-tokens=300 summarize=0.6
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- CHK IDs: CHK-carriage/docs/index/v2-REQ-01..NN by tool.
+- Index only normative sections for retrieval.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Security and SoS are Sources of Truth for section naming and priorities.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Compliance Checklist:
+  - CHK-index-001: All specs present with Spec-ID/file/tier/status.
+  - CHK-index-002: No dangling Spec-ID in code headers.
+  - CHK-index-003: Anchors in index match anchors in files.
+- Test Matrix:
+  - Positive: add spec, CI passes; Negative: remove file, CI fails.
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth: spec/spec-on-specs.org#REQ
+- Related: spec/security-v2.org, spec/errors-v2.org
+- Code: lisp/**/*.el (Specifications headers)
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: none
+- Changes update list below; minor versions keep filename.
+
+Appendix (catalog snapshot)
+- Foundation:
+  - carriage/docs/spec-on-specs/v2 → spec/spec-on-specs.org (P0, stable)
+  - carriage/docs/index/v2 → spec/index.org (P0, stable)
+  - carriage/core/security/v2 → spec/security-v2.org (P0, draft)
+  - carriage/core/errors/v2 → spec/errors-v2.org (P0, draft)
+  - carriage/core/data-structures/v2 → spec/data-structures-v2.org (P1, draft)
+  - carriage/docs/project-overview/v2 → spec/project-overview-v2.org (P3, draft)
+  - carriage/docs/extensibility/v2 → spec/extensibility-points-v2.org (P2, draft)
+  - carriage/core/observability/v2 → spec/observability-v2.org (P2, draft)
+  - carriage/docs/golden-fixtures/v2 → spec/golden-fixtures-v2.org (P1, draft)
+  - carriage/docs/spec-refresh-plan/v2 → spec/spec-refresh-plan-v2.org (P3, draft)
+- Gap closure (new):
+  - carriage/docs/cleanup-tools/v2 → spec/cleanup-tools-v2.org (P3, draft)
+  - carriage/core/git-history/v2 → spec/git-history-v2.org (P3, draft)
+  - carriage/core/tasks/v2 → spec/tasks-v2.org (P3, draft)
+  - carriage/docs/document-branching-and-templates/v1 → spec/document-branching-and-templates-v1.org (P2, draft)
+- Formats (selected):
+  - carriage/formats/registry/v2 → spec/parser-registry-v2.org (P0, draft)
+  - carriage/formats/patch/v2 → spec/patch-unified-diff-v2.org (P0, draft)
+  - carriage/formats/sre/v2 → spec/sre-v2.org (P0, draft)
+  - carriage/formats/aibo/v2 → spec/aibo-v2.org (P0, draft)
+  - carriage/formats/file-ops/v2 → spec/file-ops-v2.org (P0, draft)

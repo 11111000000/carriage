@@ -1,0 +1,159 @@
+#+title: Code Style v2 — Authoring and formatting rules for Carriage
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/code-style/v2
+- Version: v2.0
+- Status: stable
+- Normativity: RFC 2119 applies
+- Ownership: architecture, docs
+- Prompt-ABI: v1
+- Pack-Profiles: P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: off
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- LLM-Summary: Define coding and documentation style for Carriage, focusing on consistency,
+  readability, and machine-parsability; constrains line width, naming, headers, and comments.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Applies to Emacs Lisp (.el), Org specs (.org), and ancillary text in this repository.
+- Out of scope: language-specific performance micro-optimizations; legal boilerplate.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Header: the comment preamble of .el files with “Specifications:” block.
+- FREEZE: rule marked as constant and checked by CI.
+- Machine-parsable: structured and predictable enough to be linted and extracted by tools.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- REQ-style-001: Line width SHOULD be <= 100 chars in code and specs (FREEZE).
+- REQ-style-002: All .el files MUST include a “Specifications:” block with Spec-IDs.
+- REQ-style-003: Public functions MUST have docstrings; private helpers SHOULD start with “--”.
+- REQ-style-004: Errors MUST be mapped to central codes; do not invent ad-hoc strings.
+- REQ-style-005: Comments MUST be concise; avoid narrative in code; place design notes in specs.
+- REQ-style-006: Org specs MUST follow SoS anchors and properties; no custom section names.
+- REQ-style-007: Identifiers in specs MUST use REQ/INV/IFC/ALG/ERR/TST/PRM/CHK with topic scoping.
+- REQ-style-008: Avoid ambiguous Unicode; ASCII punctuation in code and anchors only.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- FREEZE: line-width = 100
+- FREEZE: indent = 2 spaces for Lisp forms where applicable; no tabs in code.
+- INV-style-001: “Specifications:” list uses relative paths (spec/*.org).
+- INV-style-002: Spec titles and anchors are stable across minor versions.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Header (Elisp file):
+  - “;;; <file> --- <title>  -*- lexical-binding: t; -*-”
+  - “;; Specifications:” followed by “;;   spec/<name>-vN.org” lines
+  - Optional: URL, Version, Keywords, Package-Requires
+- Spec header (Org):
+  - #+title, #+author, #+language, #+options, #+property (header-args)
+  - Meta section with Spec-ID/Version/Status/Prompt-ABI/Pack-Profiles/Precedence/Fingerprint
+- Identifiers:
+  - REQ-<topic>-NNN etc., three-digit numbering, monotonic per spec, no reuse.
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- IFC-style-001: Lint tools read headers and verify presence of “Specifications:” in .el files.
+- IFC-style-002: Specs are validated against SoS mandatory sections and section properties.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- ALG-style-001: lint-spec
+  - Parse Org headers → verify mandatory anchors → check properties/identifiers → pass/fail.
+- ALG-style-002: lint-elisp-header
+  - Find “Specifications:” → validate paths exist in spec/index → pass/fail.
+- ALG-style-003: line-width-check
+  - Scan code/spec lines; warn on > 100 chars except URLs/long examples (allowlist).
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- ERR-style-001: STYLE_E_HEADER — missing or malformed header.
+- ERR-style-002: STYLE_E_SPECS_BLOCK — missing “Specifications:” or dangling spec.
+- ERR-style-003: STYLE_E_WIDTH — line width exceeded.
+- ERR-style-004: STYLE_E_ANCHOR — missing mandatory SoS section/anchor.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Style rules MUST NOT weaken security constraints (e.g., path normalization or TRAMP bans).
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: nil
+- Stability: stable
+- Pack-Priority: P3
+- Style does not set performance requirements; see domain specs for budgets.
+
+UI/UX
+- Anchor: UI
+- Normative: nil
+- Stability: stable
+- Pack-Priority: P3
+- Comments and help strings SHOULD be concise and consistent with specs.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- CHK-style-001: Headers / “Specifications:” present and valid.
+- CHK-style-002: SoS anchors present in specs; section properties set.
+- CHK-style-003: Line width ≤ 100 except allowlisted lines.
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Source of Truth: spec/spec-on-specs.org
+- Related: spec/index.org, spec/file-header-format-v2.org
+- Code: lisp/**/*.el (headers), tools/lint/* (out of tree)
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none
+- Minimal changes expected; update FREEZE values only with strong rationale.
+

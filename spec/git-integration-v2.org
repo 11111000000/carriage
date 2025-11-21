@@ -1,0 +1,221 @@
+#+title: Git Integration v2 — Branch policies and repository lifecycle
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/core/git-integration/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: core, apply
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Define repository checks and branch policies (in-place, wip, ephemeral)
+  - Ensure repo detection and safety checks
+  - Preflight branch policy evaluation
+  - Epilog switch-back and ephemeral auto-delete
+  - Async process/timeout behavior
+  - Error mapping to centralized codes
+
+- Describe Git obligations for apply pipeline and engines, including policies and
+  safety limits required to keep filesystem and staging consistent.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- In scope: repository presence checks, branch creation/switching, ephemeral branches,
+  branch diff checks, deletion rules, timeouts and abort semantics, mapping to ERR codes.
+- Out of scope: low-level porcelain plumbing beyond specified commands; VCS other than Git.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Branch policy: one of 'in-place, 'wip, 'ephemeral.
+- WIP branch: dedicated working branch (default name carriage/WIP).
+- Ephemeral branch: short-lived branch created for isolated apply runs.
+- Switch-back: returning to the original branch after apply epilog.
+- Empty branch: branch with no diff vs base (or vs original) by policy.
+- Token: engine/process token that may carry :process, :pid, :timer, :aborted flags.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-git-001: Git repository MUST be ensured before any branch policy action; TRAMP is refused.
+- REQ-git-002: Branch policy MUST be one of: in-place, wip, ephemeral; defaults are explicit.
+- REQ-git-003: For policy=wip, system MUST create/switch to WIP and ensure HEAD exists
+  (empty commit allowed) before apply.
+- REQ-git-004: For policy=ephemeral, system MUST create and switch to a unique ephemeral branch
+  before apply.
+- REQ-git-005: On completion, epilog MUST switch back to the original branch when configured
+  (switch-back=t) and the original is known.
+- REQ-git-006: Ephemeral branch MUST be auto-deleted when enabled AND no items were applied
+  (ok=0) AND it is empty vs base/original per policy; when keep-on-fail=t, auto-delete MUST be skipped if any failures occurred.
+- REQ-git-007: Commands MUST honor timeouts and abort semantics; timers MUST be cleared on exit.
+- REQ-git-008: All errors MUST map to ERR codes defined in errors spec (e.g., GIT_E_APPLY).
+- REQ-git-009: Unsafe flags (e.g., --unsafe-paths) MUST NOT be used; paths MUST be relative.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- FREEZE: default-git-timeout-seconds = 15
+- FREEZE: wip-default-branch = "carriage/WIP"
+- FREEZE: ephemeral-prefix = "carriage/tmp"
+- INV-git-001: Exactly one switch-back attempt per run when switch-back=t and orig-branch known.
+- INV-git-002: Ephemeral branch name uniqueness rule: prefix + timestamp + shortid.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Branch policy (symbol): 'in-place | 'wip | 'ephemeral
+- Git result (plist):
+  - :exit (integer), :stdout (string), :stderr (string), :pid (integer|nil)
+  - :reason (nil|'timeout|'aborted|'sentinel-error)
+- Epilog decision (plist):
+  - :switch-back (boolean), :auto-delete-empty (boolean), :orig (string|nil), :current (string|nil)
+- Diff-empty result (plist):
+  - :empty (boolean), :exit (integer), :stdout (string), :stderr (string)
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-git-001: carriage-git-ensure-repo ROOT → ok|error (TRAMP refused)
+- IFC-git-002: carriage-git-checkout-wip ROOT [BRANCH] → result
+- IFC-git-003: carriage-git-create-ephemeral-branch ROOT → {:branch string, :result}
+- IFC-git-004: carriage-git-switch-branch ROOT BRANCH → result
+- IFC-git-005: carriage-git-delete-branch ROOT BRANCH → result
+- IFC-git-006: carriage-git-branches-diff-empty ROOT BASE OTHER → {:empty t|nil, ...}
+- IFC-git-007: Async variants MUST expose :process, :pid, :timer in token and honor abort.
+- IFC-git-008: All results MUST map to standardized ERR codes on failure.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- ALG-git-001: Preflight(policy)
+  - ensure-repo
+  - switch/create per policy:
+    - in-place: no-op; record :orig
+    - wip: checkout/create WIP; ensure HEAD exists (allow empty commit)
+    - ephemeral: create unique ephemeral and checkout; record :orig and :branch
+- ALG-git-002: Epilog(policy, ok, fail, switch-back, auto-delete)
+  - If switch-back and :orig known: switch to :orig (warn on failure)
+  - If policy=ephemeral and auto-delete and ok=0:
+    - If diff-empty vs orig/base: delete ephemeral (warn on failure)
+- ALG-git-003: Timeout/Abort
+  - On timeout: interrupt/kill process; mark token :timed-out t; map to ERR code
+  - On abort: attempt kill process, clear timers, mark :aborted t
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- ERR-git-001: GIT_E_REPO — repo not detected or TRAMP refused
+- ERR-git-002: GIT_E_APPLY — failure of checkout/create/switch/delete; include stderr/stdout
+- ERR-git-003: GIT_E_TIMEOUT — process timeout; include elapsed and argv/branch context
+- ERR-git-004: GIT_E_DIFF — diff check failure; include base/other, stderr
+- Mapping: to carriage/core/errors/v2; messages concise; severity=error unless otherwise stated.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Paths MUST be relative within repo; no TRAMP; deny-by-default on uncertainty.
+- Forbid unsafe git flags (e.g., --unsafe-paths); sanitize environment.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Default timeout 15s per git process; small wait slices 50–100ms.
+- Abort MUST be idempotent; timers MUST be cleared; results finalized on main thread.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- P0-min:
+  - include: carriage/core/git-integration/v2#REQ priority=P0 max-tokens=500 summarize=off
+- P1-core:
+  - include: carriage/core/git-integration/v2#ALG priority=P1 max-tokens=600 summarize=0.6
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index normative sections; chunk ids CHK-carriage/core/git-integration/v2-REQ-01..NN
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Security prevails; Errors precede Formats/Engines when conflict arises.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- CHK-git-001: repo ensured; TRAMP refused
+- CHK-git-002: wip ensures HEAD; ephemeral name unique
+- CHK-git-003: switch-back executes when configured
+- CHK-git-004: ephemeral auto-deletes when ok=0 and diff-empty
+- TST-git-001: preflight in-place → no branch change
+- TST-git-002: preflight wip → branch exists; HEAD ok
+- TST-git-003: preflight ephemeral → unique branch created
+- TST-git-004: epilog switch-back success/failure paths
+- TST-git-005: timeout/abort behavior stable and idempotent
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth:
+  - spec/security-v2.org#SEC
+  - spec/errors-v2.org#ERR
+- Related:
+  - spec/apply-engines-v2.org#IFC
+  - spec/apply-pipeline-v2.org#ALG
+- Code:
+  - lisp/carriage-git.el
+  - lisp/engines/carriage-engine-git.el
+  - lisp/carriage-apply.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: low
+- Future additions: per-remote policies; shallow clones; advanced diff strategies.
+

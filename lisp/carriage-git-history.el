@@ -8,10 +8,10 @@
 ;; Keywords: vcs, git, tools
 ;;
 ;; Specifications:
-;;   spec/code-style-v1.org
+;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/logging-v1.org
+;;   spec/errors-v2.org
+;;   spec/logging-v2.org
 ;;
 ;;; Commentary:
 ;; Утилиты для получения полной истории сообщений коммитов Git текущего

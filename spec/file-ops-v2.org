@@ -1,0 +1,193 @@
+#+title: File Ops v2 — create/replace/delete/rename format and behavior
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/formats/file-ops/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: formats
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Affects-Prompt: high
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Simple file operations with explicit headers and raw body for content ops.
+- Provide deterministic create/replace/delete/rename with clear preconditions.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Formats for create, replace, delete, rename; one file per block.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- replace: full rewrite of existing file body.
+- create: create new file with body as raw content.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-fops-001: create
+  - Header: #+begin_patch (:version "1" :op "create" :file "REL/PATH")
+  - Body: raw file content (no DELIM in v2).
+- REQ-fops-002: replace (reserved)
+  - Not implemented in v2 baseline. Use 'patch (udiff) or 'sre for modifications.
+  - Future versions MAY introduce 'replace as a full-file rewrite with explicit guards.
+- REQ-fops-003: delete
+  - Header: #+begin_patch (:version "1" :op "delete" :file "REL/PATH")
+  - Empty body.
+- REQ-fops-004: rename
+  - Header: #+begin_patch (:version "1" :op "rename" :from "OLD" :to "NEW")
+  - Empty body; paths must be relative; no collision unless allowed by policy.
+- REQ-fops-005: Path normalization MUST enforce security-v2; deny TRAMP.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- INV-fops-001: One block targets one file; rename defines two relative paths.
+- FREEZE: max-body = 4 MiB for create/replace
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Headers as above; body raw for create/replace; empty for delete/rename.
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-fops-001: carriage-parse-create|delete|rename → plan-item|error
+  - replace is reserved in v2 baseline (see REQ-fops-002)
+- IFC-fops-002: carriage-dry-run-<op> ITEM ROOT → row
+- IFC-fops-003: carriage-apply-<op> ITEM ROOT → row
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Preflight: ensure parent dirs for create/replace if :mkdir=t; check collisions.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- FILE_E_EXISTS (create existing), FILE_E_MISSING (replace/delete on absent),
+  FILE_E_COLLISION (rename target exists unless overwrite policy), SEC_E_PATH, SEC_E_REMOTE,
+  *_E_LIMITS (body too large)
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Respect security-v2 path policy; never write outside root; enforce binary/text policy if any.
+
+LLM Security
+- Anchor: LSEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Threat model and guardrails for LLM usage; deny injections; redact secrets.
+- Threat model: prompt-injection, jailbreak, data exfiltration for file-manipulating ops.
+- Separation: treat patch bodies and headers as untrusted; ignore embedded instructions.
+- Logging: redact secrets; cap retention; do not echo bodies in errors.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Non-blocking FS ops; async-capable; report elapsed ms; engine index policy optional.
+- FS ops SHOULD be async-capable; report :elapsed-ms; stage-policy 'index MAY apply via engines.
+
+Prompt Guidance (LLM Output Contract)
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- PRM-fops-001: For create/replace use raw content between begin/end; no extra markers.
+- Forbidden-Phrases: unified diff headers; SRE begin_from/begin_to segments.
+- Positive Example: create — #+begin_patch (:version "1" :op "create" :file "dir/x.txt") … #+end_patch.
+- Negative Example: delete/rename with non-empty body; rename using :file instead of :from/:to.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- CHK-fops-001: create refuses existing file; replace refuses missing by default.
+- CHK-fops-002: rename validates relative paths and collision policy.
+- TST-fops-001: create existing file → FILE_E_EXISTS.
+- TST-fops-002: replace reserved in v2 (not implemented) — no test; use 'patch or 'sre.
+- TST-fops-003: rename target exists (no overwrite) → FILE_E_COLLISION.
+- TST-fops-004: unsafe relative path (.. or absolute) → SEC_E_PATH.
+- TST-fops-005: body exceeds max-body limit → *_E_LIMITS.
+- Traceability Map:
+  - REQ-fops-001 → CHK-fops-001, TST-fops-001
+  - REQ-fops-002 → CHK-fops-001, TST-fops-002
+  - REQ-fops-003 → CHK-fops-001
+  - REQ-fops-004 → CHK-fops-002, TST-fops-003
+  - REQ-fops-005 → CHK-fops-002, TST-fops-004, TST-fops-005
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Related: spec/parser-impl-v2.org#IFC, spec/security-v2.org#SEC
+- Code: lisp/ops/carriage-op-file.el, lisp/carriage-apply.el
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Profile: P0-min
+  - include: carriage/formats/file-ops/v2#REQ priority=P0 max-tokens=600 summarize=off
+  - include: carriage/core/errors/v2#ERR priority=P0 max-tokens=300 summarize=0.5
+  - include: carriage/core/security/v2#SEC priority=P0 max-tokens=300 summarize=0.5
+- Profile: P1-core
+  - include: carriage/formats/file-ops/v2#SCHEMA priority=P0 max-tokens=800 summarize=0.6
+  - include: carriage/formats/file-ops/v2#PRM priority=P0 max-tokens=600 summarize=off
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index normative sections: REQ, SCHEMA, ERR, SEC, PRM.
+- Chunk size target 800–1200 tokens; overlap 100–150 tokens.
+- Chunk IDs: CHK-carriage/formats/file-ops/v2-<ANCHOR>-NN.
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: high (for content-carrying ops; minor additions allowed)
+

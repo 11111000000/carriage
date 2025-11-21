@@ -1,0 +1,183 @@
+#+title: Parser Implementations v2 — Contracts for per-op modules
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/formats/impl/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: formats
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Affects-Prompt: high
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Define uniform function contracts parse/dry-run/apply for all ops.
+- Ensure consistent plan items, rows, and error reporting across modules.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Applies to op modules: sre, aibo, patch, file-ops; excludes engines.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Plan item: plist describing a single action (see data-structures-v2).
+- Row: per-item outcome (dry-run/apply).
+- Report: collection of rows + summary/messages.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-impl-001: parse(HDR, BODY, ROOT) → plan-item|error plist.
+- REQ-impl-002: dry-run(ITEM, ROOT) → row plist; MUST NOT modify FS.
+- REQ-impl-003: apply(ITEM, ROOT) → row plist; MUST be idempotent where specified.
+- REQ-impl-004: Row MUST include :op, :status ('ok|'fail|'skip), :file|:path, :details.
+- REQ-impl-005: Errors map to central codes; add :_messages for rich diagnostics.
+- REQ-impl-006: Security policy MUST be enforced on paths (no absolute, no "..", no TRAMP).
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- INV-impl-001: parse MUST reject unknown :version or :op aliases.
+- INV-impl-002: dry-run and apply MUST use identical path normalization logic.
+- FREEZE: max-body-bytes = 4 MiB (reject with *_E_LIMITS)
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Plan item (common keys):
+  - :op SYMBOL, :version STRING
+  - op-specific keys (see per-format specs)
+- Row (common keys):
+  - :op, :status, :file|:path, :details
+  - optional: :matches, :changed-bytes, :pid, :elapsed-ms, :engine, :_messages; implementations MAY also include underscored UI keys such as :_plan and :_root.
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- IFC-impl-001: carriage-parse-<op> HDR BODY ROOT → plan-item|error
+- IFC-impl-002: carriage-dry-run-<op> ITEM ROOT → row
+- IFC-impl-003: carriage-apply-<op> ITEM ROOT → row
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- ALG-impl-001: Parsing:
+  - Validate headers, normalize paths, enforce limits, build plan item deterministically.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- MODE_E_DISPATCH — invalid :op/:version
+- SEC_E_PATH — invalid/out-of-root path
+- SEC_E_REMOTE — TRAMP refused
+- *_E_LIMITS — body or pair count exceeded
+- Op-specific codes defined in per-format specs
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Enforce security-v2 path policy and size limits before any FS access.
+
+LLM Security
+- Anchor: LSEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Strict parsing; reject aliases/unsafe paths; mask secrets in diagnostics.
+- Threat model: malformed headers/bodies crafted by LLM leading to unsafe ops.
+- Separation: parse strictly; reject aliases and unknown keys; never auto-correct paths.
+- Logging: include error codes, omit full payloads; mask secrets and TRAMP-like strings.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Parsing and dry-run are non-blocking; delegate heavy checks to engines when needed.
+- Parsing/dry-run MUST be non-blocking; heavy checks MAY be delegated to engines.
+
+Prompt Guidance (LLM Output Contract)
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- PRM-impl-001: Fragments MUST declare exact block shapes; forbid aliases and noise.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- CHK-impl-001: All rows conform to data-structures-v2 schema.
+- TST-impl-001: Negative cases for invalid headers, paths, limits.
+- Traceability Map:
+  - REQ-impl-001, REQ-impl-002, REQ-impl-003 → CHK-impl-001
+  - REQ-impl-004, REQ-impl-005, REQ-impl-006 → TST-impl-001
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth: spec/data-structures-v2.org#SCHEMA
+- Related: spec/parser-registry-v2.org#IFC
+- Code: lisp/ops/*.el
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Profile: P0-min
+  - include: carriage/formats/impl/v2#REQ priority=P0 max-tokens=600 summarize=off
+  - include: carriage/core/errors/v2#ERR priority=P0 max-tokens=300 summarize=0.5
+- Profile: P1-core
+  - include: carriage/formats/impl/v2#SCHEMA priority=P0 max-tokens=800 summarize=0.6
+  - include: carriage/formats/impl/v2#IFC priority=P0 max-tokens=700 summarize=0.6
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index normative sections: REQ, SCHEMA, IFC.
+- Chunk size target 800–1200 tokens; overlap 100–150 tokens.
+- Chunk IDs: CHK-carriage/formats/impl/v2-<ANCHOR>-NN.
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: high (fragments); minor additions allowed; breaking → new major.

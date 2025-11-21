@@ -1,0 +1,183 @@
+#+title: i18n v2 — Localization of UI strings (non-prompt)
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/ui/i18n/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: ui, i18n
+- Prompt-ABI: v1
+- Pack-Profiles: P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- LLM-Summary: Define translation flow for UI strings only; prompts are English-only.
+  - English-only for PRM/specs
+  - Keyed lookups with fallback
+  - Minimal runtime overhead
+  - Deterministic labels for which-key/transient
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- In scope: translation keys, fallback policy, UI labels for menus/tooltips/messages.
+- Out of scope: prompts/spec normative text, external translation platforms.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Key: stable identifier used for localization lookup (symbol).
+- Locale: language/region (e.g., en, ru, de).
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- REQ-i18n-001: Do not localize PRM or normative spec fragments.
+- REQ-i18n-002: UI strings MUST have keys; fallback to 'en.
+- REQ-i18n-003: Missing translations MUST not break UI; show base 'en string.
+- REQ-i18n-004: Keys MUST be stable across minor versions.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- FREEZE: default-locale = 'en
+- INV-i18n-001: which-key/transient labels derived via keyspec keys and i18n keys.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Translation table:
+  - hash: locale → key → string
+- API surface (plist-like):
+  - :key (symbol), :locale (symbol|nil), :default (string|nil)
+- Positive example:
+  - (carriage-i18n :dry-run) ⇒ "Dry run"
+- Negative example:
+  - (carriage-i18n "Dry run") ; wrong type for key
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- IFC-i18n-001: carriage-i18n KEY → localized string
+  - Inputs: KEY (symbol), optional locale (dynamic var)
+  - Output: string; fallback to 'en on miss
+  - Errors: none (never signals on miss)
+- IFC-i18n-002: carriage-i18n-register LOCALE TABLE
+  - Registers/merges translations for LOCALE; duplicates overwrite keys.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- ALG-i18n-001: Resolve
+  - locale := current-locale or 'en → lookup string in table → if nil, fallback to 'en.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- No hard errors; missing key is soft-warn in logs when debug enabled.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- No network access; no file IO by default; translation tables are in-memory.
+
+LLM Security
+- Anchor: LSEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Not applicable (no model outputs defined; prompts remain English-only).
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Lookups SHOULD be O(1); registration amortized.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Labels should be concise; avoid truncation in mode-line/menus.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Profile: P3-debug
+  - include: carriage/ui/i18n/v2#REQ priority=P3 max-tokens=200 summarize=0.7
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Index REQ/IFC only; chunk ids CHK-carriage/ui/i18n/v2-REQ-01..NN.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- UI localization MUST not override Security or change functional behavior.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- CHK-i18n-001: All UI strings have keys; fallback to en present.
+- TST-i18n-001: fallback to en when translation missing
+- TST-i18n-002: which-key/transient labels resolved for default locale
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Source of Truth: spec/spec-on-specs.org#UI
+- Related: spec/ui-v2.org, spec/keyspec-v2.org
+- Code:
+  - lisp/carriage-i18n.el
+  - lisp/carriage-ui.el
+  - lisp/carriage-keyspec.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none
+- Add new keys with backwards-compatible fallbacks.
+

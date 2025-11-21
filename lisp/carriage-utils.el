@@ -8,13 +8,13 @@
 ;; Keywords: utils
 ;;
 ;; Specifications:
-;;   spec/code-style-v1.org
+;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/compliance-checklist-v1.org
-;;   spec/git-integration-v1.org
-;;   spec/security-v1.org
-;;   spec/async-workflow-v1.org
+;;   spec/errors-v2.org
+;;   spec/compliance-checklist-v2.org
+;;   spec/git-integration-v2.org
+;;   spec/security-v2.org
+;;   spec/async-workflow-v2.org
 ;;
 ;;; Commentary:
 ;; Common helpers: project-root, normalize-path, git call wrappers.

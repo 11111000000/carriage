@@ -1,0 +1,171 @@
+#+title: Tool Contracts v2 — Unified contract for tools and engines
+#+author: Carriage Team <dev@carriage>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/core/tool-contracts/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: engines, transports
+- Prompt-ABI: v1
+- Pack-Profiles: P1-core, P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- LLM-Summary: Define unified Tool Contract for engine invocations and LLM tool-use:
+  - Inputs/outputs schemas
+  - Timeouts/retries/abort semantics
+  - Error mapping to ERR-codes
+  - Observability (pid, elapsed)
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Applies to:
+  - Engine tools (git/emacs) used by apply pipeline
+  - LLM tool-use stubs envelopes (transport adapters)
+- Out of scope: format grammars (see formats/*).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Tool: function/process implementing an operation with a stable ABI.
+- Token: handle representing an in-flight tool activity (process/timer/abort-fn).
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- REQ-tool-001: Tools MUST declare inputs, outputs, and error mapping (ERR-*) explicitly.
+- REQ-tool-002: Abort handlers MUST be idempotent; repeated aborts MUST not resurrect processes.
+- REQ-tool-003: Each tool call MUST record :pid (when available) and :elapsed-ms.
+- REQ-tool-004: Timeouts MUST produce :reason 'timeout and map to a stable ERR code.
+- REQ-tool-005: Tool envelopes MUST preserve vendor/stdout/stderr payloads for diagnostics.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- FREEZE: default-timeout-seconds = 15
+- INV-tool-001: Exactly one terminal outcome delivered per call (ok|fail|timeout|aborted).
+- INV-tool-002: Abort MUST clear or ignore subsequent sentinels from the process.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Tool input (plist):
+  - :op symbol, :item plist, :repo string
+  - optional: :deadline-ms int, :attempt int
+- Tool token (plist):
+  - :engine symbol, :process process|nil, :abort-fn fn|nil, :timer timer|nil
+  - optional: :pid int, :argv list, :aborted bool, :timed-out bool
+- Tool result (plist):
+  - :exit int, :stdout string, :stderr string, :pid int|nil
+  - :reason nil|'timeout|'aborted|'sentinel-error
+  - optional: :op symbol, :path string, :elapsed-ms int
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-tool-001: tool-dispatch INPUT OK FAIL → TOKEN
+  - Calls underlying engine/process; OK/FAIL invoked once on main thread.
+- IFC-tool-002: token-abort TOKEN → bool
+  - Cancels process/timers; idempotent; sets :aborted t in TOKEN.
+- IFC-tool-003: tool-map-error RES/ERR → ERR-CODE
+  - Maps failure to centralized errors-v2 ERR code; preserves payload.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- ALG-tool-001: Start+timeout
+  - Spawn → set sentinel → start deadline timer → finalize with single OK/FAIL.
+- ALG-tool-002: Abort
+  - Set :aborted → cancel timer → interrupt/kill process → finalize once with 'aborted.
+- ALG-tool-003: Observability
+  - Capture :pid early; compute :elapsed-ms at finalize; append structured logs.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- ERR-tool-001: TOOL_E_ABORT — user abort (reason=aborted)
+- ERR-tool-002: TOOL_E_TIMEOUT — exceeded deadline (reason=timeout)
+- ERR-tool-003: TOOL_E_SENTINEL — process ended with non-zero exit (reason=sentinel-error)
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Enforce path policy (security-v2); deny TRAMP.
+- Sanitize environment; forbid unsafe flags; redact secrets in logs.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Non-blocking; deliver callbacks on main thread; slice waits to 50–100 ms.
+- Record timing and pid; include bytes for stdout/stderr when available.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- TST-tool-001: Abort is idempotent; double abort does not re-signal.
+- TST-tool-002: Timeout produces reason=timeout and ERR-tool-002.
+- TST-tool-003: Single terminal outcome per call (no double-callback).
+- TST-tool-004: Result carries :elapsed-ms and :pid when available.
+- TST-tool-005: Payload preservation — result preserves vendor/stdout/stderr payloads
+  (possibly clipped) and maps failures to centralized ERR codes.
+- Traceability Map:
+  - REQ-tool-002 → TST-tool-001
+  - REQ-tool-004 → TST-tool-002
+  - INV-tool-001 → TST-tool-003
+  - REQ-tool-003 → TST-tool-004
+  - REQ-tool-005 → TST-tool-005
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Source of Truth:
+  - spec/apply-engines-v2.org#TOOL
+  - spec/llm-transport-v2.org#IFC
+  - spec/errors-v2.org#ERR
+- Code:
+  - lisp/engines/carriage-apply-engine.el
+  - lisp/engines/carriage-engine-git.el
+  - lisp/engines/carriage-engine-emacs.el
+  - lisp/transports/*
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Affects-Prompt: none

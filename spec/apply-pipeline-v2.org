@@ -1,0 +1,293 @@
+#+title: Apply Pipeline v2 — Dry-run and Apply (sync/async) with branch policies
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/apply/pipeline/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: apply, engines
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Defines the end-to-end pipeline that executes a parsed plan via dry-run
+  and apply (sync and async), including ordering, branch policies, reporting, and UI hooks.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- In scope: plan ordering, dry-run semantics, apply semantics (sync/async), branch policy
+  preflight/epilog for Git, report shapes, UI integration points, abort.
+- Out of scope: parsing of formats (see parser-impl-v2), engine internal commands (see
+  apply-engines-v2), security policy internals (see security-v2).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Plan: a list of plan items produced by parser(s), each with :op and op-specific keys.
+- Row: result record for a single plan item in dry-run/apply.
+- Report: collection of rows, summary, and diagnostics for a full run.
+- Engine: implementation executing filesystem/VCS effects for a given :op.
+- Branch policy: in-place, wip, ephemeral (Git behaviors during apply).
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-apply-001: The pipeline MUST support both dry-run and apply modes.
+- REQ-apply-002: Plan items MUST be ordered by operation: delete → rename → create → patch → others.
+- REQ-apply-003: Dry-run MUST not modify the working tree; patch MUST use engine 'git --check'.
+- REQ-apply-004: Apply MUST stop on first failure in sync path; async path MUST finish promptly
+  after first failure of current step (no further items executed).
+- REQ-apply-005: Reports MUST conform to data-structures-v2 (summary, items, messages).
+- REQ-apply-006: For :op 'patch', engine 'git' MUST be used regardless of selected engine.
+- REQ-apply-007: When stage-policy='index' and engine='git', create/delete/rename MUST stage changes.
+- REQ-apply-008: Branch policy preflight (Git) MUST execute before first item; epilog MUST restore
+  branch or delete empty ephemeral branches per policy.
+- REQ-apply-009: Abort MUST cancel the active step (engine process or scheduled task) and mark
+  state accordingly; subsequent steps MUST not start.
+- REQ-apply-010: Success announcements and applied-block replacement MUST be side-effect-only;
+  they MUST NOT affect pipeline status or report semantics.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- FREEZE: plan-order = [delete, rename, create, patch, other]
+- INV-apply-001: Reports include (:phase 'dry-run|'apply) and (:engine SYMBOL).
+- INV-apply-002: Summary shape is (:ok N :fail M :skipped K) with non-negative integers.
+- INV-apply-003: Each row MUST include :op, :status ∈ {ok, fail, skip}, and :file|:path.
+- INV-apply-004: Async FSM has states {init, preflight, running, epilog, finished, aborted}.
+- INV-apply-005: Branch policy values ∈ {in-place, wip, ephemeral}; default is policy-dependent.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Plan item (plist):
+  - :op (symbol) one of {create, delete, rename, patch, sre, aibo}
+  - op-specific keys (see respective format specs)
+- Row (plist):
+  - :op (symbol), :status ('ok|'fail|'skip), :file|string or :path|string, :details|string
+  - optional: :matches, :changed-bytes, :pid, :elapsed-ms, :engine
+  - optional: :_plan (original item), :_root (repo root), :_messages (diag list)
+- Report (plist):
+  - :phase ('dry-run|'apply), :engine (symbol), :branch-policy (optional), :branch-name (optional)
+  - :summary (plist), :items (list of rows), :messages (list of diagnostics)
+- Diagnostics message (plist):
+  - :code (symbol), :severity (info|warn|error), :file (optional), :details (string)
+- Stage-policy (symbol): 'none|'index.
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-apply-001: carriage-dry-run-plan PLAN ROOT → REPORT (synchronous).
+- IFC-apply-002: carriage-apply-plan PLAN ROOT → REPORT (synchronous).
+- IFC-apply-003: carriage-apply-plan-async PLAN ROOT [CALLBACK] → TOKEN
+  - TOKEN includes :abort-fn callable at any time; CALLBACK receives final REPORT on main thread.
+- IFC-apply-004: Engines are invoked via carriage-apply-engine-dispatch KIND OP ITEM ROOT OK FAIL
+  - KIND ∈ {:dry-run, :apply}; OP is a symbol; OK/FAIL receive engine result plists.
+- IFC-apply-005: Branch preflight and epilog (Git) are invoked via async helpers in carriage-git.el.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- ALG-apply-001: Sorting
+  - Input plan is sorted by fixed rank: delete(1) < rename(2) < create(3) < patch(4) < other(5).
+- ALG-apply-002: Dry-run (per item)
+  - patch: engine 'git --check'; wait with bounded loop; capture pid/elapsed/stderr; build row.
+  - sre/aibo: simulate changes, compute matches/changed-bytes; NOOP → 'skip when after==before.
+  - file-ops: delegate to format registry dry-run; no FS changes permitted.
+- ALG-apply-003: Apply (per item, sync)
+  - patch: engine 'git apply' (respect stage-policy via engine options).
+  - delete/rename/create: if stage-policy='index and engine='git', use engine path; else use FS ops.
+  - stop at first 'fail; aggregate rows and messages; compute summary.
+- ALG-apply-004: Apply (async FSM)
+  - init: prepare state and queue; force engine='git for patch-present plans.
+  - preflight: evaluate branch policy; ensure repo; switch/create as needed; record :branch-name.
+  - running: for each item, dispatch engine or FS thunk; on completion, accumulate row/counters.
+  - on failure: set :aborted or finish immediately without proceeding to remaining items.
+  - epilog: switch back if configured; optionally delete empty ephemeral branches.
+  - finished: build final report; run CALLBACK.
+- ALG-apply-005: Abort
+  - Cancel current engine process or timer task; set :aborted; proceed to finish path responsibly.
+- ALG-apply-006: Success announcement and applied-block replacement
+  - When fail=0 and interactive session, emit concise summary message.
+  - Optionally replace successfully applied patch blocks in buffers with #+patch_done markers
+    when per-buffer toggle allows; never affects report contents.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- ERR-apply-001: MODE_E_DISPATCH — unsupported op/engine pairing.
+- ERR-apply-002: GIT_E_APPLY — git apply/checkout/switch/delete failure; include stderr/stdout.
+- ERR-apply-003: SEC_E_REMOTE — TRAMP/remote path refusal (delegates to security-v2).
+- ERR-apply-004: APPLY_EMPTY_REPORT — apply produced no rows (informational diagnostic).
+- Mapping: codes and severities MUST align with errors-v2.org.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-apply-sec-001: All paths used in rows MUST pass security-v2 path policy.
+- REQ-apply-sec-002: TRAMP/remote operations MUST be refused in v2.
+- REQ-apply-sec-003: No use of unsafe git flags (e.g., --unsafe-paths).
+- REQ-apply-sec-004: Resource limits (timeouts, retries) MUST be enforced for engines.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Budgets:
+  - Engine wait loop SHOULD use small sleep slices (50–100 ms) and a deadline (default 15s).
+  - Async callbacks MUST be marshalled to main thread for UI-safe operations.
+- Metrics:
+  - Rows SHOULD include :elapsed-ms and :pid when available; logs SHOULD record item timing.
+- Abort:
+  - Abort MUST be idempotent; repeated calls do nothing harmful.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- UI MAY display progress, errors, and summaries; it MUST NOT change pipeline outcomes.
+- Success announcement format:
+  - "Carriage: applied OK (%d items) — created:%d modified:%d deleted:%d renamed:%d — files"
+
+Prompt Guidance (LLM Output Contract)
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- This spec does not define LLM output formats directly; it constrains pipeline behavior
+  that PRM fragments rely on (e.g., single-file udiff support, SRE NOOP policy).
+- PRM-apply-001: PRM fragments for formats MUST reflect that patch is applied via git engine.
+
+Tool Contract
+- Anchor: TOOL
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Tools (e.g., "apply-plan-async") expose:
+  - Inputs: PLAN (list), ROOT (string), CALLBACK (fn|nil).
+  - Outputs: TOKEN with :abort-fn.
+  - Errors: mapped via ERR codes; callbacks receive final REPORT in all terminal states.
+  - Idempotency: multiple aborts SAFE; callbacks invoked once.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- P0-min:
+  - include: carriage/apply/pipeline/v2#REQ priority=P0 max-tokens=800 summarize=off
+  - include: carriage/apply/pipeline/v2#INV priority=P0 max-tokens=400 summarize=0.5
+- P1-core:
+  - include: carriage/apply/pipeline/v2#ALG priority=P1 max-tokens=800 summarize=0.6
+  - include: carriage/apply/pipeline/v2#IFC priority=P1 max-tokens=600 summarize=off
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Only normative sections are indexed by default.
+- Chunk ids: CHK-carriage/apply/pipeline/v2-REQ-01..NN, CHK-...-ALG-01..NN.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Security and Errors precede pipeline claims.
+- Formats (patch/sre/aibo/file-ops) are the source for per-op item schemas.
+- Engines spec is authoritative for per-engine capabilities; pipeline enforces selection rules.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Compliance Checklist
+  - CHK-apply-001: Plan ordering is enforced (delete→rename→create→patch→...).
+  - CHK-apply-002: Dry-run never modifies FS; patch uses git --check.
+  - CHK-apply-003: Apply stops on first failure (sync) and does not start later steps (async).
+  - CHK-apply-004: Reports conform to schema with summary/items/messages.
+  - CHK-apply-005: Stage-policy='index stages create/delete/rename on git engine.
+  - CHK-apply-006: Branch preflight/epilog executes per policy; switch-back and auto-delete rules.
+  - CHK-apply-007: Abort cancels active step and finalizes report.
+  - CHK-apply-008: Rows carry :elapsed-ms/:pid when available; logs include concise summary.
+- Test Matrix (examples)
+  - TST-apply-001 positive: plan [delete, rename, create, patch] → ordered execution, ok rows.
+  - TST-apply-002 negative: patch --check fails → fail row, messages include stderr.
+  - TST-apply-003 async: abort mid-patch → aborted state, no further items executed.
+  - TST-apply-004 policy 'ephemeral with ok=0 → auto-delete branch (when configured).
+  - TST-apply-005 stage-policy='index: create then git add staged row.
+  - TST-apply-006 success announce emitted only when fail=0 and interactive.
+- Traceability Map
+  - REQ-apply-002 → TST-apply-001
+  - REQ-apply-003 → TST-apply-002
+  - REQ-apply-004 → TST-apply-003
+  - REQ-apply-008 → TST-apply-004
+  - REQ-apply-007 → TST-apply-005
+  - REQ-apply-010 → TST-apply-006
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth:
+  - spec/security-v2.org#SEC
+  - spec/errors-v2.org#ERR
+  - spec/data-structures-v2.org#SCHEMA
+  - spec/apply-engines-v2.org#IFC
+- Related:
+  - spec/parser-registry-v2.org#SCHEMA
+  - spec/parser-impl-v2.org#IFC
+- Code:
+  - lisp/carriage-apply.el
+  - lisp/engines/carriage-apply-engine.el
+  - lisp/engines/carriage-engine-git.el
+  - lisp/engines/carriage-engine-emacs.el
+  - lisp/carriage-git.el
+  - lisp/carriage-report.el
+  - lisp/carriage-ui.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: low
+- v2 clarifies async FSM, branch policy epilog, and stage-policy behavior; strengthens
+  data-structure obligations and engine selection for patch. Future v2.x MAY add
+  multi-file patch batch semantics without breaking existing contracts.
+

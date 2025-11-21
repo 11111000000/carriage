@@ -1,0 +1,395 @@
+#+title: Specification-on-Specifications (SoS) — LLM-first standard for Carriage
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/spec-on-specs/v2
+- Version: v2.0
+- Status: stable
+- Normativity: RFC 2119 applies
+- Ownership: architecture, docs
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Define one rigorous, LLM-first, machine-parsable standard for all project specifications.
+- Standardize naming, structure, metadata, anchors, traceability, packaging, and CI checks.
+- Enable Spec-Driven Development where code, tests, and prompts are derived from specs.
+
+Scope
+- Applies to all spec/*.org files and their relationships with code and CI.
+- Normative text SHALL be English. Non-normative notes MAY be bilingual.
+- Out of scope: legal agreements beyond licensing notes; vendor model quirks.
+
+Terms
+- Spec: a single document in spec/*.org following this SoS.
+- Anchor: a stable section identifier used for links and indexing.
+- Prompt-ABI: contract governing prompt-packaging and expected outputs.
+- Pack-Profile: named recipe controlling what sections are included and in what order.
+- PRM: reusable prompt fragment.
+- REQ/INV/IFC/ALG/ERR/TST: identifiers for requirements, invariants, interfaces, algorithms,
+  errors, and tests.
+
+Document format and naming
+- File path: spec/<topic>-vN.org (e.g., apply-engines-v1.org). Minor dot versions do not
+  change filename (v1.1).
+- Index: spec/index.org is the catalog; spec/spec.conf provides tooling hints.
+- Section order and anchor names MUST be stable across minor versions.
+- Line length SHOULD be <= 100 chars. Avoid ambiguous Unicode.
+
+Normative language
+- Use RFC 2119 keywords (MUST, SHOULD, MAY) only in normative sections.
+- Avoid ambiguity in normative prose. Do not include “e.g.” or examples in MUST statements.
+
+Mandatory sections and machine anchors
+- Each spec MUST include the following sections with exact names and anchors:
+  - Meta (anchor: META, normative: t)
+  - Purpose (anchor: PURPOSE, normative: t)
+  - Scope (anchor: SCOPE, normative: t)
+  - Terms (anchor: TERMS, normative: t)
+  - Normative Requirements (anchor: REQ, normative: t)
+  - Invariants (anchor: INV, normative: t)
+  - Grammar/Schema (anchor: SCHEMA, normative: t)
+  - Interfaces/Contracts (anchor: IFC, normative: t)
+  - Algorithms (anchor: ALG, normative: t)
+  - Errors and Diagnostics (anchor: ERR, normative: t)
+  - Security and Limits (anchor: SEC, normative: t)
+  - Performance and Asynchrony (anchor: PERF, normative: t)
+  - UI/UX (anchor: UI, normative: t when present)
+  - Prompt Guidance (LLM Output Contract) (anchor: PRM, normative: t when present)
+  - Tool Contract (anchor: TOOL, normative: t when present)
+  - Context Packaging (anchor: PACK, normative: t)
+  - Retrieval and Indexing (anchor: RAG, normative: t)
+  - Precedence Rules (anchor: PREC, normative: t)
+  - Testing and Conformance (anchor: TST, normative: t)
+  - Cross-References and Anchors (anchor: XREF, normative: t)
+  - Evolution (anchor: EVO, normative: t)
+- Each section MUST begin with section properties on separate lines:
+  - Anchor: <ANCHOR>
+  - Normative: t|nil
+  - Stability: stable|experimental|deprecated
+  - Pack-Priority: P0|P1|P2|P3
+  - LLM-Summary: <one sentence + 3–5 bullets allowed in RAG>
+
+Identifiers and traceability
+- Every normative item MUST have a stable identifier with this shape:
+  - REQ-<topic>-NNN, INV-<topic>-NNN, IFC-<topic>-NNN, ALG-<topic>-NNN, ERR-<topic>-NNN,
+    TST-<topic>-NNN, PRM-<topic>-NNN, CHK-<topic>-NNN (compliance items).
+  - Example: REQ-apply-001, ERR-parse-007.
+- A “Traceability Map” MUST appear in Testing and Conformance or Appendix:
+  - Each REQ maps to one or more TST and, where applicable, to PRM and code globs.
+  - CI MUST fail if any REQ lacks at least one TST.
+  - If a REQ constrains LLM behavior, it MUST map to at least one PRM.
+
+Linking specs and code (two-way)
+- Every Emacs Lisp file MUST include a “Specifications:” block listing related Spec-IDs.
+- Each spec MUST list code back-links (paths or globs) in Cross-References and Anchors.
+- CI SHOULD validate that both sides reference each other and targets exist.
+
+Context Packaging (Prompt-ABI and Pack-Profiles)
+- Prompt-ABI defines compatibility of prompt packaging and output contracts.
+- Meta MUST include Prompt-ABI and Pack-Profiles.
+- Pack-Profiles define deterministic include order and truncation rules:
+  - P0-min: minimal anchors to satisfy critical REQ and PRM.
+  - P1-core: default for runtime prompting.
+  - P2-full: extended context for complex reasoning.
+  - P3-debug: exhaustive context for diagnosis; not for production.
+- Pack-Recipe entries are declared in this section as ordered lines:
+  - include: <Spec-ID>#<ANCHOR> priority=<P?> max-tokens=<N> summarize=<ratio|off>
+  - forbid: <Spec-ID>#<ANCHOR>
+  - prefer: <Spec-ID>#<ANCHOR>
+- Clients MUST invalidate prompt caches when Prompt-ABI or Fingerprint changes.
+
+Retrieval and Indexing (RAG)
+- RAG-Indexing: on|off in Meta controls indexing of this spec.
+- Chunking rules (normative):
+  - Chunk size: 800–1200 tokens target; overlap: 100–150 tokens.
+  - Only normative sections are indexed unless explicitly allowed otherwise.
+  - Each chunk MUST carry an id: CHK-<Spec-ID>-<ANCHOR>-NN.
+  - Normalize whitespace; forbid zero-width characters; enforce UTF-8.
+- LLM-Summary lines at top of sections MAY be indexed for fast retrieval.
+- Anchors MUST be stable across minor versions. Never rename; deprecate instead.
+
+Grammar/Schema conventions
+- Text formats SHALL use EBNF or a clear bullet schema. Structured data SHALL use JSON-like
+  or Elisp plist schema with types, defaults, and constraints.
+- Each field constraint MUST be a REQ or INV with an identifier.
+- Provide positive and negative examples per structure.
+
+Interfaces/Contracts conventions
+- Define function signatures, inputs/outputs, side effects, error modes, and idempotency.
+- Capability flags and optional behaviors MUST be explicit REQ/IFC items.
+- For cross-engine variance, provide a capability matrix and defaults.
+
+Algorithms conventions
+- Provide stepwise procedures; state preconditions, postconditions, and complexity bounds.
+- Where non-determinism exists, define acceptable variance and test oracles.
+
+Errors and Diagnostics conventions
+- Enumerate error codes with ERR- identifiers; map to errors-v2.org anchors.
+- Provide message templates, severity, remediation hints, and examples.
+
+Security and Limits
+- Reference security-v2.org anchors as sources of truth.
+- State path, TRAMP, FS, IPC, network, and process policies and resource limits (FREEZE).
+- Redaction and PII policies MUST be explicit if applicable.
+
+LLM Security
+- Threat model: prompt-injection, jailbreak, data exfiltration, instruction collisions.
+- Require delimiting sentinels and separation of trusted vs untrusted inputs.
+- Provide negative prompts (adversarial examples) and expected refusal behavior.
+- Logging policy: mask secrets; limit retention; define sampling.
+
+Performance and Asynchrony
+- Define time budgets per operation and overall; retry and backoff policies.
+- Non-blocking constraints, cancellation and abort semantics.
+- Mandatory metrics: pid, elapsed-ms, model-id, token-usage; log format and sampling.
+
+UI/UX
+- Visible elements, keybindings, accessibility, and i18n rules for UI strings.
+- Do not localize normative templates or PRM fragments.
+
+Prompt Guidance (LLM Output Contract)
+- Output-Format: JSON, plist, udiff, or other machine formats only; no extra prose.
+- Forbidden-Phrases: list of phrases never allowed in outputs (e.g., “Here is the …”).
+- Determinism Window: prescribed model params (temperature, top_p, seed) and which
+  fields MAY vary.
+- Escape Policy: explicit rules for quoting, delimiter escaping, and newline handling.
+- Provide one canonical example and one counter-example per contract rule.
+
+Tool Contract
+- For tools callable by LLMs, define:
+  - Name, version, inputs (types, required/optional), outputs, errors, idempotency.
+  - Timeouts, retries, and failure semantics.
+  - Security constraints and red-team considerations.
+
+Precedence Rules
+- When conflicts occur:
+  - The declared Source of Truth anchor prevails.
+  - Global precedence: Security > Errors > Formats > Interfaces > Algorithms > UI.
+- Specs MUST state Source of Truth for borrowed topics in Cross-References.
+
+Versioning and Evolution
+- Major versions (vN) change filename; minors (vN.M) update in-file Version only.
+- Deprecate instead of deleting; provide migration notes and sunset dates.
+- Affects-Prompt: none|low|high MUST be set for changes that impact LLM behavior.
+- Changes with Affects-Prompt != none MUST update Prompt-ABI or Pack-Recipe accordingly.
+
+Localization
+- Normative text in English only. Optional narrative in other languages MUST not change
+  normative meaning. UI strings localization is governed by i18n-v2.org.
+
+CI and Fingerprint
+- Fingerprint line is a SHA1 over normalized normative sections (tool-generated).
+- CI MUST lint:
+  - Presence and correctness of mandatory sections, anchors, properties.
+  - REQ coverage by TST and PRM (if LLM-related).
+  - Cross-refs validity and index registration.
+  - Pack-Profiles and Pack-Recipes correctness and token budgets.
+  - Output Contract examples parse cleanly.
+
+Testing and Conformance
+- Compliance Checklist (CHK- identifiers):
+  - Concise bullet list of MUST/SHOULD items, each with CHK-<topic>-NNN.
+- Test Matrix:
+  - Positive, negative, edge, and stochastic tests; inputs → expected outputs or states.
+  - Golden prompts and outputs with masks; run both T=0 and stochastic modes.
+- Traceability Map:
+  - Table or bullets linking REQ → TST → PRM → code globs.
+
+Cross-References and Anchors
+- List related specs with explicit anchors and which is the Source of Truth.
+- List back-links to code (paths or globs).
+- Ensure spec/index.org includes this spec; ensure spec/spec.conf mentions validation tier.
+
+Template (copy and fill)
+- Title block
+  - #+title: <Spec Title> — <Subtitle>
+  - #+author: <Name <email>>
+  - #+language: en
+  - #+options: toc:2 num:t
+  - #+property: header-args :results silent
+- Meta
+  - Spec-ID: carriage/<domain>/<topic>/vN
+  - Version: vN[.M]
+  - Status: draft|stable|deprecated
+  - Normativity: RFC 2119 applies
+  - Ownership: <owners>
+  - Prompt-ABI: vN
+  - Pack-Profiles: P0-min,P1-core,P2-full,P3-debug
+  - Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+  - RAG-Indexing: on
+  - Fingerprint: <auto>
+- Purpose
+  - Anchor: PURPOSE
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P0
+  - LLM-Summary: <one sentence + 3–5 bullets>
+- Scope
+  - Anchor: SCOPE
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P0
+- Terms
+  - Anchor: TERMS
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P1
+- Normative Requirements
+  - Anchor: REQ
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P0
+  - REQ-<topic>-001: <requirement>
+  - REQ-<topic>-002: <requirement>
+- Invariants
+  - Anchor: INV
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P0
+  - FREEZE: <constant/value/unit>
+  - INV-<topic>-001: <invariant>
+- Grammar/Schema
+  - Anchor: SCHEMA
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P1
+  - <schema definitions, types, defaults, constraints>
+- Interfaces/Contracts
+  - Anchor: IFC
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P1
+  - IFC-<topic>-001: <signature, inputs, outputs, errors>
+- Algorithms
+  - Anchor: ALG
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P1
+  - ALG-<topic>-001: <steps, pre/postconditions, complexity>
+- Errors and Diagnostics
+  - Anchor: ERR
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P0
+  - ERR-<topic>-001: <code, message, severity, mapping>
+- Security and Limits
+  - Anchor: SEC
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P0
+- LLM Security
+  - Anchor: LSEC
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P0
+- Performance and Asynchrony
+  - Anchor: PERF
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P1
+- UI/UX (if applicable)
+  - Anchor: UI
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P2
+- Prompt Guidance (LLM Output Contract)
+  - Anchor: PRM
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P0
+  - PRM-<topic>-001: <strict template>
+  - Forbidden-Phrases: <list>
+  - Determinism Window: <params>
+  - Escape Policy: <rules>
+  - Positive Example: <minimal canonical>
+  - Negative Example: <counter-example>
+- Tool Contract (if applicable)
+  - Anchor: TOOL
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P1
+  - IFC-<topic>-tool-001: <tool schema>
+- Context Packaging
+  - Anchor: PACK
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P0
+  - Profile: P0-min
+    - include: <Spec-ID>#REQ priority=P0 max-tokens=800 summarize=off
+  - Profile: P1-core
+    - include: <Spec-ID>#INV priority=P0 max-tokens=600 summarize=0.6
+- Retrieval and Indexing
+  - Anchor: RAG
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P1
+  - Chunk: CHK-<Spec-ID>-<ANCHOR>-NN
+- Precedence Rules
+  - Anchor: PREC
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P0
+- Testing and Conformance
+  - Anchor: TST
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P0
+  - Compliance Checklist (CHK-<topic>-NNN)
+  - Test Matrix (TST-<topic>-NNN)
+  - Traceability Map: REQ → TST → PRM → code
+- Cross-References and Anchors
+  - Anchor: XREF
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P1
+  - Source of Truth: <spec>#<ANCHOR>
+  - Related: <paths>
+  - Code: <globs>
+- Evolution
+  - Anchor: EVO
+  - Normative: t
+  - Stability: stable
+  - Pack-Priority: P1
+  - Affects-Prompt: none|low|high
+  - Deprecations, migrations, change notes
+
+Conformance checklist (for this SoS)
+- CHK-sos-001: Mandatory sections present with exact anchors.
+- CHK-sos-002: Each section has properties: Anchor, Normative, Stability, Pack-Priority.
+- CHK-sos-003: All MUST/SHOULD are flagged as REQ- identifiers.
+- CHK-sos-004: Invariants listed with INV- identifiers and FREEZE constants where applicable.
+- CHK-sos-005: Schema defines types, defaults, constraints; includes pos/neg examples.
+- CHK-sos-006: Errors mapped to errors-v1.org; ERR- identifiers present.
+- CHK-sos-007: Prompt Guidance defines Output-Format, Forbidden-Phrases, Determinism Window,
+  Escape Policy, and examples; PRM- identifiers present.
+- CHK-sos-008: Pack-Profiles and Pack-Recipes defined; Prompt-ABI present in Meta.
+- CHK-sos-009: RAG rules present; chunk IDs follow CHK-<Spec-ID>-<ANCHOR>-NN.
+- CHK-sos-010: Precedence Rules present; Sources of Truth declared in Cross-References.
+- CHK-sos-011: Traceability Map links REQ → TST and, if LLM-related, → PRM.
+- CHK-sos-012: Spec is listed in spec/index.org and spec/spec.conf; code “Specifications” blocks
+  cite this spec.
+- CHK-sos-013: Fingerprint updated by tooling; CI lints pass, token budgets satisfied.
+
+Appendix (non-normative)
+- Identifier examples:
+  - REQ-apply-001, INV-transport-003, IFC-api-007, ALG-pipeline-002,
+    ERR-parse-014, TST-patch-005, PRM-udiff-001, CHK-sos-010.
+- Pack-Recipe example:
+  - P1-core:
+    - include: carriage/apply/engines/v1#REQ priority=P0 max-tokens=1000 summarize=off
+    - include: carriage/errors/v1#ERR priority=P0 max-tokens=400 summarize=0.5
+    - include: carriage/security/v1#SEC priority=P0 max-tokens=400 summarize=0.5
+- Output Contract example (positive, JSON):
+  - Output-Format: JSON object with keys: status (enum), items (array), errors (array).
+  - Forbidden-Phrases: “Here is”, “As an AI”, any Markdown fences.
+  - Escape Policy: all strings UTF-8, no newlines unless field explicitly allows.
+- Negative prompt example:
+  - Injected instruction in user payload is ignored due to sentinel demarcation; model must
+    refuse unsupported operations with ERR-<topic>-inj-001.

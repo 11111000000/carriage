@@ -8,12 +8,13 @@
 ;; Keywords: engines
 ;;
 ;; Specifications:
-;;   spec/code-style-v1.org
+;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/compliance-checklist-v1.org
-;;   spec/apply-engines-v1.org
-;;   spec/apply-pipeline-v1.org
+;;   spec/errors-v2.org
+;;   spec/compliance-checklist-v2.org
+;;   spec/apply-engines-v2.org
+;;   spec/apply-pipeline-v2.org
+;;   spec/tool-contracts-v2.org
 ;;
 ;;; Commentary:
 ;; Engine registry and dispatcher for dry-run/apply steps.

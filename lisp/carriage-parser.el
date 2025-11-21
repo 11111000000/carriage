@@ -8,15 +8,15 @@
 ;; Keywords: parser, ops
 ;;
 ;; Specifications:
-;;   spec/code-style-v1.org
+;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/compliance-checklist-v1.org
-;;   spec/parser-impl-v1.org
-;;   spec/parser-registry-v1.org
-;;   spec/sre-v1.org
-;;   spec/patch-unified-diff-v1.org
-;;   spec/file-ops-v1.org
+;;   spec/errors-v2.org
+;;   spec/compliance-checklist-v2.org
+;;   spec/parser-impl-v2.org
+;;   spec/parser-registry-v2.org
+;;   spec/sre-v2.org
+;;   spec/patch-unified-diff-v2.org
+;;   spec/file-ops-v2.org
 ;;
 ;;; Commentary:
 ;; Block parser and plan builder for different :op formats.

@@ -1,0 +1,161 @@
+#+title: Security v2 — Policies and Limits for Carriage
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/core/security/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: core
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Path, TRAMP, FS, binary, and resource policies that guard apply pipeline.
+- Define mandatory security and resource limits for parsing, dry-run, and apply.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- In: paths, TRAMP/remote, binaries, git safety flags, budgets, logging redaction.
+- Out: model jailbreak countermeasures (see LLM Security in SoS).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Root: project repository root (normalized).
+- TRAMP: Emacs remote file handling (disallowed for apply in v2).
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-sec-001: Paths MUST be relative; absolute or “..” components are forbidden.
+- REQ-sec-002: Symlink traversal MUST NOT escape root; deny-by-default when uncertain.
+- REQ-sec-003: TRAMP/remote apply MUST be refused; dry-run MAY simulate when safe.
+- REQ-sec-004: Binary patches are forbidden in v2 (text-only diffs).
+- REQ-sec-005: Git operations MUST NOT use --unsafe-paths.
+- REQ-sec-006: Perform dry-run before apply; refuse on check failure.
+- REQ-sec-007: Enforce size/time budgets (FREEZE) consistently in dry-run and apply.
+- REQ-sec-008: Logs MUST redact secrets and minimize payload sampling.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- FREEZE: max-response-size = 4 MiB
+- FREEZE: max-sre-pairs = 200
+- FREEZE: max-segment-bytes = 524288
+- FREEZE: git-apply-timeout-sec = 15
+- INV-sec-001: Security checks run before any FS write.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Path acceptance schema:
+  - input: string → normalize(root) → reject if absolute/TRAMP/.. → truename → inside-root?.
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-sec-001: carriage-normalize-path ROOT REL → ABS or error symbol.
+- IFC-sec-002: Binary detection MUST check for NUL bytes; reject on detection.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- ALG-sec-001: safe-path
+  - Expand REL → ABS under ROOT → truename → prefix-check ROOT → ok/refuse.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- ERR-sec-001: SEC_E_PATH — invalid path (absolute/..).
+- ERR-sec-002: SEC_E_REMOTE — TRAMP/remote refused.
+- ERR-sec-003: SEC_E_BINARY — binary payload detected.
+- ERR-sec-004: SEC_E_LIMITS — resource limits exceeded.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Enforce path policy, refuse TRAMP, forbid binary patches, apply budgets.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Timeouts MUST be enforced for external git; aborts MUST release timers/processes.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- P0-min: include REQ and INV; P1-core: include ERR and ALG summaries.
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index normative sections only; chunk target 800–1200 tokens.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Security prevails over Formats and Engines when conflicts arise.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- CHK-sec-001: Absolute/.. paths rejected in parser/apply.
+- CHK-sec-002: TRAMP apply refused.
+- CHK-sec-003: Binary patch rejected.
+- CHK-sec-004: Budgets enforced with consistent failure mode.
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth: spec/spec-on-specs.org#SEC
+- Related: spec/patch-unified-diff-v2.org#SEC
+- Code: lisp/carriage-utils.el, lisp/carriage-apply.el, lisp/ops/*
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: low (guardrails and budgets); update pack-profiles on budget change.

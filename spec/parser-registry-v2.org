@@ -1,0 +1,200 @@
+#+title: Parser Registry v2 — Versioned op registry and dispatch
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/formats/registry/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: core, formats
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Affects-Prompt: high
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Canonical registry mapping (:op, :version) to parse/dry-run/apply/prompt-fragment.
+- Provide a single source of truth for how format handlers are discovered and invoked.
+- Ensure deterministic, versioned dispatch with explicit capability and error signaling.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- In scope: registration, lookup, dispatch invariants, capability flags, errors.
+- Out of scope: engine execution (see apply-engines-v2), per-op grammar (see each format spec).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Op: a format unit (sre, aibo, patch, file-ops) with parse/dry-run/apply.
+- Record: plist with keys for handlers and metadata.
+- Capability: advertised support attribute (e.g., engines, async).
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-reg-001: Registry keys are (OP symbol, VER string); both are mandatory.
+- REQ-reg-002: Record MUST include :parse, :dry-run, :apply (functions) or explicit refusal.
+- REQ-reg-003: Record SHOULD include :prompt-fragment (string|fn(CTX→string)).
+- REQ-reg-004: Registry SHOULD be immutable per (OP, VER) after successful registration.
+  Current v2 implementation permits overwrite on duplicate registration (last one wins),
+  emitting a warning in softened policy; hardened policy MAY enforce immutability.
+- REQ-reg-005: Lookup MUST return nil for unknown pairs; callers map to MODE_E_DISPATCH.
+- REQ-reg-006: Capability flags MUST be explicit; unsupported calls fail with EXT_E_CAPABILITY.
+- REQ-reg-007: Dispatch MUST NOT call engine-specific code; engines are separate layer.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- INV-reg-001: OP is a symbol; VER is a string "1".."N".
+- INV-reg-002: Handlers are fboundp and accept arity defined by format spec.
+- FREEZE: max-ops-per-suite = 16
+- FREEZE: prompt-fragment-max-len = 8 KiB
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Record (plist):
+  - :parse FUN
+  - :dry-run FUN
+  - :apply FUN
+  - :prompt-fragment STRING|FUNCTION
+  - :capabilities PLIST (optional; engine constraints, async hints)
+- Registration:
+  - (carriage-format-register OP VER RECORD) → t | error
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- IFC-reg-001: carriage-format-register OP VER REC → ok/error
+- IFC-reg-002: carriage-format-get OP VER → REC|nil
+- IFC-reg-003: carriage-format-ops () → list of OP symbols present
+- IFC-reg-004: Callers MUST respect per-op arity (see per-format specs).
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- ALG-reg-001: Register:
+  - Validate keys/types; store entry; duplicates overwrite with a warning (v2 softened policy); hardened policy MAY deny duplicates; store under hash(OP)[VER].
+- ALG-reg-002: Lookup:
+  - Return record or nil; do not synthesize defaults.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- ERR-reg-001: EXT_E_REGISTRY — malformed registration record (wrong types/keys). Duplicate registrations overwrite the existing entry with a warning in v2.
+- ERR-reg-002: MODE_E_DISPATCH — unknown (OP,VER) or missing handler.
+- ERR-reg-003: EXT_E_CAPABILITY — handler refuses operation by capability.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Registry contains code references only; no user data. Do not eval strings.
+- Respect security-v2 for path policies in downstream handlers.
+
+LLM Security
+- Anchor: LSEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Lock registry semantics; forbid prompt-based handler changes; log safely.
+- Threat model: registry poisoning through prompts or headers suggesting handler changes.
+- Separation: Prompt fragments MUST NOT include engine commands or eval-able snippets.
+- Logging: do not log function objects; log symbols only; redact dynamic paths.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: O(1) average registry ops; deterministic lookup; no blocking tasks in main thread.
+- Registry operations MUST be O(1) average; avoid blocking.
+
+Prompt Guidance (LLM Output Contract)
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- PRM-reg-001: Fragments MUST avoid engine specifics; describe format-only rules.
+- Forbidden-Phrases: engine commands, shell session excerpts.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- CHK-reg-001: Duplicate registration fails with EXT_E_REGISTRY.
+- CHK-reg-002: Lookup unknown (OP,VER) returns nil; caller maps to MODE_E_DISPATCH.
+- TST-reg-001: Register and retrieve entries for sre/aibo/patch/file-ops.
+- Traceability Map:
+  - REQ-reg-001, REQ-reg-005 → CHK-reg-002, TST-reg-001 → lisp/carriage-format-registry.el
+  - REQ-reg-002 → CHK-reg-001 → lisp/carriage-format-registry.el
+  - REQ-reg-003 → TST-reg-001 → PRM-reg-001 → lisp/carriage-format-registry.el
+  - REQ-reg-004 → CHK-reg-001, CHK-reg-002
+  - REQ-reg-006, REQ-reg-007 → TST-reg-001 → lisp/ops/*.el
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth: spec/spec-on-specs.org#IFC, spec/index.org#REQ
+- Related: spec/parser-impl-v2.org#IFC
+- Code: lisp/carriage-format-registry.el, lisp/carriage-parser.el, lisp/ops/*.el
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Profile: P0-min
+  - include: carriage/formats/registry/v2#REQ priority=P0 max-tokens=600 summarize=off
+  - include: carriage/formats/registry/v2#PRM priority=P0 max-tokens=400 summarize=off
+  - include: carriage/core/errors/v2#ERR priority=P0 max-tokens=300 summarize=0.5
+- Profile: P1-core
+  - include: carriage/formats/registry/v2#SCHEMA priority=P0 max-tokens=700 summarize=0.6
+  - include: carriage/formats/registry/v2#IFC priority=P0 max-tokens=600 summarize=0.6
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index normative sections: REQ, SCHEMA, IFC, ERR, PRM.
+- Chunk size target 800–1200 tokens; overlap 100–150 tokens.
+- Chunk IDs: CHK-carriage/formats/registry/v2-<ANCHOR>-NN.
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: high
+- Minor: add optional keys; Major: change handler arity or semantics.

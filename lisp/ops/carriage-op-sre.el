@@ -8,12 +8,14 @@
 ;; Keywords: sre, replace
 ;;
 ;; Specifications:
-;;   spec/code-style-v1.org
+;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/compliance-checklist-v1.org
-;;   spec/sre-v1.org
-;;   spec/parser-impl-v1.org
+;;   spec/file-header-format-v2.org
+;;   spec/errors-v2.org
+;;   spec/compliance-checklist-v2.org
+;;   spec/sre-v2.org
+;;   spec/parser-impl-v2.org
+;;   spec/parser-registry-v2.org
 ;;
 ;;; Commentary:
 ;; Parser/dry-run/apply implementations for SRE v1 blocks.

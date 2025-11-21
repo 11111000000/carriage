@@ -1,0 +1,165 @@
+#+title: Git History v2 — Inspection helpers and contracts
+#+author: Carriage Team <dev@carriage>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/core/git-history/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: core, git
+- Prompt-ABI: v1
+- Pack-Profiles: P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- LLM-Summary: Define best-effort Git history and inspection helpers used by UI.
+  - Inspect commits and diffs for files/buffers
+  - Non-blocking behavior and timeouts
+  - Centralized error mapping and safety
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- In scope: read-only Git queries (log, show, blame-like helpers).
+- Out of scope: apply/staging (see git-integration-v2).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- history op: read-only Git command that does not modify repo state.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- REQ-gh-001: Helpers MUST be non-destructive and read-only.
+- REQ-gh-002: Helpers SHOULD be non-blocking; when async wrappers are unavailable, synchronous calls are acceptable; timeouts SHOULD be enforced by callers.
+- REQ-gh-003: Errors MUST map to errors-v2 (e.g., GIT_E_APPLY, GIT_E_TIMEOUT).
+- REQ-gh-004: Paths MUST respect security-v2 normalization; TRAMP refused.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- FREEZE: default-timeout-seconds = 15
+- INV-gh-001: No environment flags that weaken path safety (no --unsafe-paths).
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Result record (plist):
+  - :exit int, :stdout string, :stderr string, :pid int|nil, :elapsed-ms int
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- IFC-gh-001: carriage-git-history-<op> ARGS… → result-plist
+  - Errors: map to ERR; never throw on vendor payloads; include :elapsed-ms and :pid when possible.
+  - Reference commands (current implementation):
+    - carriage-git-show-full-history (&optional copy-to-kill) — interactive viewer
+    - carriage-git-collect-full-history () — return concatenated commit messages as string
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- ALG-gh-001: Spawn git → set timeout → collect output → finalize once.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- GIT_E_TIMEOUT, GIT_E_APPLY, SEC_E_PATH per errors-v2.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Deny TRAMP; sanitize args; redact secrets in logs.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Report :elapsed-ms; slice waits at 50–100 ms.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- UI integration MUST not block; progress only if available.
+
+Prompt Guidance
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Not applicable.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Profile: P3-debug
+  - include: carriage/core/git-history/v2#REQ priority=P3 max-tokens=200 summarize=0.6
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Chunk: CHK-carriage/core/git-history/v2-REQ-01
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Security and Errors precede UI concerns.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- CHK-gh-001: timeout respected; single terminal outcome.
+- CHK-gh-002: :elapsed-ms and :pid present when available.
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Code: lisp/carriage-git-history.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none

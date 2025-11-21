@@ -1,0 +1,175 @@
+#+title: File Header Format v2 — Specifications block in code files
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/file-header-format/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: docs, core
+- Prompt-ABI: v1
+- Pack-Profiles: P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Define the "Specifications:" block in code headers and link hygiene.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- In scope: Emacs Lisp file headers, "Specifications:" list, CI lint expectations.
+- Out of scope: spec content itself; see SoS for spec-side obligations.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Specifications block: header lines listing Spec-IDs relevant to the module.
+- Back-link: a spec listing code files/globs under XREF "Code:".
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- REQ-fhf-001: Every .el file MUST list relevant specs under "Specifications:".
+- REQ-fhf-002: Specs MUST back-link to code (paths/globs) in XREF.
+- REQ-fhf-003: CI MUST validate both directions and existence.
+- REQ-fhf-004: Use relative paths; no TRAMP; line width <= 100 chars.
+- REQ-fhf-005: Keep list stable across minor changes; add not replace on expansion.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- FREEZE: max-line-width = 100
+- INV-fhf-001: Header present at file top, before provide/require forms.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Header block:
+  - ";;; <file> --- <summary>  -*- lexical-binding: t; -*-"
+  - ";; Specifications:" then N lines with "  spec/<name>-vN.org"
+  - Other meta (Author, URL, Package-Requires) permitted.
+- Identifiers: Spec filenames must exist under spec/.
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- IFC-fhf-001: lint-headers FILE → ok|list of diagnostics.
+- IFC-fhf-002: lint-backlinks SPEC → ok|list of diagnostics.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- ALG-fhf-001: Resolve:
+  - Read headers → extract spec paths → verify existence and index presence.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- FHF_E_MISSING_HEADER — No "Specifications:" block found.
+- FHF_E_DANGLING_SPEC — Spec path not found or not in index.
+- FHF_E_NO_BACKLINK — Spec lacks code back-link covering file.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Paths MUST be relative; TRAMP forbidden; no environment expansion.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Lint SHOULD be O(file size); caching allowed.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Optional status line hint when header is missing; do not block edits.
+
+Prompt Guidance
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Not applicable.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Profile: P2-full
+  - include: carriage/docs/file-header-format/v2#REQ priority=P2 max-tokens=300 summarize=off
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Index REQ and ERR for lint messages and assistant hints.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Source of Truth: spec/spec-on-specs.org#XREF and #IFC.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- TST-fhf-001: lint passes for headers and back-links.
+- TST-fhf-002: dangling spec flagged; CI fails build.
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Source of Truth:
+  - spec/spec-on-specs.org#XREF
+- Related:
+  - spec/index.org
+  - spec/spec.conf
+  - spec/readme-v2.org
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none
+- Minor edits clarify schema; breaking changes not expected.
+
+

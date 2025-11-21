@@ -1,0 +1,288 @@
+#+title: Document Branching and Templates v1 — Registry, Context Profiles, and Actions Palette
+#+author: Carriage Team <dev@carriage>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/docs/document-branching-and-templates/v1
+- Version: v1.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: architecture, ui
+- Prompt-ABI: v1
+- Pack-Profiles: P1-core, P2-full, P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- LLM-Summary: Define a document-first branching workflow with a minimal, deterministic template
+  system, explicit context profiles (P1/P3), optional inheritance, a fixed actions palette,
+  and a safe "assist" surface for lightweight LLM guidance that never writes to documents
+  automatically.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- In scope: template registry and placeholder language; transient "Branch" UI; context profiles
+  (P1-core default, P3-debug optional); explicit inheritance of begin_context/CAR_*; fixed
+  actions palette; assist interface for lightweight model suggestions; provenance keys in
+  begin_carriage; metrics and limits.
+- Out of scope: agent-style autopilots, complex wizards, automatic project map generation
+  (may come in v1.x as optional modules).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Template: deterministic generator of document/insert text from ctx.
+- Placeholder: {{name|filter}} expansion with a whitelist of filters.
+- Context profile: P1-core (minimal) or P3-debug (expanded; opt-in).
+- Inheritance: explicit carry-over of begin_context paths and/or CAR_* flags from parent.
+- Actions palette: fixed set of deterministic insert actions (Plan, Step, Test, Retro, Toggle P1↔P3).
+- Assist: lightweight model suggestions with schema-locked outputs; no auto-writing.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-tpl-001: Template rendering MUST be deterministic and side-effect-free (no I/O, network,
+  TRAMP, eval). Only whitelisted filters are permitted.
+- REQ-tpl-002: Default context profile MUST be P1-core; P3-debug MUST be opt-in via explicit UI flag.
+- REQ-tpl-003: Inheritance of begin_context and/or CAR_* MUST be explicit and recorded in the
+  document (e.g., "inherited N paths") with de-duplication of paths.
+- REQ-tpl-004: begin_carriage storage MUST include provenance keys:
+  CAR_TEMPLATE_ID, CAR_TEMPLATE_VER, CAR_CONTEXT_PROFILE, and CAR_INHERITED when present.
+- REQ-tpl-005: The actions palette MUST expose a fixed set of deterministic insert actions; their
+  visibility MUST depend on document state. An assist MAY rank actions but MUST NOT write to
+  the document automatically.
+- REQ-tpl-006: Assist responses MUST conform to schema-locked shapes; invalid responses MUST NOT
+  modify the document and MUST be surfaced as diagnostics.
+- REQ-tpl-007: P3-debug usage MUST show a warning about size/quality budget impacts and MUST display
+  a [Ctx:N] badge with a tooltip.
+- REQ-tpl-008: All template and action inserts MUST be revertible via a single undo group.
+- REQ-tpl-009: Template lookup order MUST be:
+  ./carriage/templates (project) → ~/.config/carriage/templates (user) → built-in.
+  Earlier locations override later ones.
+- REQ-tpl-010: Time-to-skeleton SHOULD be ≤ 60 seconds for a standard project without manual cleanup.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- INV-tpl-001: Default profile is P1-core (FREEZE).
+- INV-tpl-002: No eval/compile/require/network/FS in :render/:when/filters (FREEZE).
+- INV-tpl-003: Placeholders MUST use a whitelist of names and filters only (FREEZE).
+- INV-tpl-004: begin_context MUST be built from repo-local paths normalized by security-v2 (TRAMP refused).
+- INV-tpl-005: Inserts MUST run within one undo-change-group (FREEZE).
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Template record (plist):
+  - :id symbol (REQUIRED)
+  - :version string (REQUIRED; semver "1.0")
+  - :label string (REQUIRED)
+  - :desc string (OPTIONAL)
+  - :category symbol (OPTIONAL; analysis|decomposition|testing|debug|design|bug|misc)
+  - :when function(ctx→bool) (OPTIONAL; visibility predicate)
+  - :render function(ctx→string) (REQUIRED; pure; no I/O)
+  - :after function(env→nil) (OPTIONAL; UI cosmetics; no I/O)
+- Placeholders:
+  - Form: {{name|filter1|filter2}}
+  - Allowed names: title, today, project, origin_file, origin_heading, subtree, ctx_profile, parent_context_count
+  - Allowed filters: quote (Org-quote), slug (a-z0-9-), trim, upper, lower
+- Ctx (plist passed to :render/:when):
+  - :title string, :today string(ISO), :project string
+  - :origin-file string, :origin-heading string, :subtree string
+  - :ctx-profile 'p1|'p3
+  - :parent-context (list of string paths)
+  - :inherited (plist :begin-context bool :car-flags bool)
+- Assist Suggestion (list of plist):
+  - item: (:id symbol :label string :reason string :weight number)
+- Assist Context-Delta (plist):
+  - (:add (list string) :remove (list string) :why string)
+- begin_carriage fields (added):
+  - CAR_TEMPLATE_ID string
+  - CAR_TEMPLATE_VER string
+  - CAR_CONTEXT_PROFILE "P1"|"P3"
+  - CAR_INHERITED "BEGIN"|"FLAGS"|"BOTH"|"NONE"
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-tpl-001: carriage-templates (defcustom) → list of template records
+- IFC-tpl-002: carriage-templates-render TEMPLATE-ID CTX → string
+- IFC-tpl-003: carriage-task-create-from-template TEMPLATE-ID OPTS → file
+  - OPTS: :profile ('p1|'p3), :inherit-begin-context (bool), :inherit-car-flags (bool), :origin plist
+  - Effects: create org/NN.N-slug.org; write CAR_* provenance; insert begin_context per profile; fold begin_carriage; move point to "Plan"
+- IFC-tpl-004: carriage-task-insert-template TEMPLATE-ID CTX → (cons beg end)
+- IFC-tpl-005: carriage-branching-transient () → UI (template, profile, inheritance)
+- IFC-tpl-006: carriage-actions-palette () → UI (Insert[Plan|Step|Test|Retro], Toggle[P1↔P3]) with state-driven visibility
+- IFC-tpl-007: carriage-assist-suggest CTX → list Suggestion; no writes
+- IFC-tpl-008: carriage-assist-context-delta CTX → Context-Delta; applied only after confirmation
+- IFC-tpl-009: carriage-context-profile-set 'p1|'p3 → updates [Ctx:N] badge and recomputes context set
+- IFC-tpl-010: carriage-metrics-note KEY VALUE → record metrics (time-to-skeleton, success-apply, avg-patch-size, reuse, context-budget)
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- ALG-tpl-001: Branch
+  - Read origin title/subtree → open transient (template/profile/inheritance)
+  - Build ctx with profile default=P1; collect parent-context and inherited flags per UI; de-dup paths
+  - Render template → create new file → insert begin_context per profile → write CAR_* → fold begin_carriage → point to "Plan"
+- ALG-tpl-002: Actions palette
+  - Detect doc state (has plan/tests/successful patches, ctx-profile) → compute action visibility
+  - Optionally call assist to rank actions → render transient/modeline palette
+  - On selection → deterministic insert within one undo group
+- ALG-tpl-003: Assist context-delta
+  - Read begin_context paths within limits → send to assist (schema-locked) → validate response
+  - Show diff preview (add/remove/why) → apply after confirmation; update badge and metrics
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- TEMPLATE_E_IO_ATTEMPT — render/filters attempted I/O/network/eval (error)
+- TEMPLATE_E_UNSAFE_PLACEHOLDER — unknown placeholder/filter (error)
+- ASSIST_E_SCHEMA — invalid assist response schema (warn|error)
+- CONTEXT_E_LIMIT — context size limits exceeded (warn; suggest P1 or trimming)
+- Mapping to errors-v2: use severity and concise messages; aggregate in :messages.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Enforce security-v2 path policy; TRAMP refused; normalize all paths.
+- No eval/network/I/O in templates (:render/:when/filters).
+- Limits: profile caps for P1 and P3; badge and warnings shown; never auto-extend beyond caps.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Time-to-skeleton ≤ 60s; assist calls are async; UI never blocks.
+- Cache context stats (sizes/counts) with short TTL; invalidate on buffer/state changes.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Transient "Branch" (C-c e n) with Template, Profile (P1/P3), Inheritance (begin_context/CAR_*) and size hints.
+- Actions palette: fixed deterministic actions; visibility from state; optional assist ranking; one-step undo for inserts.
+- [Ctx:N] badge with tooltip (sources included/omitted, profile).
+- Minimal hints on overload (large context or overly long steps).
+- Keyboard access for all actions.
+
+Prompt Guidance
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Assist outputs MUST be schema-locked (lists/tables, no free-form prose for suggestions).
+- Model MUST NOT write to document automatically; human confirmation required for any applied delta.
+
+Tool Contract
+- Anchor: TOOL
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Assist Suggest:
+  - Input: ctx snapshot; Output: list of {:id :label :reason :weight}; Errors: ASSIST_E_SCHEMA
+- Assist Context-Delta:
+  - Input: current begin_context; Output: {:add [] :remove [] :why ""}; Errors: ASSIST_E_SCHEMA, CONTEXT_E_LIMIT
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Profiles:
+  - P1-core: minimal, nearest relevant files; strict caps; defaults on
+  - P3-debug: expanded, larger caps; explicit user opt-in with warning
+- Inheritance policies: off|begin_context|car_flags|both; record provenance in begin_carriage.
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index PURPOSE, REQ, INV, SCHEMA (placeholders/filters/ctx), IFC, UI, PRM/TOOL schemas.
+- Chunk targets 800–1200 tokens; overlap ~120; CHK ids enforced; UTF-8 only.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Security > Errors > Formats > Interfaces > Algorithms > UI.
+- Source of Truth for assist schemas: this spec (#PRM/#TOOL).
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- CHK-tpl-001: Templates deterministic; linter forbids I/O/network/eval; only whitelisted placeholders/filters.
+- CHK-tpl-002: P1 is default; P3 requires explicit opt-in and shows warning; [Ctx:N] visible.
+- CHK-tpl-003: CAR_TEMPLATE_ID/VER written; inheritance recorded; path de-dup performed.
+- CHK-tpl-004: Assist returns valid schema; invalid responses do not change the document.
+- CHK-tpl-005: Actions palette shows fixed set; visibility follows doc state; ranking optional.
+- CHK-tpl-006: Inserts are single undo group; time-to-skeleton ≤ 60s.
+- Traceability Map:
+  - REQ-tpl-001 → CHK-tpl-001 → lisp/carriage-templates.el
+  - REQ-tpl-002 → CHK-tpl-002 → lisp/carriage-context.el, lisp/carriage-ui.el
+  - REQ-tpl-004 → CHK-tpl-003 → lisp/carriage-doc-state.el
+  - REQ-tpl-006 → CHK-tpl-004 → transports assist adapter + schema parser
+  - REQ-tpl-008 → CHK-tpl-006 → lisp/carriage-mode.el
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth:
+  - spec/spec-on-specs.org
+  - spec/context-integration-v2.org
+  - spec/doc-state-v2.org
+- Related:
+  - spec/ui-v2.org
+  - spec/keyspec-v2.org
+  - spec/llm-transport-v2.org
+- Code:
+  - lisp/carriage-templates.el (new)
+  - lisp/carriage-task.el
+  - lisp/carriage-doc-state.el
+  - lisp/carriage-keyspec.el
+  - lisp/carriage-ui.el
+  - lisp/transports/* (assist adapter/schema)
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Affects-Prompt: low (assist schemas are concise and deterministic).
+- v1.1: optional begin_map block and manual refresh, stepper "autopilot" pipeline with explicit confirmations.
+- v1.2: alternative modes (PR-template-first, ADR-first) via light bridges and links.
+

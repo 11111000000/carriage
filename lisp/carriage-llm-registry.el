@@ -8,13 +8,15 @@
 ;; Keywords: llm, registry
 ;;
 ;; Specifications:
-;;   spec/code-style-v1.org
+;;   spec/code-style-v2.org
 ;;   spec/index.org
-;;   spec/errors-v1.org
-;;   spec/compliance-checklist-v1.org
-;;   spec/llm-transport-v1.org
-;;   spec/prompt-profiles-v1.org
-;;   spec/logging-v1.org
+;;   spec/errors-v2.org
+;;   spec/compliance-checklist-v2.org
+;;   spec/llm-transport-v2.org
+;;   spec/llm-registry-v2.org
+;;   spec/prompt-profiles-v2.org
+;;   spec/logging-v2.org
+;;   spec/pack-recipes-v2.org
 ;;
 ;;; Commentary:
 ;; Registry of available LLM backends and model identifiers.

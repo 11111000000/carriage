@@ -1,0 +1,167 @@
+#+title: UI v2 — Modeline, header-line, badges, and actions
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/ui/general/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: ui
+- Prompt-ABI: v1
+- Pack-Profiles: P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Define visible state, controls, and feedback in modeline/header-line.
+  - State segment and spinner
+  - Badges (Suite/Engine/Model/Ctx)
+  - Tooltips with summaries
+  - Click actions
+  - Accessibility rules
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Covers UI surfaces and constraints; not transport or engine internals.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Badge: compact segment showing a state or value with tooltip.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- REQ-ui-001: UI MUST not block on async work; updates via main-thread hooks.
+- REQ-ui-002: Tooltips MUST summarize last report (ok/skip/fail/total).
+- REQ-ui-003: Badges MUST reflect Suite/Engine/Model; clicks open selectors.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- INV-ui-001: Deterministic faces per state (idle/sending/streaming/error).
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Badge record:
+  - :id symbol, :value string, :help string, :action fn
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- IFC-ui-001: carriage-ui-set-state PLIST
+- IFC-ui-002: carriage-ui-note-apply-summary PLIST
+- IFC-ui-003: carriage-ui-note-stream-progress PLIST
+- IFC-ui-004: carriage-ui-note-reasoning-chunk STRING
+- IFC-ui-005: carriage-ui-note-error PLIST
+- IFC-ui-006: carriage-show-state-details
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Refresh pipeline: diff state → recompute segments → render idempotently.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- UI errors MUST not alter pipeline outcomes; log with context.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- No file writes from UI; no secrets in tooltips.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Rendering SHOULD be O(1) in buffer size; throttle refresh.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Accessibility: provide help-echo; avoid color-only distinctions.
+
+Prompt Guidance
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- PRM-ui-001: Never instruct model to render UI; UI is tool-owned.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- P2-full:
+  - include: carriage/ui/general/v2#REQ priority=P2 max-tokens=400 summarize=0.5
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Chunk ids CHK-carriage/ui/general/v2-REQ-01..NN.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- UI follows pipeline and transport specs; cannot change contracts.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- TST-ui-001: tooltips updated after apply
+- TST-ui-002: clicks open selectors and preserve state
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Code:
+  - lisp/carriage-ui.el
+  - lisp/carriage-announce.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P3
+- Affects-Prompt: none

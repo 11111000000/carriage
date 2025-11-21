@@ -1,0 +1,83 @@
+#+title: Logging v2 — Structured logs and traffic capture
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/core/logging/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: core
+- Prompt-ABI: v1
+- Pack-Profiles: P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Define structured logging channels and traffic logs for debugging.
+  - General log and traffic log
+  - Message shapes
+  - Sampling and retention
+  - UI viewers
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- REQ-log-001: Logs MUST include timestamps and categories.
+- REQ-log-002: Traffic log MUST capture streaming events with redaction.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Log entry:
+  - :ts, :cat, :msg, :data plist
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- IFC-log-001: carriage-log FMT &rest ARGS
+- IFC-log-002: carriage-traffic-log FMT &rest ARGS
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Mask secrets; limit retention; opt-in persistence.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- TST-log-001: traffic log contains event sequence; secrets redacted
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Code:
+  - lisp/carriage-logging.el
+  - lisp/carriage-traffic-batch.el
+  - lisp/transports/*
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Affects-Prompt: none

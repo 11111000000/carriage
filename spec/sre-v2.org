@@ -1,0 +1,196 @@
+#+title: Search/Replace (SRE) v2 — Paired begin_from → begin_to blocks
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/formats/sre/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: formats
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Affects-Prompt: high
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Multi-pair search/replace for one file with strict pairing and NOOP policy.
+- Provide reliable, idempotent replacement semantics with clear limits and diagnostics.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- One patch block → one target file; 1..N FROM→TO pairs; literal or regex match.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- pair: sequence of #+begin_from … #+end_from then #+begin_to … #+end_to.
+- occur: 'first|'all; expect: integer for 'all.
+- range: (:start-line N :end-line M) inclusive clamp semantics.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-sre-001: Header: #+begin_patch (:version "1" :op "sre" :file "REL/PATH")
+- REQ-sre-002: At least one FROM→TO pair; no unpaired FROM; enforce order.
+- REQ-sre-003: :occur ∈ {first, all}; :occur all requires :expect ≥ 0.
+- REQ-sre-004: :match ∈ {literal, regex}; regex MUST be Emacs flavor; invalid → SRE_E_REGEX_SYNTAX.
+- REQ-sre-005: :range clamps to file bounds; warn SRE_W_RANGE_CLAMP when adjusted.
+- REQ-sre-006: NOOP policy: when after==before the row MUST be 'skip with :matches/:changed-bytes.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- INV-sre-001: Pairs applied sequentially; later pairs see previous TO results.
+- FREEZE: max-pairs-per-block = 200
+- FREEZE: max-payload-side = 512 KiB
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Body:
+  - optional "#+pair (<plist>)" applying to next pair only
+  - #+begin_from … #+end_from
+  - #+begin_to   … #+end_to
+- Escape rule: a line equal to "#+end_from" or "#+end_to" inside payload MUST be prefixed by one space.
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-sre-001: carriage-parse-sre HDR BODY ROOT → plan-item|error
+- IFC-sre-002: carriage-dry-run-sre ITEM ROOT → row
+- IFC-sre-003: carriage-apply-sre ITEM ROOT → row
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Parse: collect pairs, apply pending opts, validate occur/expect/range; build plan.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- SRE_E_SEGMENTS_COUNT, SRE_E_UNPAIRED, SRE_E_OCCUR_VALUE, SRE_E_OCCUR_EXPECT
+- SRE_E_REGEX_SYNTAX, SRE_E_LIMITS, SRE_W_RANGE_CLAMP
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Enforce security-v2 path rules; ensure :file inside project root; deny TRAMP.
+
+LLM Security
+- Anchor: LSEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Protect against prompt-injection via FROM/TO; enforce escapes; minimize logging.
+- Threat model: prompt-injection via FROM/TO payloads and pair directives.
+- Separation: treat pair payloads as untrusted; never execute embedded instructions.
+- Escape policy is mandatory for sentinel lines; refuse malformed blocks.
+- Logging: redact large payloads; avoid echoing bodies in diagnostics.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Do not block on large payloads; chunk processing; preserve metrics and counts.
+- Large payloads processed without blocking UI; chunk if needed.
+
+Prompt Guidance (LLM Output Contract)
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- PRM-sre-001: Answer ONLY with:
+  - #+begin_patch (:version "1" :op "sre" :file "RELATIVE/PATH")
+  - [optional: #+pair (<plist>) for NEXT pair]
+  - #+begin_from
+  - FROM
+  - #+end_from
+  - #+begin_to
+  - TO
+  - #+end_to
+  - … repeat pairs …
+  - #+end_patch
+- Forbidden-Phrases: unified diff markers ("--- ", "+++ ", "diff --git").
+- Positive Example: one FROM→TO pair with :occur first; escaped "#+end_from" inside payload.
+- Negative Example: :occur all without :expect; missing #+begin_to/# +end_to; includes udiff markers.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- CHK-sre-001: occur all without expect → error.
+- CHK-sre-002: NOOP returns 'skip with :matches and :changed-bytes=0.
+- TST-sre-001: Escaped end markers unwrapped correctly.
+- Traceability Map:
+  - REQ-sre-001, REQ-sre-002 → TST-sre-001
+  - REQ-sre-003, REQ-sre-004 → CHK-sre-001
+  - REQ-sre-005 → TST-sre-001
+  - REQ-sre-006 → CHK-sre-002
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Related: spec/aibo-v2.org#REQ
+- Code: lisp/ops/carriage-op-sre.el
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Profile: P0-min
+  - include: carriage/formats/sre/v2#REQ priority=P0 max-tokens=600 summarize=off
+  - include: carriage/core/errors/v2#ERR priority=P0 max-tokens=300 summarize=0.5
+  - include: carriage/core/security/v2#SEC priority=P0 max-tokens=300 summarize=0.5
+- Profile: P1-core
+  - include: carriage/formats/sre/v2#SCHEMA priority=P0 max-tokens=800 summarize=0.6
+  - include: carriage/formats/sre/v2#PRM priority=P0 max-tokens=600 summarize=off
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index normative sections: REQ, SCHEMA, ERR, SEC, PRM.
+- Chunk size target 800–1200 tokens; overlap 100–150 tokens.
+- Chunk IDs: CHK-carriage/formats/sre/v2-<ANCHOR>-NN.
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: high
+- v2 strengthens NOOP and escape rules; adds explicit occur domain.

@@ -1,0 +1,189 @@
+#+title: Unified Diff Patch v2 — Single-file udiff format and constraints
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/formats/patch/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: formats
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Affects-Prompt: high
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Define strict single-file unified diff for v2 with git-apply checks.
+- Ensure deterministic, engine-agnostic udiff that passes git apply --check.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- One block → one file diff. No rename/copy signals inside diff. No binary patches.
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- strip: path component count to strip (default 1 for a/ b/).
+- headers: --- a/rel, +++ b/rel; or /dev/null for create/delete.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-udiff-001: Header: #+begin_patch (:version "1" :op "patch" :strip INT)
+- REQ-udiff-002: Body MUST be valid unified diff referencing exactly one file.
+- REQ-udiff-003: Paths MUST be relative; no absolute or ".."; no --unsafe-paths.
+- REQ-udiff-004: Git prelude lines allowed: diff --git, index, * file mode.
+- REQ-udiff-005: Rename/copy preludes are forbidden; reject with PATCH_E_RENAME_COPY.
+- REQ-udiff-006: Binary patches forbidden; reject with PATCH_E_BINARY.
+- REQ-udiff-007: Dry-run MUST run git apply --check and record stderr/stdout.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- INV-udiff-001: Exactly one pair of ---/+++ headers in block.
+- INV-udiff-002: Default :strip = 1; if provided, it MUST be integer ≥ 0.
+- FREEZE: max-udiff-body = 4 MiB
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Block:
+  - Header: #+begin_patch (:version "1" :op "patch" :strip 1)
+  - Body: standard unified diff for one file
+  - Footer: #+end_patch
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-udiff-001: carriage-parse-patch HDR BODY ROOT → plan-item|error
+- Dry-run/apply delegated to apply engines ('git) per apply-engines-v2.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Validate header; enforce single-file; check forbidden preludes; run --check; build row.
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- PATCH_E_DIFF_SYNTAX, PATCH_E_MULTI_FILE, PATCH_E_BINARY, PATCH_E_RENAME_COPY, PATCH_E_LIMITS
+- PATCH_E_STRIP for invalid :strip type/value
+- PATCH_E_GIT_CHECK as dry-run failure code (stderr/stdout attached)
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Enforce security-v2 path rules. No TRAMP. No unsafe paths.
+
+LLM Security
+- Anchor: LSEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Forbid rename/copy/binary preludes; treat paths as untrusted; never eval.
+- Threat model: prompt-injection via udiff prelude lines and path headers.
+- Separation: treat diffs as untrusted; forbid rename/copy/binary preludes; never eval paths.
+- Logging: redact large diffs; do not echo full udiff bodies in error messages.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- LLM-Summary: Prefer streaming checks; capture pid and elapsed; avoid UI blocking during git checks.
+- Prefer streaming engine checks; report :pid, :elapsed-ms when available.
+
+Prompt Guidance (LLM Output Contract)
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- PRM-udiff-001: Answer ONLY with one block:
+  - #+begin_patch (:version "1" :op "patch" :strip 1)
+  - <unified diff of EXACTLY ONE file>
+  - #+end_patch
+- Forbidden-Phrases: comments outside block; stray “#+end”.
+- Determinism Window: structure fixed; diff content per change set only.
+- Positive Example: one-file diff, matching a/ and b/ paths, :strip 1, no rename/copy/binary.
+- Negative Example: multi-file diff, or binary patch, or rename/copy prelude present.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- CHK-udiff-001: Multi-file diff rejected.
+- CHK-udiff-002: Forbidden rename/copy/binary rejected.
+- TST-udiff-001: git apply --check failure surfaces PATCH_E_GIT_CHECK.
+- Traceability Map:
+  - REQ-udiff-001, INV-udiff-001, INV-udiff-002 → CHK-udiff-001
+  - REQ-udiff-002, REQ-udiff-003, REQ-udiff-004 → CHK-udiff-001
+  - REQ-udiff-005, REQ-udiff-006 → CHK-udiff-002
+  - REQ-udiff-007 → TST-udiff-001
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth: spec/security-v2.org#SEC
+- Related: spec/apply-engines-v2.org#IFC
+- Code: lisp/ops/carriage-op-patch.el, lisp/engines/carriage-engine-git.el
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Profile: P0-min
+  - include: carriage/formats/patch/v2#REQ priority=P0 max-tokens=600 summarize=off
+  - include: carriage/core/errors/v2#ERR priority=P0 max-tokens=300 summarize=0.5
+  - include: carriage/core/security/v2#SEC priority=P0 max-tokens=300 summarize=0.5
+- Profile: P1-core
+  - include: carriage/formats/patch/v2#SCHEMA priority=P0 max-tokens=800 summarize=0.6
+  - include: carriage/formats/patch/v2#PRM priority=P0 max-tokens=600 summarize=off
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index normative sections: REQ, SCHEMA, ERR, SEC, PRM.
+- Chunk size target 800–1200 tokens; overlap 100–150 tokens.
+- Chunk IDs: CHK-carriage/formats/patch/v2-<ANCHOR>-NN.
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: high
+- v2 clarifies forbidden preludes and Output Contract.

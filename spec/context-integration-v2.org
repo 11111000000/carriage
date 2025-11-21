@@ -1,0 +1,207 @@
+#+title: Context Integration v2 — Sources, limits, and packaging rules
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/context/integration/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: context, suite
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Define how document/gptel/visible contexts are collected and packaged
+  - Toggles and limits for sources
+  - Deduplication and normalization
+  - Packaging target (system/user) and summaries
+  - Token-aware truncation rules
+  - Security and redaction
+
+- Provide deterministic context composition to be consumed by prompt builders and transport.
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- In scope: collection toggles, limits (files/bytes), dedup, path normalization,
+  visibility selection, packaging target, redaction and summaries.
+- Out of scope: per-format grammars; transport-streaming specifics (see llm-transport-v2).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Sources: doc (from #+begin_context), gptel (registry/files), visible (open buffers).
+- Packaging target: 'system or 'user; where collected text is injected in prompts.
+- Collector: function that returns {:count :items :warnings :stats}.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-ctx-001: Context collection MUST respect toggles per source (doc/gptel/visible).
+- REQ-ctx-002: Limits MUST cap number of files and total bytes; overflows MUST warn and omit tail.
+- REQ-ctx-003: Paths MUST be normalized relative to repo; TRAMP is refused.
+- REQ-ctx-004: Deduplication MUST remove duplicate paths across sources, preferring doc > gptel > visible.
+- REQ-ctx-005: Packaging target MUST be explicit ('system or 'user); default='system.
+- REQ-ctx-006: Redaction MUST mask secrets when configured; large files MAY be summarized.
+- REQ-ctx-007: Collector MUST return deterministic ordering (stable sort by source, then path).
+- REQ-ctx-008: Warnings MUST be aggregated and surfaced in reports/tooltips.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- FREEZE: max-files = 100
+- FREEZE: max-total-bytes = 1048576
+- FREEZE: max-summary-ratio = 0.6
+- INV-ctx-001: Source preference order: doc > visible > gptel.
+- INV-ctx-002: Item record MUST include :path, :source, and whether content is included or omitted.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Collector result (plist):
+  - :count (integer), :items (list of item), :warnings (list of string), :stats (plist)
+- Item (plist):
+  - :path (string, repo-relative), :source ('doc|'gptel|'visible), :content (string|nil)
+  - :reason (string|nil when omitted), :size-bytes (integer), :included (bool)
+- Stats (plist):
+  - :included (integer), :skipped (integer), :total-bytes (integer)
+- Packaging result (plist):
+  - :context-text (string), :context-target ('system|'user)
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-ctx-001: carriage-context-count BUF POS → {:count :items :warnings :stats}
+- IFC-ctx-002: carriage-context-collect BUF ROOT → collector-result
+- IFC-ctx-003: carriage-context-format COLLECTOR-RESULT :where TARGET → {:context-text :context-target}
+- IFC-ctx-004: Normalization helper: carriage-normalize-path ROOT REL → ABS or error
+- IFC-ctx-005: Summarization helper MAY be provided to trim oversized content.
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- ALG-ctx-001: Collect
+  - Read doc block paths; resolve gptel/visible lists; normalize; dedup per INV order
+  - Read files within limits; if overflow, set omitted with :reason and warn
+- ALG-ctx-002: Format
+  - Build deterministic sections grouped by source; include path headers; optionally summarize
+  - Respect :where target; return single string designed for downstream packing
+- ALG-ctx-003: Summarize
+  - Apply ratio ≤ max-summary-ratio; preserve first and last k bytes; insert ellipses
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- ERR-ctx-001: CTX_E_PATH — invalid/out-of-root/TRAMP path
+- ERR-ctx-002: CTX_E_LIMITS — limits exceeded (files/bytes)
+- ERR-ctx-003: CTX_E_IO — read failure for file (permissions/encoding)
+- Mapping to errors-v2; severities: warn for limits, error for path/io.
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Path normalization required; TRAMP refused; secrets masked on output when configured.
+- Large file contents SHOULD be summarized; binary detection SHOULD omit bodies.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Prefer non-blocking reads on large collections; batch filesystem stats; cache recent results.
+
+Prompt Guidance (LLM Output Contract)
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- PRM-ctx-001: Context strings MUST avoid code fences and forbidden phrases; plain UTF-8 text only.
+- Forbidden-Phrases: “Here is”, Markdown fences; paths only as headers; no trailing whitespace.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- P0-min:
+  - include: carriage/context/integration/v2#REQ priority=P0 max-tokens=500 summarize=off
+- P1-core:
+  - include: carriage/context/integration/v2#ALG priority=P1 max-tokens=600 summarize=0.6
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index REQ/ALG/SCHEMA; chunk ids CHK-carriage/context/integration/v2-REQ-01..NN
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Security and Errors outweigh packaging preferences.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- CHK-ctx-001: toggles respected; doc>visible>gptel precedence
+- CHK-ctx-002: limits enforced with warnings and correct counts
+- CHK-ctx-003: packaging target honored; deterministic order
+- TST-ctx-001: overflow bytes → summarize with ellipsis
+- TST-ctx-002: invalid path/TRAMP → CTX_E_PATH error
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth:
+  - spec/security-v2.org#SEC
+  - spec/errors-v2.org#ERR
+- Related:
+  - spec/prompt-profiles-v2.org#PACK
+  - spec/rag-indexing-v2.org#RAG
+- Code:
+  - lisp/carriage-context.el
+  - lisp/carriage-utils.el
+  - lisp/carriage-ui.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: high (context directly feeds prompts)
+- Future: adaptive summarization per model/token budget; structured redaction rules.
+

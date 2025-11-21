@@ -1,0 +1,231 @@
+#+title: Apply Engines v2 — Engine registry and capabilities
+#+author: Peter Kosov <11111000000@email.com>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/apply/engines/v2
+- Version: v2.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: apply, engines
+- Prompt-ABI: v1
+- Pack-Profiles: P0-min, P1-core, P2-full, P3-debug
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+- Fingerprint: <auto>
+
+Purpose
+- Anchor: PURPOSE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- LLM-Summary: Define a registry and dispatch for apply engines with explicit capabilities.
+  - One API for :dry-run and :apply dispatch
+  - Capability flags per engine (ops supported, staging support)
+  - Git engine mandated for udiff
+  - Abort and timeout obligations
+  - Deterministic reporting shape
+
+Scope
+- Anchor: SCOPE
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- In scope: engine registry, selection, dispatch contracts, capability semantics.
+- Out of scope: engine internals (git subcommands, process management details).
+
+Terms
+- Anchor: TERMS
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Engine: implementation of op execution (create/delete/rename/patch/sre/aibo).
+- Capability: advertised support attributes for an engine (per-op, staging).
+- Dispatch: call path routing op to selected engine handler.
+
+Normative Requirements
+- Anchor: REQ
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- REQ-eng-001: Engines MUST register with a unique symbol id and a capability map.
+- REQ-eng-002: Dispatch interface MUST be carriage-apply-engine-dispatch KIND OP ITEM ROOT OK FAIL.
+- REQ-eng-003: For OP=patch, engine 'git MUST be used regardless of selection (pipeline invariant).
+- REQ-eng-004: Engines MUST return plists with :exit, :stdout, :stderr, and optional :pid.
+- REQ-eng-005: Engines MUST implement abort hooks when they spawn async processes.
+- REQ-eng-006: Stage-policy='index MUST be supported by 'git for create/delete/rename.
+
+Invariants
+- Anchor: INV
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- FREEZE: default-timeout-seconds = 15
+- INV-eng-001: Engine dispatch returns exactly one OK/FAIL callback per request.
+- INV-eng-002: Git engine refuses --unsafe-paths and honors repo-root boundaries.
+
+Grammar/Schema
+- Anchor: SCHEMA
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Engine token (plist):
+  - :engine symbol
+  - :process process|nil
+  - :abort-fn function|nil
+- Engine result (plist):
+  - :exit integer
+  - :stdout string
+  - :stderr string
+  - :pid integer|nil
+
+Interfaces/Contracts
+- Anchor: IFC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- IFC-eng-001: carriage-register-apply-engine ID PLIST
+  - PLIST keys: :dry-run, :apply, :capabilities
+- IFC-eng-002: carriage-apply-engine-dispatch KIND OP ITEM ROOT OK FAIL
+  - KIND ∈ {:dry-run :apply}
+  - OK|FAIL receive engine result plist
+- IFC-eng-003: carriage-apply-engine → symbol (current engine id)
+
+Algorithms
+- Anchor: ALG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- ALG-eng-001: Selection
+  - If OP=patch → force 'git; else → use current engine
+- ALG-eng-002: Callback delivery
+  - Marshal OK/FAIL to main thread; ensure single delivery
+- ALG-eng-003: Abort
+  - Store :abort-fn in token; make idempotent
+
+Errors and Diagnostics
+- Anchor: ERR
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- ERR-eng-001: MODE_E_DISPATCH — unsupported op by engine
+- ERR-eng-002: GIT_E_APPLY — git failures; include stderr/stdout
+- ERR-eng-003: ENG_E_TIMEOUT — engine exceeded timeout
+
+Security and Limits
+- Anchor: SEC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Engines MUST respect security-v2 path policy and deny TRAMP operations.
+- No use of unsafe git flags (e.g., --unsafe-paths); sanitize environment.
+
+Performance and Asynchrony
+- Anchor: PERF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Wait loop slices: 50–100 ms; deadline default 15s.
+- Record :elapsed-ms and :pid when available; structured logs.
+
+UI/UX
+- Anchor: UI
+- Normative: t
+- Stability: stable
+- Pack-Priority: P2
+- Registry selection UI MAY list capabilities; engine changes SHOULD be reflected in modeline.
+
+Prompt Guidance
+- Anchor: PRM
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- PRM-eng-001: Do not request engines other than 'git for udiff.
+- PRM-eng-002: When stage-policy='index is required, state it explicitly; no commit.
+
+Tool Contract
+- Anchor: TOOL
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Engines expose :abort-fn; abort MUST cancel active process and be idempotent.
+- Input schema: (:op symbol :item plist :repo string [:deadline-ms int] [:attempt int]).
+- Token schema: (:engine symbol :process process|nil :abort-fn fn|nil :timer timer|nil
+  [:pid int] [:argv list] [:aborted bool] [:timed-out bool]).
+- Result schema: (:exit int :stdout string :stderr string [:pid int] [:elapsed-ms int]
+  [:reason nil|'timeout|'aborted|'sentinel-error] [:op symbol] [:path string]).
+- Timeouts: default 15s (configurable). On timeout → reason='timeout, ERR-eng-003.
+- Mapping to errors-v2: sentinel non-zero exit → MODE_E_DISPATCH or engine-specific;
+  timeout → ENG_E_TIMEOUT; abort → TR_E_ABORT when initiated by user.
+- Observability: MUST log command line (sanitized), pid, elapsed-ms; stdout/stderr bytes.
+
+Context Packaging
+- Anchor: PACK
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- P1-core:
+  - include: carriage/apply/engines/v2#REQ priority=P0 max-tokens=800 summarize=off
+  - include: carriage/apply/engines/v2#IFC priority=P1 max-tokens=600 summarize=0.5
+
+Retrieval and Indexing
+- Anchor: RAG
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Index normative sections; chunk ids CHK-carriage/apply/engines/v2-REQ-01..NN.
+
+Precedence Rules
+- Anchor: PREC
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- Security and Errors precede engine claims; pipeline dictates patch→git rule.
+
+Testing and Conformance
+- Anchor: TST
+- Normative: t
+- Stability: stable
+- Pack-Priority: P0
+- CHK-eng-001: patch forces 'git engine
+- CHK-eng-002: stage-policy='index supported by git
+- TST-eng-001: engine dispatch returns single callback
+- TST-eng-002: abort cancels active process and is idempotent
+- TST-eng-003: timeout produces ENG_E_TIMEOUT with :reason 'timeout
+- TST-eng-004: capabilities refuse unsupported op with MODE_E_DISPATCH
+- TST-eng-005: stage-policy='index paths (git add/rm/mv) honored for create/delete/rename
+- TST-eng-006: engine result shape includes :pid and :elapsed-ms when available
+- Traceability Map:
+  - REQ-eng-001 → TST-eng-004
+  - REQ-eng-002 → TST-eng-001
+  - REQ-eng-003 → CHK-eng-001
+  - REQ-eng-004 → TST-eng-003
+  - REQ-eng-005 → TST-eng-002
+  - REQ-eng-006 → CHK-eng-002, TST-eng-005, TST-eng-006
+
+Cross-References and Anchors
+- Anchor: XREF
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Source of Truth:
+  - spec/apply-pipeline-v2.org#IFC
+  - spec/security-v2.org#SEC
+  - spec/errors-v2.org#ERR
+- Related:
+  - spec/observability-v2.org
+  - spec/logging-v2.org
+- Code:
+  - lisp/engines/carriage-apply-engine.el
+  - lisp/engines/carriage-engine-git.el
+  - lisp/engines/carriage-engine-emacs.el
+
+Evolution
+- Anchor: EVO
+- Normative: t
+- Stability: stable
+- Pack-Priority: P1
+- Affects-Prompt: low
+- Future v2.x may add more engine types and capabilities without breaking contracts.
