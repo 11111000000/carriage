@@ -102,5 +102,43 @@
         (should (equal (funcall lab 'x/c) "U"))
         (should (equal (funcall lab 'x/d) "P")))))
 
+(ert-deftest carriage-templates/refresh-no-disk ()
+  "Refresh should honor in-memory project/user registries without touching disk."
+  (let* ((builtin (list (list :id 'x/a :version "1.0" :label "B" :render "B")
+                        (list :id 'x/b :version "1.0" :label "B" :render "B")))
+         (user    (list (list :id 'x/a :version "1.1" :label "U" :render "U")
+                        (list :id 'x/c :version "1.0" :label "U" :render "U")))
+         (proj    (list (list :id 'x/a :version "2.0" :label "P" :render "P")
+                        (list :id 'x/d :version "1.0" :label "P" :render "P"))))
+    (let ((carriage-templates (copy-sequence builtin))
+          ;; Override project/user registries via variables (no disk I/O).
+          (carriage-templates-user (copy-sequence user))
+          (carriage-templates-project (copy-sequence proj))
+          ;; Point files to non-existent paths to ensure no accidental file loads.
+          (carriage-templates-user-file "/nonexistent/user/templates.el")
+          (carriage-templates-project-file "/nonexistent/proj/templates.el"))
+      (carriage-templates-refresh)
+      (let* ((ids (mapcar (lambda (pl) (plist-get pl :id)) carriage-templates))
+             (label-of (lambda (id)
+                         (let ((pl (cl-find id carriage-templates
+                                            :key (lambda (p) (plist-get p :id)))))
+                           (plist-get pl :label)))))
+        ;; Presence
+        (should (member 'x/a ids))
+        (should (member 'x/b ids))
+        (should (member 'x/c ids))
+        (should (member 'x/d ids))
+        ;; Precedence: project > user > built-in
+        (should (equal (funcall label-of 'x/a) "P"))
+        (should (equal (funcall label-of 'x/b) "B"))
+        (should (equal (funcall label-of 'x/c) "U"))
+        (should (equal (funcall label-of 'x/d) "P")))))
+
+(ert-deftest carriage-templates/lint-builtins-ok ()
+  "Built-in templates should lint without issues."
+  (let* ((issues (ignore-errors (carriage-templates-lint))))
+    (should (listp issues))
+    (should (zerop (length issues)))))
+
 (provide 'carriage-templates-tests)
 ;;; carriage-templates-tests.el ends here

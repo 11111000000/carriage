@@ -15,6 +15,7 @@
 ;;   spec/keyspec-v2.org
 ;;   spec/ui-v2.org
 ;;   spec/i18n-v2.org
+;;   spec/document-branching-and-templates-v1.org
 ;;
 ;;; Commentary:
 ;; Centralized keyspec for Carriage commands and transient/menu generation.
@@ -78,10 +79,10 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
     (:id model-select :cmd carriage-select-model :keys ("m") :contexts (carriage) :section tools :desc-key :model-select)
     (:id toggle-ctx   :cmd carriage-toggle-include-gptel-context :keys ("tc") :contexts (carriage) :section tools :desc-key :toggle-ctx)
     (:id toggle-doc   :cmd carriage-toggle-include-doc-context   :keys ("tf") :contexts (carriage) :section tools :desc-key :toggle-doc)
-    (:id toggle-patched :cmd carriage-toggle-include-patched-files :keys ("t p") :contexts (carriage) :section tools :desc-key :toggle-patched)
-    (:id doc-scope-all  :cmd carriage-select-doc-context-all       :keys ("t a") :contexts (carriage) :section tools :desc-key :doc-scope-all)
-    (:id doc-scope-last :cmd carriage-select-doc-context-last      :keys ("t l") :contexts (carriage) :section tools :desc-key :doc-scope-last)
-    (:id toggle-profile :cmd carriage-toggle-context-profile        :keys ("t P") :contexts (carriage) :section tools :desc-key :toggle-profile :label "Toggle P1/P3")
+    (:id toggle-patched :cmd carriage-toggle-include-patched-files :keys ("tp") :contexts (carriage) :section tools :desc-key :toggle-patched)
+    (:id doc-scope-all  :cmd carriage-select-doc-context-all       :keys ("ta") :contexts (carriage) :section tools :desc-key :doc-scope-all)
+    (:id doc-scope-last :cmd carriage-select-doc-context-last      :keys ("tl") :contexts (carriage) :section tools :desc-key :doc-scope-last)
+    (:id toggle-profile :cmd carriage-toggle-context-profile        :keys ("tP") :contexts (carriage) :section tools :desc-key :toggle-profile :label "Toggle P1/P3")
     ;; Suite/Intent (tools)
     (:id select-suite :cmd carriage-select-suite                 :keys ("s")   :contexts (carriage) :section tools :desc-key :select-suite)
     (:id toggle-intent :cmd carriage-toggle-intent               :keys ("i")   :contexts (carriage) :section tools :desc-key :toggle-intent)
@@ -112,12 +113,12 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
     (:id branch-doc   :cmd carriage-branching-transient     :keys ("N")     :contexts (carriage org global) :section tools :desc-key :branch-doc :label "Branch from template")
     (:id file-chat    :cmd carriage-open-file-chat          :keys ("f")     :contexts (carriage org global) :section tools :desc-key :file-chat :label "File chat")
     ;; Palette insert actions (minimal v1)
-    (:id insert-plan  :cmd carriage-insert-plan-section     :keys ("x p")   :contexts (carriage org) :section act :label "Insert Plan")
-    (:id insert-step  :cmd carriage-insert-step-section     :keys ("x s")   :contexts (carriage org) :section act :label "Insert Step")
-    (:id insert-test  :cmd carriage-insert-test-section     :keys ("x t")   :contexts (carriage org) :section act :label "Insert Test")
-    (:id insert-retro :cmd carriage-insert-retro-section    :keys ("x r")   :contexts (carriage org) :section act :label "Insert Retro")
-    (:id assist-context-delta :cmd carriage-ui-context-delta-assist :keys ("x c") :contexts (carriage org) :section act :label "Assist Context Delta")
-    (:id insert-menu  :cmd carriage-insert-transient        :keys ("x x")   :contexts (carriage org) :section act :label "Insert/Assist Menu")
+    (:id insert-plan  :cmd carriage-insert-plan-section     :keys ("xp")   :contexts (carriage org) :section act :label "Insert Plan")
+    (:id insert-step  :cmd carriage-insert-step-section     :keys ("xs")   :contexts (carriage org) :section act :label "Insert Step")
+    (:id insert-test  :cmd carriage-insert-test-section     :keys ("xt")   :contexts (carriage org) :section act :label "Insert Test")
+    (:id insert-retro :cmd carriage-insert-retro-section    :keys ("xr")   :contexts (carriage org) :section act :label "Insert Retro")
+    (:id assist-context-delta :cmd carriage-ui-context-delta-assist :keys ("xc") :contexts (carriage org) :section act :label "Assist Context Delta")
+    (:id insert-menu  :cmd carriage-insert-transient        :keys ("xx")   :contexts (carriage org) :section act :label "Insert/Assist Menu")
     ;; Engine
     (:id engine       :cmd carriage-select-apply-engine     :keys ("E")  :contexts (carriage) :section tools :desc-key :engine))
   "Keyspec: list of action plists with :id :cmd :keys :contexts :section :desc-key.
@@ -467,6 +468,10 @@ Fallback: completing-read (group prefix in labels)."
       (when base
         (which-key-add-key-based-replacements base menu)
         (which-key-add-key-based-replacements (concat base " t") toggles)
+        (which-key-add-key-based-replacements (concat base " t P")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :toggle-profile) "Toggle P1/P3")
+            "Toggle P1/P3"))
         (which-key-add-key-based-replacements (concat base " n") task)
         (which-key-add-key-based-replacements (concat base " f") filechat)
         ;; Insert/Assist group and menu

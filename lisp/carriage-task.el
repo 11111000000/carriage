@@ -14,6 +14,7 @@
 ;;   spec/compliance-checklist-v2.org
 ;;   spec/tasks-v2.org
 ;;   spec/testing-v2.org
+;;   spec/document-branching-and-templates-v1.org
 ;;
 ;;; Commentary:
 ;; Helpers to create per-heading task documents and links.
@@ -747,11 +748,12 @@ Falls back to a simple completing-read when transient is unavailable."
       "Insert / Assist"
       [["Insert"
         ("p" "Plan"  carriage-insert-plan-section)
-        ("s" "Step"  carriage-insert-step-section)
+        ("s" nil  carriage-insert-step-section)
         ("t" "Test"  carriage-insert-test-section)
         ("r" "Retro" carriage-insert-retro-section)]
        ["Assist"
-        ("c" "Context Delta" carriage-ui-context-delta-assist)]])
+        ("c" "Context Delta" carriage-ui-context-delta-assist)
+        ("P" "Toggle P1↔P3" carriage-toggle-context-profile)]])
     (carriage-insert--ui)))
 
 (provide 'carriage-task)

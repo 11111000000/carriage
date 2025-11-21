@@ -1002,9 +1002,11 @@ Writes CAR_CONTEXT_PROFILE on save via doc-state."
     (ignore-errors
       (carriage-doc-state-write
        (list :CAR_CONTEXT_PROFILE (if (eq carriage-doc-context-profile 'p3) "P3" "P1")))))
-  (when (eq profile 'p3)
-    (message "Context profile: P3-debug (extended budget may impact cost/quality)"))
-  (when (eq profile 'p1)
+  (when (require 'carriage-logging nil t)
+    (ignore-errors
+      (carriage-metrics-note 'ctx-profile
+                             (if (eq carriage-doc-context-profile 'p3) "P3" "P1"))))
+    (when (eq profile 'p1)
     (message "Context profile: P1-core"))
   carriage-doc-context-profile)
 

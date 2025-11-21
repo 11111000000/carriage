@@ -422,7 +422,7 @@ Merges registries by :id with project overriding user overriding built-in."
                          (and f (carriage-templates--maybe-load-file f 'carriage-templates-project))))))
     (setq carriage-templates
           (carriage-templates--merge-registry builtin user-val proj-val))
-    (carriage-templates))
+    (carriage-templates)))
 
 (defun carriage-templates--lint-entry (tpl)
   "Return nil if TPL looks sane; otherwise a string describing the issue."

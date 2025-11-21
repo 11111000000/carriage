@@ -296,5 +296,26 @@ Click tabs (or call carriage-show-log / carriage-show-traffic) to switch."
   (when (fboundp 'carriage-keys-apply-known-keymaps)
     (ignore-errors (carriage-keys-apply-known-keymaps))))
 
+(defvar carriage--metrics-events nil
+  "In-memory list of lightweight metrics events (each is a plist).")
+
+;;;###autoload
+(defun carriage-metrics-note (key value &optional meta)
+  "Record lightweight metric KEY → VALUE with optional META plist.
+Stores event in `carriage--metrics-events' and logs via `carriage-log' when available.
+Returns the recorded event plist."
+  (let* ((ev (list :time (float-time) :key key :value value :meta meta)))
+    (setq carriage--metrics-events (cons ev carriage--metrics-events))
+    (when (fboundp 'carriage-log)
+      (ignore-errors
+        (carriage-log "metrics: %s=%s %s"
+                      key value (if meta (format "%S" meta) ""))))
+    ev))
+
+;;;###autoload
+(defun carriage-metrics-events ()
+  "Return a shallow copy of collected metrics events."
+  (copy-sequence (or carriage--metrics-events '())))
+
 (provide 'carriage-logging)
 ;;; carriage-logging.el ends here
