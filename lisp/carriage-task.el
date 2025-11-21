@@ -12,7 +12,7 @@
 ;;   spec/index.org
 ;;   spec/errors-v2.org
 ;;   spec/compliance-checklist-v2.org
-;;   spec/task-docs-v2.org
+;;   spec/tasks-v2.org
 ;;   spec/testing-v2.org
 ;;
 ;;; Commentary:
