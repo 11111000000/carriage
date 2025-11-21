@@ -25,6 +25,8 @@
 (require 'subr-x)
 
 (autoload 'carriage-create-task-doc "carriage-task" "Create task document from the current heading." t)
+(autoload 'carriage-branching-transient "carriage-task" "Open Branching UI: choose template and inheritance." t)
+(autoload 'carriage-ui-context-delta-assist "carriage-ui" "Suggest and apply context delta (with confirmation)." t)
 
 (defgroup carriage-keyspec nil
   "Centralized key binding model for Carriage."
@@ -76,8 +78,10 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
     (:id model-select :cmd carriage-select-model :keys ("m") :contexts (carriage) :section tools :desc-key :model-select)
     (:id toggle-ctx   :cmd carriage-toggle-include-gptel-context :keys ("tc") :contexts (carriage) :section tools :desc-key :toggle-ctx)
     (:id toggle-doc   :cmd carriage-toggle-include-doc-context   :keys ("tf") :contexts (carriage) :section tools :desc-key :toggle-doc)
-    (:id doc-scope-all  :cmd carriage-select-doc-context-all     :keys ("t a") :contexts (carriage) :section tools :desc-key :doc-scope-all)
-    (:id doc-scope-last :cmd carriage-select-doc-context-last    :keys ("t l") :contexts (carriage) :section tools :desc-key :doc-scope-last)
+    (:id toggle-patched :cmd carriage-toggle-include-patched-files :keys ("t p") :contexts (carriage) :section tools :desc-key :toggle-patched)
+    (:id doc-scope-all  :cmd carriage-select-doc-context-all       :keys ("t a") :contexts (carriage) :section tools :desc-key :doc-scope-all)
+    (:id doc-scope-last :cmd carriage-select-doc-context-last      :keys ("t l") :contexts (carriage) :section tools :desc-key :doc-scope-last)
+    (:id toggle-profile :cmd carriage-toggle-context-profile        :keys ("t P") :contexts (carriage) :section tools :desc-key :toggle-profile :label "Toggle P1/P3")
     ;; Suite/Intent (tools)
     (:id select-suite :cmd carriage-select-suite                 :keys ("s")   :contexts (carriage) :section tools :desc-key :select-suite)
     (:id toggle-intent :cmd carriage-toggle-intent               :keys ("i")   :contexts (carriage) :section tools :desc-key :toggle-intent)
@@ -105,7 +109,15 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
     (:id aux-quit     :cmd quit-window                      :keys ("q")     :contexts (report log traffic)     :section navigate :desc-key :quit)
     (:id open-buffer  :cmd carriage-open-buffer             :keys ("e")     :contexts (global)   :section session :desc-key :open-buffer)
     (:id task-new     :cmd carriage-create-task-doc         :keys ("n")     :contexts (carriage org global) :section tools :desc-key :task-new :label "Create task doc")
+    (:id branch-doc   :cmd carriage-branching-transient     :keys ("N")     :contexts (carriage org global) :section tools :desc-key :branch-doc :label "Branch from template")
     (:id file-chat    :cmd carriage-open-file-chat          :keys ("f")     :contexts (carriage org global) :section tools :desc-key :file-chat :label "File chat")
+    ;; Palette insert actions (minimal v1)
+    (:id insert-plan  :cmd carriage-insert-plan-section     :keys ("x p")   :contexts (carriage org) :section act :label "Insert Plan")
+    (:id insert-step  :cmd carriage-insert-step-section     :keys ("x s")   :contexts (carriage org) :section act :label "Insert Step")
+    (:id insert-test  :cmd carriage-insert-test-section     :keys ("x t")   :contexts (carriage org) :section act :label "Insert Test")
+    (:id insert-retro :cmd carriage-insert-retro-section    :keys ("x r")   :contexts (carriage org) :section act :label "Insert Retro")
+    (:id assist-context-delta :cmd carriage-ui-context-delta-assist :keys ("x c") :contexts (carriage org) :section act :label "Assist Context Delta")
+    (:id insert-menu  :cmd carriage-insert-transient        :keys ("x x")   :contexts (carriage org) :section act :label "Insert/Assist Menu")
     ;; Engine
     (:id engine       :cmd carriage-select-apply-engine     :keys ("E")  :contexts (carriage) :section tools :desc-key :engine))
   "Keyspec: list of action plists with :id :cmd :keys :contexts :section :desc-key.
@@ -314,6 +326,13 @@ Fallback: completing-read (group prefix in labels)."
          (all-acts (carriage-keys--actions-for-contexts ctxs))
          ;; exclude :menu itself
          (acts (cl-remove-if (lambda (pl) (eq (plist-get pl :id) 'menu)) all-acts))
+         ;; Optional Assist-based ranking of fixed actions (no new actions are added)
+         (_rank (ignore-errors
+                  (when (and (require 'carriage-ui nil t)
+                             (boundp 'carriage-ui-enable-assist-ranking)
+                             carriage-ui-enable-assist-ranking
+                             (fboundp 'carriage-ui-rank-actions-with-assist))
+                    (setq acts (carriage-ui-rank-actions-with-assist acts)))))
          (sections '(navigate act session tools logs)))
     (if (and (require 'transient nil t) (fboundp 'transient-define-prefix))
         (let* ((_ (require 'carriage-i18n nil t))
@@ -328,7 +347,14 @@ Fallback: completing-read (group prefix in labels)."
                                   (let* ((cmd (plist-get pl :cmd))
                                          (id  (plist-get pl :id))
                                          (k   (car (plist-get pl :keys)))
-                                         (key0 (and (stringp k) (car (last (split-string k " " t)))))
+                                         ;; Derive a single-keystroke base for transient:
+                                         ;; - Use key-description of the full binding (with prefix), then take the last token.
+                                         ;; - This converts \"tc\" and \"t c\" to \"c\", avoiding non-prefix errors on \"t\".
+                                         (desc (and (stringp k)
+                                                    (ignore-errors
+                                                      (key-description (carriage-keys--ensure-kbd k)))))
+                                         (key0 (and (stringp desc)
+                                                    (car (last (split-string desc " " t)))))
                                          (desc-key (plist-get pl :desc-key))
                                          (fallback-label (plist-get pl :label))
                                          (lbl (or (and (fboundp 'carriage-i18n) (carriage-i18n desc-key))
@@ -431,12 +457,21 @@ Fallback: completing-read (group prefix in labels)."
                    "Create task doc"))
            (filechat (if (fboundp 'carriage-i18n)
                          (or (carriage-i18n :file-chat) "File chat")
-                       "File chat")))
+                       "File chat"))
+           (insert (if (fboundp 'carriage-i18n)
+                       (or (carriage-i18n :insert-assist) "Insert/Assist")
+                     "Insert/Assist"))
+           (insert-menu (if (fboundp 'carriage-i18n)
+                            (or (carriage-i18n :insert-assist-menu) "Insert/Assist Menu")
+                          "Insert/Assist Menu")))
       (when base
         (which-key-add-key-based-replacements base menu)
         (which-key-add-key-based-replacements (concat base " t") toggles)
         (which-key-add-key-based-replacements (concat base " n") task)
-        (which-key-add-key-based-replacements (concat base " f") filechat))
+        (which-key-add-key-based-replacements (concat base " f") filechat)
+        ;; Insert/Assist group and menu
+        (which-key-add-key-based-replacements (concat base " x") insert)
+        (which-key-add-key-based-replacements (concat base " x x") insert-menu))
       (dolist (alias aliases)
         (which-key-add-key-based-replacements alias menu))
       t)))

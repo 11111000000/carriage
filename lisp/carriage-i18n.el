@@ -98,6 +98,8 @@
     (:files-toggle       . ((ru . "Файлы из документа")        (en . "Document files")))
     (:ctx-tooltip        . ((ru . "Переключить gptel-контекст") (en . "Toggle gptel-context")))
     (:files-tooltip      . ((ru . "Переключить файлы документа") (en . "Toggle document files")))
+    (:toggle-patched     . ((ru . "Файлы применённых патчей")    (en . "Applied patch files")))
+    (:patched-tooltip    . ((ru . "Переключить включение файлов из #+patch_done") (en . "Toggle including files from #+patch_done")))
     (:doc-scope-all      . ((ru . "Все begin_context")          (en . "All begin_context")))
     (:doc-scope-last     . ((ru . "Последний begin_context")    (en . "Last begin_context")))
     (:doc-scope-all-tip  . ((ru . "Собирать из всех блоков begin_context") (en . "Use all begin_context blocks")))

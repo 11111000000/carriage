@@ -352,11 +352,12 @@ When more are present, the tooltip shows a tail line like \"… (+K more)\"."
     abort
     all
     context
+    toggle-visible
     toggle-ctx
+    toggle-patched
     toggle-files
     doc-scope-all
     doc-scope-last
-    toggle-visible
     patch
     suite
     engine
@@ -436,6 +437,7 @@ Unknown symbols are ignored."
                          (const :tag "Doc context toggle" toggle-files)
                          (const :tag "Doc scope: all" doc-scope-all)
                          (const :tag "Doc scope: last" doc-scope-last)
+                         (const :tag "Patched files toggle" toggle-patched)
                          (const :tag "Visible-buffers toggle" toggle-visible)
                          (const :tag "Settings button" settings)))
   :set #'carriage-ui--set-modeline-blocks
@@ -522,13 +524,13 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
                                (and item-lines (mapconcat #'identity item-lines "\n"))))
                "\n")))
 
-(defun carriage-ui--compute-context-badge (inc-doc inc-gpt inc-vis)
-  "Compute context badge (LABEL . HINT) for INC-DOC/INC-GPT/INC-VIS toggles.
+(defun carriage-ui--compute-context-badge (inc-doc inc-gpt inc-vis inc-patched)
+  "Compute context badge (LABEL . HINT) for INC-DOC/INC-GPT/INC-VIS/INC-PATCHED toggles.
  Основано на carriage-context-count — показывает ровно то, что уйдёт в запрос."
   (require 'carriage-context nil t)
-  (let* ((off (not (or inc-doc inc-gpt inc-vis))))
+  (let* ((off (not (or inc-doc inc-gpt inc-vis inc-patched))))
     (if off
-        (cons "[Ctx:-]" "Контекст выключен (doc=off, gptel=off, vis=off)")
+        (cons "[Ctx:-]" "Контекст выключен (doc=off, gptel=off, vis=off, patched=off)")
       (let* ((res (and (fboundp 'carriage-context-count)
                        (ignore-errors
                          (carriage-context-count (current-buffer) (point)))))
@@ -543,11 +545,12 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
                         (cl-subseq items 0 (min n limit))
                       items))
              (more (max 0 (- n (length shown))))
-             (head-line (format "Контекст: файлов=%d — источники: doc=%s, gptel=%s, vis=%s, scope=%s"
+             (head-line (format "Контекст: файлов=%d — источники: doc=%s, gptel=%s, vis=%s, patched=%s, scope=%s"
                                 cnt
                                 (if inc-doc "on" "off")
                                 (if inc-gpt "on" "off")
                                 (if inc-vis "on" "off")
+                                (if inc-patched "on" "off")
                                 (let ((sc (and (boundp 'carriage-doc-context-scope) carriage-doc-context-scope)))
                                   (if (eq sc 'last) "last" "all"))))
              (warn-lines (when warns
@@ -558,8 +561,8 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
                                  (append (mapcar #'carriage-ui--context-item->line shown)
                                          (when (> more 0)
                                            (list (format "… (+%d more)" more))))))))
-        (carriage-ui--dbg "Ctx badge: inc-doc=%s inc-gpt=%s inc-vis=%s scope=%s cnt=%s items=%s warns=%s"
-                          inc-doc inc-gpt inc-vis
+        (carriage-ui--dbg "Ctx badge: inc-doc=%s inc-gpt=%s inc-vis=%s inc-patched=%s scope=%s cnt=%s items=%s warns=%s"
+                          inc-doc inc-gpt inc-vis inc-patched
                           (let ((sc (and (boundp 'carriage-doc-context-scope) carriage-doc-context-scope)))
                             (if (eq sc 'last) "last" "all"))
                           cnt n (length warns))
@@ -570,121 +573,141 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
                                          (and item-lines (mapconcat #'identity item-lines "\n"))))
                          "\n"))))))
 
+(defun carriage-ui--context-toggle-states ()
+  "Return plist of current context toggle states and scope.
+Keys: :doc :gpt :vis :patched :scope"
+  ;; Ensure variables from carriage-context are defined before reading them
+  (require 'carriage-context nil t)
+  (list
+   :doc (if (boundp 'carriage-mode-include-doc-context)
+            carriage-mode-include-doc-context
+          t)
+   :gpt (if (boundp 'carriage-mode-include-gptel-context)
+            carriage-mode-include-gptel-context
+          t)
+   :vis (and (boundp 'carriage-mode-include-visible-context)
+             carriage-mode-include-visible-context)
+   :patched (and (boundp 'carriage-mode-include-patched-files)
+                 carriage-mode-include-patched-files)
+   :scope (and (boundp 'carriage-doc-context-scope)
+               carriage-doc-context-scope)))
+
+(defun carriage-ui--ctx-cache-ttl-ok-p (cache now ttl)
+  "Return non-nil when CACHE age is within TTL. NIL TTL means unlimited."
+  (or (null ttl)
+      (and (numberp ttl) (> ttl 0)
+           cache
+           (< (- now (or (plist-get cache :time) 0)) ttl))))
+
+(defun carriage-ui--ctx-cache-valid-p (cache toggles tick now ttl)
+  "Return non-nil when CACHE matches TOGGLES, TICK and TTL."
+  (and cache
+       (eq (plist-get toggles :doc)     (plist-get cache :doc))
+       (eq (plist-get toggles :gpt)     (plist-get cache :gpt))
+       (eq (plist-get toggles :vis)     (plist-get cache :vis))
+       (eq (plist-get toggles :scope)   (plist-get cache :scope))
+       (eq (plist-get toggles :patched) (plist-get cache :patched))
+       (=  tick (plist-get cache :tick))
+       (carriage-ui--ctx-cache-ttl-ok-p cache now ttl)))
+
+(defun carriage-ui--ctx-build-cache (toggles tick time value)
+  "Build a new context cache plist from TOGGLES, TICK, TIME and VALUE."
+  (list :doc (plist-get toggles :doc)
+        :gpt (plist-get toggles :gpt)
+        :vis (plist-get toggles :vis)
+        :scope (plist-get toggles :scope)
+        :patched (plist-get toggles :patched)
+        :tick tick :time time :value value))
+
+(defun carriage-ui--ctx-schedule-refresh (toggles tick delay)
+  "Schedule an asynchronous context badge recomputation with TOGGLES and TICK after DELAY."
+  (unless carriage-ui--ctx-refresh-timer
+    (let* ((buf (current-buffer))
+           (doc (plist-get toggles :doc))
+           (gpt (plist-get toggles :gpt))
+           (vis (plist-get toggles :vis))
+           (pt  (plist-get toggles :patched))
+           (sc  (plist-get toggles :scope))
+           (tk  tick)
+           (dl  (max 0.0 (or delay 0.05))))
+      (setq carriage-ui--ctx-refresh-timer
+            (run-at-time dl nil
+                         (lambda ()
+                           (when (buffer-live-p buf)
+                             (with-current-buffer buf)
+                             (condition-case _e
+                                 (let* ((val (carriage-ui--compute-context-badge doc gpt vis pt))
+                                        (t2 (float-time)))
+                                   (setq carriage-ui--ctx-cache
+                                         (carriage-ui--ctx-build-cache toggles tk t2 val))
+                                   (setq carriage-ui--ctx-placeholder-count 0
+                                         carriage-ui--ctx-last-placeholder-time 0))
+                               (error nil))
+                             (setq carriage-ui--ctx-refresh-timer nil)
+                             (force-mode-line-update))))))))
+
+(defun carriage-ui--ctx-force-sync (toggles tick time)
+  "Synchronously recompute context badge for TOGGLES/TICK at TIME, update cache and return value."
+  (let* ((doc (plist-get toggles :doc))
+         (gpt (plist-get toggles :gpt))
+         (vis (plist-get toggles :vis))
+         (pt  (plist-get toggles :patched))
+         (val (carriage-ui--compute-context-badge doc gpt vis pt)))
+    (setq carriage-ui--ctx-cache (carriage-ui--ctx-build-cache toggles tick time val))
+    (setq carriage-ui--ctx-placeholder-count 0
+          carriage-ui--ctx-last-placeholder-time 0
+          carriage-ui--ctx-refresh-timer nil)
+    val))
+
 (defun carriage-ui--context-badge ()
   "Return cached (LABEL . HINT) for [Ctx:N]; refresh asynchronously when stale.
 Heavy recomputation is moved off the redisplay path to reduce churn.
 Robustness: if async refresh stalls, fall back to a synchronous recompute after
 several placeholder frames or a time threshold."
-  (let* ((inc-doc (if (boundp 'carriage-mode-include-doc-context)
-                      carriage-mode-include-doc-context
-                    t))
-         (inc-gpt (if (boundp 'carriage-mode-include-gptel-context)
-                      carriage-mode-include-gptel-context
-                    t))
-         (inc-vis (and (boundp 'carriage-mode-include-visible-context)
-                       carriage-mode-include-visible-context))
+  (let* ((toggles (carriage-ui--context-toggle-states))
          (tick (buffer-chars-modified-tick))
          (now (float-time))
          (ttl carriage-ui-context-cache-ttl)
          (cache carriage-ui--ctx-cache)
-         (ttl-ok (or (null ttl)
-                     (and (numberp ttl) (> ttl 0)
-                          cache
-                          (< (- now (or (plist-get cache :time) 0)) ttl))))
-         (valid (and cache
-                     (eq inc-doc (plist-get cache :doc))
-                     (eq inc-gpt (plist-get cache :gpt))
-                     (eq inc-vis (plist-get cache :vis))
-                     (eq (and (boundp 'carriage-doc-context-scope) carriage-doc-context-scope)
-                         (plist-get cache :scope))
-                     (= tick (plist-get cache :tick))
-                     ttl-ok)))
+         (valid (carriage-ui--ctx-cache-valid-p cache toggles tick now ttl)))
     (cond
      ;; Valid cache → return instantly
      (valid
       (when carriage-ui-debug
         (let* ((val (plist-get cache :value))
                (lbl (and (consp val) (car val))))
-          (carriage-ui--dbg "ctx-badge: cache HIT (doc=%s gpt=%s vis=%s tick=%s) → %s"
-                            inc-doc inc-gpt inc-vis tick lbl)))
+          (carriage-ui--dbg "ctx-badge: cache HIT (doc=%s gpt=%s vis=%s patched=%s tick=%s) → %s"
+                            (plist-get toggles :doc)
+                            (plist-get toggles :gpt)
+                            (plist-get toggles :vis)
+                            (plist-get toggles :patched)
+                            tick lbl)))
       (plist-get cache :value))
 
      ;; Stale cache and async mode → schedule refresh, return last known value
      ((and carriage-ui-context-async-refresh cache)
-      (unless carriage-ui--ctx-refresh-timer
-        (let* ((buf (current-buffer))
-               (doc inc-doc) (gpt inc-gpt) (vis inc-vis) (tk tick)
-               (sc (and (boundp 'carriage-doc-context-scope) carriage-doc-context-scope))
-               (delay (max 0.0 (or carriage-ui-context-refresh-delay 0.05))))
-          (setq carriage-ui--ctx-refresh-timer
-                (run-at-time delay nil
-                             (lambda ()
-                               (when (buffer-live-p buf)
-                                 (with-current-buffer buf
-                                   (condition-case _e
-                                       (let* ((val (carriage-ui--compute-context-badge doc gpt vis))
-                                              (t2 (float-time)))
-                                         (setq carriage-ui--ctx-cache
-                                               (list :doc doc :gpt gpt :vis vis :scope sc :tick tk :time t2 :value val))
-                                         (setq carriage-ui--ctx-placeholder-count 0
-                                               carriage-ui--ctx-last-placeholder-time 0))
-                                     (error nil))
-                                   (setq carriage-ui--ctx-refresh-timer nil)
-                                   ;; Local refresh only
-                                   (force-mode-line-update))))))))
+      (carriage-ui--ctx-schedule-refresh toggles tick carriage-ui-context-refresh-delay)
       (plist-get cache :value))
 
      ;; No cache yet and async mode → schedule refresh, show placeholder (with stuck-guard)
      (carriage-ui-context-async-refresh
-      (let* ((t0 (float-time))
+      (let* ((t0 now)
              (last (or carriage-ui--ctx-last-placeholder-time 0))
              (cnt  (or carriage-ui--ctx-placeholder-count 0))
              (age  (- t0 last))
              (base-delay (max 0.0 (or carriage-ui-context-refresh-delay 0.05)))
              (threshold (max 0.2 (* 3 base-delay)))
              (force-sync (or (> age threshold) (> cnt 3))))
-        (cond
-         (force-sync
-          (let* ((val (carriage-ui--compute-context-badge inc-doc inc-gpt inc-vis)))
-            (setq carriage-ui--ctx-cache
-                  (list :doc inc-doc :gpt inc-gpt :vis inc-vis
-                        :scope (and (boundp 'carriage-doc-context-scope) carriage-doc-context-scope)
-                        :tick tick :time t0 :value val))
-            (setq carriage-ui--ctx-placeholder-count 0
-                  carriage-ui--ctx-last-placeholder-time 0
-                  carriage-ui--ctx-refresh-timer nil)
-            val))
-         (t
-          (unless carriage-ui--ctx-refresh-timer
-            (let* ((buf (current-buffer))
-                   (doc inc-doc) (gpt inc-gpt) (vis inc-vis) (tk tick)
-                   (sc (and (boundp 'carriage-doc-context-scope) carriage-doc-context-scope))
-                   (delay base-delay))
-              (setq carriage-ui--ctx-refresh-timer
-                    (run-at-time delay nil
-                                 (lambda ()
-                                   (when (buffer-live-p buf)
-                                     (with-current-buffer buf
-                                       (condition-case _e
-                                           (let* ((val (carriage-ui--compute-context-badge doc gpt vis))
-                                                  (t2 (float-time)))
-                                             (setq carriage-ui--ctx-cache
-                                                   (list :doc doc :gpt gpt :vis vis :scope sc :tick tk :time t2 :value val))
-                                             (setq carriage-ui--ctx-placeholder-count 0
-                                                   carriage-ui--ctx-last-placeholder-time 0))
-                                         (error nil))
-                                       (setq carriage-ui--ctx-refresh-timer nil)
-                                       (force-mode-line-update))))))))
+        (if force-sync
+            (carriage-ui--ctx-force-sync toggles tick t0)
+          (carriage-ui--ctx-schedule-refresh toggles tick base-delay)
           (setq carriage-ui--ctx-last-placeholder-time t0
                 carriage-ui--ctx-placeholder-count (1+ cnt))
-          (cons "[Ctx:?]" "Вычисление контекста…")))))
+          (cons "[Ctx:?]" "Вычисление контекста…"))))
 
      ;; Synchronous recompute fallback
      (t
-      (let ((value (carriage-ui--compute-context-badge inc-doc inc-gpt inc-vis)))
-        (setq carriage-ui--ctx-cache
-              (list :doc inc-doc :gpt inc-gpt :vis inc-vis :tick tick :time now :value value))
-        value)))))
+      (carriage-ui--ctx-force-sync toggles tick now)))))
 
 
 ;; -------------------------------------------------------------------
@@ -1414,10 +1437,23 @@ Important: the cache key includes label's text properties to ensure visual updat
                                                :face fplist))))
                   ('files
                    (when (fboundp 'all-the-icons-material)
-                     (all-the-icons-material "description"
+                     (all-the-icons-material "featured_play_list"
                                              :height carriage-mode-icon-height
                                              :v-adjust (- carriage-mode-icon-v-adjust 0.14)
                                              :face fplist)))
+                  ('patched
+                   (cond
+                    ((fboundp 'all-the-icons-material)
+                     (all-the-icons-material "code"
+                                             :height carriage-mode-icon-height
+                                             :v-adjust (- carriage-mode-icon-v-adjust 0.1)
+                                             :face fplist))
+                    ((fboundp 'all-the-icons-octicon)
+                     (all-the-icons-octicon "checklist"
+                                            :height carriage-mode-icon-height
+                                            :v-adjust carriage-mode-icon-v-adjust
+                                            :face fplist))
+                    (t nil)))
                   ('visible
                    (cond
                     ((fboundp 'all-the-icons-material)
@@ -1577,6 +1613,8 @@ Uses pulse.el when available, otherwise temporary overlays."
                carriage-mode-include-doc-context)
           (and (boundp 'carriage-mode-include-visible-context)
                carriage-mode-include-visible-context)
+          (and (boundp 'carriage-mode-include-patched-files)
+               carriage-mode-include-patched-files)
           (and (boundp 'carriage-doc-context-scope) carriage-doc-context-scope))))
 
 (defun carriage-ui--ml-seg-intent ()
@@ -1797,6 +1835,16 @@ Uses pulse.el when available, otherwise temporary overlays."
                          #'carriage-toggle-include-doc-context
                          help 'files)))
 
+(defun carriage-ui--ml-seg-toggle-patched ()
+  "Build toggle for including files referenced by #+patch_done markers."
+  (let* ((_ (require 'carriage-i18n nil t))
+         (help (if (and (featurep 'carriage-i18n) (fboundp 'carriage-i18n))
+                   (carriage-i18n :patched-tooltip)
+                 "Toggle including files from #+patch_done markers")))
+    (carriage-ui--toggle "[Patched]" 'carriage-mode-include-patched-files
+                         #'carriage-toggle-include-patched-files
+                         help 'patched)))
+
 (defun carriage-ui--ml-seg-toggle-visible ()
   "Build Visible-buffers context toggle."
   (let* ((_ (require 'carriage-i18n nil t))
@@ -1864,13 +1912,14 @@ Uses pulse.el when available, otherwise temporary overlays."
     ;; 'dry removed
     ;; 'apply removed
     ('all           (carriage-ui--ml-seg-all))
+    ('toggle-patched (carriage-ui--ml-seg-toggle-patched))
+    ('toggle-visible (carriage-ui--ml-seg-toggle-visible))
     ('abort         (carriage-ui--ml-seg-abort))
     ('report        (carriage-ui--ml-seg-report))
     ('toggle-ctx    (carriage-ui--ml-seg-toggle-ctx))
     ('toggle-files  (carriage-ui--ml-seg-toggle-files))
     ('doc-scope-all (carriage-ui--ml-seg-doc-scope-all))
     ('doc-scope-last (carriage-ui--ml-seg-doc-scope-last))
-    ('toggle-visible (carriage-ui--ml-seg-toggle-visible))
     ('settings      (carriage-ui--ml-seg-settings))
     (_ nil)))
 
@@ -2071,6 +2120,181 @@ PLIST keys: :phase ('apply|'dry-run), :ok :skip|:skipped :fail :total."
     (if (and (stringp help) (> (length (string-trim help)) 0))
         (message "%s" help)
       (message "Нет подробностей статуса"))))
+
+;; -------------------------------------------------------------------
+;; Assist integration: optional ranking and context-delta apply (schema-locked)
+
+(defgroup carriage-ui-assist nil
+  "Assist (LLM) integration for Carriage UI: ranking and context-delta."
+  :group 'carriage-ui
+  :prefix "carriage-ui-")
+
+(defcustom carriage-ui-enable-assist-ranking t
+  "When non-nil, allow Assist to rank the fixed action palette in menus.
+Ranking is advisory only; it never adds new actions or writes into buffers."
+  :type 'boolean
+  :group 'carriage-ui-assist)
+
+(defun carriage-ui--assist-build-ctx ()
+  "Build a lightweight context snapshot for Assist ranking/delta."
+  (list
+   :buffer (buffer-name)
+   :mode (symbol-name major-mode)
+   :has-plan (save-excursion
+               (goto-char (point-min))
+               (re-search-forward "^\\*+\\s-+Plan\\b" nil t))
+   :has-tests (save-excursion
+                (goto-char (point-min))
+                (re-search-forward "^\\*+\\s-+\\(Tests\\|Tests / Checks\\)\\b" nil t))
+   :ctx-profile (cond
+                 ((and (boundp 'carriage-doc-context-scope)
+                       (eq carriage-doc-context-scope 'last)) "last")
+                 ((boundp 'carriage-doc-context-scope) (format "%s" carriage-doc-context-scope))
+                 (t "all"))))
+
+(defun carriage-ui-rank-actions-with-assist (actions)
+  "Return ACTIONS reordered by Assist ranking when available.
+ACTIONS is a list of keyspec plists (with :id). Ranking is best-effort and
+never adds/removes actions. On errors, returns ACTIONS unchanged."
+  (require 'cl-lib)
+  (let ((out actions))
+    (when (and (require 'carriage-transport-gptel nil t)
+               (fboundp 'carriage-assist-suggest))
+      (let* ((ctx (carriage-ui--assist-build-ctx))
+             (sug (condition-case _ (carriage-assist-suggest ctx) (error nil))))
+        (when (and (listp sug)
+                   (fboundp 'carriage-assist--suggest-valid-p)
+                   (carriage-assist--suggest-valid-p sug))
+          (let ((wmap (make-hash-table :test 'eq)))
+            (dolist (it sug)
+              (puthash (plist-get it :id) (or (plist-get it :weight) 0) wmap))
+            (setq out
+                  (cl-stable-sort (copy-sequence actions)
+                                  (lambda (a b)
+                                    (> (gethash (plist-get a :id) wmap 0)
+                                       (gethash (plist-get b :id) wmap 0)))))))))
+    out))
+
+(defun carriage-ui--context-block-range ()
+  "Return cons (BODY-BEG . BODY-END) for the last #+begin_context…#+end_context block, or nil."
+  (when (derived-mode-p 'org-mode)
+    (save-excursion
+      (save-restriction
+        (widen)
+        (let ((case-fold-search t)
+              (last-body-beg nil)
+              (last-body-end nil))
+          (goto-char (point-min))
+          (while (re-search-forward "^[ \t]*#\\+begin_context\\b" nil t)
+            (let ((beg (line-end-position)))
+              (if (re-search-forward "^[ \t]*#\\+end_context\\b" nil t)
+                  (progn
+                    (setq last-body-beg (1+ beg))
+                    (setq last-body-end (line-beginning-position)))
+                (setq last-body-beg (1+ beg))
+                (setq last-body-end (point-max)))))
+          (when (and last-body-beg last-body-end (> last-body-end last-body-beg))
+            (cons last-body-beg last-body-end)))))))
+
+(defun carriage-ui--context-read-lines ()
+  "Read non-empty, non-comment lines from the last begin_context block. Return list of strings."
+  (let ((rg (carriage-ui--context-block-range)))
+    (if (not rg) '()
+      (save-excursion
+        (save-restriction
+          (narrow-to-region (car rg) (cdr rg))
+          (goto-char (point-min))
+          (let ((acc '()))
+            (while (not (eobp))
+              (let* ((ln (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
+                     (s (string-trim ln)))
+                (unless (or (string-empty-p s)
+                            (string-prefix-p "#" s)
+                            (string-prefix-p ";" s))
+                  (push s acc)))
+              (forward-line 1))
+            (nreverse (delete-dups acc))))))))
+
+(defun carriage-ui--ensure-context-block ()
+  "Ensure there is a begin_context block in the current buffer.
+Return cons (BODY-BEG . BODY-END) of its body."
+  (let ((rg (carriage-ui--context-block-range)))
+    (when rg (cl-return-from carriage-ui--ensure-context-block rg))
+    ;; Insert a fresh block near the top: after #+ lines
+    (save-excursion
+      (save-restriction
+        (widen)
+        (goto-char (point-min))
+        (while (looking-at-p "^[ \t]*#\\+") (forward-line 1))
+        (unless (bolp) (insert "\n"))
+        (let ((start (point)))
+          (insert "#+begin_context\n#+end_context\n")
+          (cons (+ start (length "#+begin_context\n"))
+                (+ start (length "#+begin_context\n"))))))))
+
+(defun carriage-ui--apply-context-delta (delta)
+  "Apply DELTA {:add list :remove list} to the last (or ensured) begin_context block."
+  (require 'cl-lib)
+  (let* ((adds (cl-remove-if #'string-empty-p (copy-sequence (or (plist-get delta :add) '()))))
+         (rem  (cl-remove-if #'string-empty-p (copy-sequence (or (plist-get delta :remove) '()))))
+         (rg   (or (carriage-ui--context-block-range)
+                   (carriage-ui--ensure-context-block))))
+    (when (consp rg)
+      (atomic-change-group
+        (let* ((cur (carriage-ui--context-read-lines))
+               ;; remove requested lines
+               (cur2 (cl-remove-if (lambda (s) (member s rem)) cur))
+               ;; add new unique lines (append at end)
+               (final (append cur2 (cl-remove-if (lambda (s) (member s cur2)) adds))))
+          (save-excursion
+            (delete-region (car rg) (cdr rg))
+            (goto-char (car rg))
+            (when final
+              (insert (mapconcat #'identity final "\n") "\n"))))))
+    t))
+
+;;;###autoload
+(defun carriage-ui-context-delta-assist ()
+  "Ask Assist to propose context delta and apply after confirmation (schema-locked, no auto-writes).
+
+- Gathers current begin_context lines.
+- Requests {:add [] :remove [] :why} from Assist.
+- Validates schema; shows preview; applies only on user confirmation.
+- Invalid responses never modify the buffer."
+  (interactive)
+  (unless (derived-mode-p 'org-mode)
+    (user-error "Context delta: not an Org buffer"))
+  (unless (require 'carriage-transport-gptel nil t)
+    (user-error "Assist transport not available"))
+  (let* ((cur (carriage-ui--context-read-lines))
+         (ctx (list :begin-context cur))
+         (delta (condition-case e
+                    (carriage-assist-context-delta ctx)
+                  (error
+                   (message "Assist error: %s" (error-message-string e))
+                   nil))))
+    (if (not (and (listp delta)
+                  (fboundp 'carriage-assist--ctx-delta-valid-p)
+                  (carriage-assist--ctx-delta-valid-p delta)))
+        (progn
+          (message "Assist Context-Delta: invalid or unavailable; no changes")
+          nil)
+      (let* ((adds (or (plist-get delta :add) '()))
+             (rem  (or (plist-get delta :remove) '()))
+             (why  (or (plist-get delta :why) "")))
+        (if (y-or-n-p
+             (concat
+              (format "Assist Context-Delta — apply?\nWhy: %s\n" why)
+              (format "Add:\n%s\n"
+                      (if adds (mapconcat (lambda (s) (concat " + " s)) adds "\n") " (none)"))
+              (format "Remove:\n%s\n"
+                      (if rem (mapconcat (lambda (s) (concat " - " s)) rem "\n") " (none)"))))
+            (progn
+              (carriage-ui--apply-context-delta delta)
+              (message "Context delta applied")
+              t)
+          (message "Context delta cancelled")
+          nil)))))
 
 (provide 'carriage-ui)
 ;;; carriage-ui.el ends here

@@ -175,7 +175,12 @@ Fallback to #+PROPERTY: CARRIAGE_* when the heading is absent."
         (org-set-property key (format "%s" val))))))
 
 (defun carriage-doc-state--collect-current ()
-  "Collect current buffer Carriage parameters as an alist of (KEY . VAL)."
+  "Collect current buffer Carriage parameters as an alist of (KEY . VAL).
+
+Preserves provenance keys written by branching (e.g., CAR_TEMPLATE_ID/VER,
+CAR_CONTEXT_PROFILE, CAR_INHERITED) if they are already present in the
+document's #+begin_carriage block. This prevents auto-save from dropping
+those fields."
   (let* ((intent (and (boundp 'carriage-mode-intent) carriage-mode-intent))
          (suite  (and (boundp 'carriage-mode-suite) carriage-mode-suite))
          (backend (and (boundp 'carriage-mode-backend) carriage-mode-backend))
@@ -192,27 +197,46 @@ Fallback to #+PROPERTY: CARRIAGE_* when the heading is absent."
          (stage (and (boundp 'carriage-apply-stage-policy) carriage-apply-stage-policy))
          (icons (and (boundp 'carriage-mode-use-icons) carriage-mode-use-icons))
          (flash (and (boundp 'carriage-mode-flash-patches) carriage-mode-flash-patches))
-         (audio (and (boundp 'carriage-mode-audio-notify) carriage-mode-audio-notify)))
-    (cl-remove-if-not
-     #'identity
-     (list
-      (cons "CAR_MODE" (carriage-doc-state--bool->str t))
-      (and intent (cons "CAR_INTENT" (format "%s" intent)))
-      (and suite  (cons "CAR_SUITE"  (format "%s" suite)))
-      (and full-id (cons "CAR_MODEL_ID" full-id))
-      (and engine (cons "CAR_ENGINE" (format "%s" engine)))
-      (and branch (cons "CAR_BRANCH_POLICY" (format "%s" branch)))
-      (cons "CAR_CTX_GPTEL" (carriage-doc-state--bool->str ctx-g))
-      (cons "CAR_CTX_DOC"   (carriage-doc-state--bool->str ctx-d))
-      (cons "CAR_CTX_VISIBLE"
-            (carriage-doc-state--bool->str
-             (and (boundp 'carriage-mode-include-visible-context)
-                  carriage-mode-include-visible-context)))
-      (and rpt   (cons "CAR_REPORT_POLICY" (format "%s" rpt)))
-      (and stage (cons "CAR_STAGE_POLICY" (format "%s" stage)))
-      (cons "CAR_ICONS"        (carriage-doc-state--bool->str icons))
-      (cons "CAR_FLASH"        (carriage-doc-state--bool->str flash))
-      (cons "CAR_AUDIO_NOTIFY" (carriage-doc-state--bool->str audio))))))
+         (audio (and (boundp 'carriage-mode-audio-notify) carriage-mode-audio-notify))
+         ;; Base alist collected from current in-memory state
+         (base (cl-remove-if-not
+                #'identity
+                (list
+                 (cons "CAR_MODE" (carriage-doc-state--bool->str t))
+                 (and intent (cons "CAR_INTENT" (format "%s" intent)))
+                 (and suite  (cons "CAR_SUITE"  (format "%s" suite)))
+                 (and full-id (cons "CAR_MODEL_ID" full-id))
+                 (and engine (cons "CAR_ENGINE" (format "%s" engine)))
+                 (and branch (cons "CAR_BRANCH_POLICY" (format "%s" branch)))
+                 (cons "CAR_CTX_GPTEL" (carriage-doc-state--bool->str ctx-g))
+                 (cons "CAR_CTX_DOC"   (carriage-doc-state--bool->str ctx-d))
+                 (cons "CAR_CTX_VISIBLE"
+                       (carriage-doc-state--bool->str
+                        (and (boundp 'carriage-mode-include-visible-context)
+                             carriage-mode-include-visible-context)))
+                 (and rpt   (cons "CAR_REPORT_POLICY" (format "%s" rpt)))
+                 (and stage (cons "CAR_STAGE_POLICY" (format "%s" stage)))
+                 (cons "CAR_ICONS"        (carriage-doc-state--bool->str icons))
+                 (cons "CAR_FLASH"        (carriage-doc-state--bool->str flash))
+                 (cons "CAR_AUDIO_NOTIFY" (carriage-doc-state--bool->str audio))))))
+    ;; Provenance extras already present in the buffer (from branching)
+    (existing-pl (ignore-errors (carriage-doc-state-read (current-buffer)))))
+  (let ((alist base))
+    ;; Merge provenance keys from the existing begin_carriage block to avoid losing them.
+    (when (listp existing-pl)
+      (let ((pl existing-pl))
+        (while pl
+          (let* ((k (car pl))
+                 (v (cadr pl)))
+            (when (and (keywordp k))
+              (let* ((ks (symbol-name k))         ; e.g., ":CAR_TEMPLATE_ID"
+                     (plain (upcase (string-remove-prefix ":" ks))))
+                (when (or (string-prefix-p "CAR_TEMPLATE_" plain)
+                          (member plain '("CAR_CONTEXT_PROFILE" "CAR_INHERITED")))
+                  (unless (assoc plain alist)
+                    (push (cons plain (format "%s" v)) alist))))))
+          (setq pl (cddr pl)))))
+    alist))
 
 (defun carriage-doc-state-write (data &optional buffer)
   "Write DATA into the Carriage State drawer of BUFFER (or current).
@@ -744,9 +768,16 @@ This delegates to the reusable carriage-block-fold module."
              (add-hook 'after-save-hook #'carriage-doc-state--fold-carriage-block-now nil t))))))))
 
 ;; Install visit hooks: fold at visit, after major mode activation, and on revert; ensure after-save handled per-buffer.
+(defun carriage-doc-state--maybe-install-save-hook ()
+  "Install doc-state before-save hook when carriage-mode is active in this buffer."
+  (when (and (derived-mode-p 'org-mode)
+             (boundp 'carriage-mode) carriage-mode)
+    (ignore-errors (carriage-doc-state-install-save-hook))))
+
 (add-hook 'find-file-hook #'carriage-doc-state--fold-on-visit)
 (add-hook 'after-change-major-mode-hook #'carriage-doc-state--fold-on-visit)
 (add-hook 'org-mode-hook #'carriage-doc-state--fold-carriage-block-now)
+(add-hook 'org-mode-hook #'carriage-doc-state--maybe-install-save-hook)
 (add-hook 'after-revert-hook #'carriage-doc-state--fold-carriage-block-now)
 
 ;; -------------------------------------------------------------------
@@ -765,8 +796,6 @@ This delegates to the reusable carriage-block-fold module."
   '((t :inherit shadow :slant italic :height 0.9))
   "Face for the single-line placeholder of folded begin_<kind> blocks.")
 
-;; Use the generic kinds from carriage-block-fold; keep legacy name for compatibility.
-(defvaralias 'carriage-doc-state-fold-kinds 'carriage-block-fold-kinds)
 
 (defun carriage-doc-state--block-range-of (kind)
   "Return (BEG . END) inclusive line bounds of the begin_<KIND>…end_<KIND> block, or nil."
@@ -938,5 +967,18 @@ Optional DELAY in seconds; defaults to 0.1."
 (defun carriage-doc-state--remove-change-watch ()
   "Remove buffer-local after-change watcher."
   (remove-hook 'after-change-functions #'carriage-doc-state--after-change t))
+
+;; Install/uninstall before-save hook when carriage-mode toggles in this buffer.
+(defun carriage-doc-state--on-carriage-mode (&rest _args)
+  "Attach or detach before-save hook when `carriage-mode' toggles."
+  (when (and (derived-mode-p 'org-mode)
+             (boundp 'carriage-mode))
+    (if carriage-mode
+        (ignore-errors (carriage-doc-state-install-save-hook))
+      (ignore-errors (carriage-doc-state-remove-save-hook)))))
+
+(with-eval-after-load 'carriage-mode
+  (ignore-errors
+    (advice-add 'carriage-mode :after #'carriage-doc-state--on-carriage-mode)))
 
 ;;; carriage-doc-state.el ends here

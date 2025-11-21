@@ -83,6 +83,39 @@ or the last block in the buffer if none precedes point."
   :group 'carriage-context)
 (make-variable-buffer-local 'carriage-doc-context-scope)
 
+(defcustom carriage-mode-include-patched-files nil
+  "When non-nil, include files referenced by #+patch_done markers in the current buffer into the document context."
+  :type 'boolean
+  :group 'carriage-context)
+(make-variable-buffer-local 'carriage-mode-include-patched-files)
+
+;;;###autoload
+(defun carriage-toggle-include-patched-files ()
+  "Toggle inclusion of files from #+patch_done markers for this buffer."
+  (interactive)
+  (setq-local carriage-mode-include-patched-files (not carriage-mode-include-patched-files))
+  ;; Invalidate caches so [Ctx:N] and the modeline reflect changes immediately.
+  (when (fboundp 'carriage-ui--reset-context-cache)
+    (carriage-ui--reset-context-cache))
+  (when (fboundp 'carriage-ui--invalidate-ml-cache)
+    (carriage-ui--invalidate-ml-cache))
+  (force-mode-line-update))
+
+(defun carriage-context--patched-files (buffer)
+  "Return list of file paths extracted from #+patch_done markers in BUFFER."
+  (with-current-buffer buffer
+    (save-excursion
+      (goto-char (point-min))
+      (let ((case-fold-search t)
+            (acc '()))
+        (while (re-search-forward "^[ \t]*#\\+patch_done\\b.*" nil t)
+          (let* ((line (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
+                 (fp (and (string-match ":file[ \t]+\"\\([^\"]+\\)\"" line)
+                          (match-string 1 line))))
+            (when (and fp (stringp fp) (not (string-empty-p fp)))
+              (push fp acc))))
+        (nreverse (delete-dups acc))))))
+
 ;; Commands to switch scope (used by UI/keyspec)
 ;;;###autoload
 (defun carriage-select-doc-context-all ()
@@ -534,7 +567,14 @@ Return updated STATE."
          (state (carriage-context--collect-init-state config)))
     (carriage-context--dbg "collect: root=%s include{gptel=%s,doc=%s,vis=%s} limits{files=%s,bytes=%s}"
                            root include-gptel include-doc include-visible max-files max-bytes)
-    ;; 1) DOC candidates first (highest preference)
+    ;; 1a) Patched files (independent toggle; treated as 'doc' source for precedence)
+    (when (and (boundp 'carriage-mode-include-patched-files)
+               carriage-mode-include-patched-files
+               (carriage-context--state-under-file-limit-p state))
+      (let ((pat-cands (ignore-errors (carriage-context--patched-files buf))))
+        (when pat-cands
+          (setq state (carriage-context--collect-iterate pat-cands state)))))
+    ;; 1b) DOC candidates (highest preference among primary sources)
     (when (and include-doc (carriage-context--state-under-file-limit-p state))
       (let ((doc-cands (ignore-errors (carriage-context--doc-paths buf))))
         (when doc-cands
@@ -705,7 +745,7 @@ Supports new and legacy variables; defaults ON."
       (cons inc-gpt inc-doc))))
 
 (defun carriage-context--count-root+toggles (buf)
-  "Return plist with root and inclusion toggles for BUF: (:root R :inc-gpt B :inc-doc B :inc-vis B)."
+  "Return plist with root and inclusion toggles for BUF: (:root R :inc-gpt B :inc-doc B :inc-vis B :inc-patched B)."
   (let* ((root (carriage-context--project-root))
          (inc-gpt (with-current-buffer buf
                     (or (and (boundp 'carriage-mode-include-gptel-context)
@@ -721,8 +761,11 @@ Supports new and legacy variables; defaults ON."
                         t)))
          (inc-vis (with-current-buffer buf
                     (and (boundp 'carriage-mode-include-visible-context)
-                         (buffer-local-value 'carriage-mode-include-visible-context buf)))))
-    (list :root root :inc-gpt inc-gpt :inc-doc inc-doc :inc-vis inc-vis)))
+                         (buffer-local-value 'carriage-mode-include-visible-context buf))))
+         (inc-patched (with-current-buffer buf
+                        (and (boundp 'carriage-mode-include-patched-files)
+                             (buffer-local-value 'carriage-mode-include-patched-files buf)))))
+    (list :root root :inc-gpt inc-gpt :inc-doc inc-doc :inc-vis inc-vis :inc-patched inc-patched)))
 
 (defun carriage-context--true-map (trues)
   "Build and return a hash-table mapping TRUES for quick membership checks."
@@ -730,12 +773,17 @@ Supports new and legacy variables; defaults ON."
     (dolist (tru trues) (puthash tru tru h))
     h))
 
-(defun carriage-context--count-gather-trues (buf root inc-gpt inc-doc inc-vis)
-  "Collect truenames and maps for DOC, GPTEL and VISIBLE sources given BUF and ROOT."
+(defun carriage-context--count-gather-trues (buf root inc-gpt inc-doc inc-vis inc-patched)
+  "Collect truenames and maps for DOC, PATCHED, GPTEL and VISIBLE sources given BUF and ROOT.
+Patched files are treated as 'doc' for source classification."
   (let* ((doc-trues (if inc-doc
                         (carriage-context--unique-truenames-under-root
                          (ignore-errors (carriage-context--doc-paths buf)) root)
                       '()))
+         (patched-trues (if inc-patched
+                            (carriage-context--unique-truenames-under-root
+                             (ignore-errors (carriage-context--patched-files buf)) root)
+                          '()))
          (gpt-trues (if inc-gpt
                         (carriage-context--unique-truenames-under-root
                          (ignore-errors (carriage-context--maybe-gptel-files)) root)
@@ -771,11 +819,14 @@ Supports new and legacy variables; defaults ON."
 
                  nil (selected-frame))
                 (delete-dups acc))
-            '())))
+            '()))
+         ;; doc-map should include patched as doc
+         (doc-all (delete-dups (append doc-trues patched-trues))))
     (list :doc-trues doc-trues
+          :patched-trues patched-trues
           :gpt-trues gpt-trues
           :vis-trues vis-trues
-          :doc-map (carriage-context--true-map doc-trues)
+          :doc-map (carriage-context--true-map doc-all)
           :gpt-map (carriage-context--true-map gpt-trues)
           :vis-map (carriage-context--true-map vis-trues))))
 
@@ -828,12 +879,13 @@ Supports new and legacy variables; defaults ON."
          (root (plist-get cfg :root))
          (inc-gpt (plist-get cfg :inc-gpt))
          (inc-doc (plist-get cfg :inc-doc))
-         (inc-vis (plist-get cfg :inc-vis)))
-    (if (not (or inc-gpt inc-doc inc-vis))
+         (inc-vis (plist-get cfg :inc-vis))
+         (inc-patched (plist-get cfg :inc-patched)))
+    (if (not (or inc-gpt inc-doc inc-vis inc-patched))
         (progn
           (carriage-context--dbg "count: all sources OFF → 0")
           (carriage-context--count-empty-result))
-      (let* ((true-data (carriage-context--count-gather-trues buf root inc-gpt inc-doc inc-vis))
+      (let* ((true-data (carriage-context--count-gather-trues buf root inc-gpt inc-doc inc-vis inc-patched))
              (doc-trues (plist-get true-data :doc-trues))
              (gpt-trues (plist-get true-data :gpt-trues))
              (vis-trues (plist-get true-data :vis-trues))
@@ -855,6 +907,112 @@ Supports new and legacy variables; defaults ON."
                                (length doc-trues) (length gpt-trues) (length vis-trues)
                                (length files) (length items) (length warnings))
         (carriage-context--count-assemble items warnings stats)))))
+
+;; Patched files integration for count badge
+(defun carriage-context--patchdone-files-in-buffer (&optional buffer)
+  "Return repo-relative paths from #+patch_done markers in BUFFER."
+  (with-current-buffer (or buffer (current-buffer))
+    (save-excursion
+      (goto-char (point-min))
+      (let ((case-fold-search t)
+            (paths nil))
+        (while (re-search-forward "^#\\+patch_done\\s-*(\\s-*:op\\s-+\"aibo\"\\s-+:file\\s-+\"\\([^\"]+\\)\"" nil t)
+          (let ((p (match-string 1)))
+            (when (and p (> (length p) 0))
+              (push p paths))))
+        (nreverse (delete-dups paths))))))
+
+(defun carriage-context--advice-count-include-patched (res)
+  "Include patched files count into RES returned by carriage-context-count."
+  (condition-case _err
+      (if (and (boundp 'carriage-mode-include-patched-files)
+               carriage-mode-include-patched-files)
+          (let* ((files (carriage-context--patchdone-files-in-buffer))
+                 (k (length files)))
+            (cond
+             ((numberp res) (+ res k))
+             ((and (consp res) (plist-member res :count))
+              (plist-put res :count (+ (or (plist-get res :count) 0) k)))
+             (t res)))
+        res)
+    (error res)))
+
+;; Ensure advice is active
+(when (fboundp 'carriage-context-count)
+  (advice-add 'carriage-context-count :filter-return #'carriage-context--advice-count-include-patched))
+
+;; -----------------------------------------------------------------------------
+;; Context profile (P1/P3) — defaults, setter and toggle
+
+(defgroup carriage-context-profile nil
+  "Context profiles (P1-core, P3-debug) and their defaults."
+  :group 'carriage-context
+  :prefix "carriage-context-")
+
+(defcustom carriage-context-p1-defaults
+  '(:max-files 100 :max-bytes 1048576)
+  "Default limits for P1-core profile (small, focused context).
+Keys: :max-files (int), :max-bytes (int, bytes)."
+  :type '(plist :key-type (choice (const :max-files) (const :max-bytes))
+                :value-type integer)
+  :group 'carriage-context-profile)
+
+(defcustom carriage-context-p3-defaults
+  '(:max-files 400 :max-bytes 4194304)
+  "Default limits for P3-debug profile (extended, opt-in).
+Keys: :max-files (int), :max-bytes (int, bytes)."
+  :type '(plist :key-type (choice (const :max-files) (const :max-bytes))
+                :value-type integer)
+  :group 'carriage-context-profile)
+
+(defvar-local carriage-doc-context-profile 'p1
+  "Current context profile for this buffer: 'p1 or 'p3.")
+
+(defun carriage-context--apply-profile-defaults (profile)
+  "Apply default limits for PROFILE into buffer-local Carriage context settings."
+  (let* ((pl (if (eq profile 'p3) carriage-context-p3-defaults carriage-context-p1-defaults))
+         (mf (plist-get pl :max-files))
+         (mb (plist-get pl :max-bytes)))
+    (when (boundp 'carriage-mode-context-max-files)
+      (setq-local carriage-mode-context-max-files (or mf (and (local-variable-p 'carriage-mode-context-max-files) carriage-mode-context-max-files))))
+    (when (boundp 'carriage-mode-context-max-total-bytes)
+      (setq-local carriage-mode-context-max-total-bytes (or mb (and (local-variable-p 'carriage-mode-context-max-total-bytes) carriage-mode-context-max-total-bytes))))))
+
+;;;###autoload
+(defun carriage-context-profile-set (profile)
+  "Set context PROFILE to 'p1 or 'p3 for the current buffer, adjust limits and refresh UI.
+Writes CAR_CONTEXT_PROFILE on save via doc-state."
+  (interactive
+   (list (intern (completing-read "Context profile: " '("p1" "p3") nil t nil nil "p1"))))
+  (setq-local carriage-doc-context-profile (if (memq profile '(p1 p3)) profile 'p1))
+  (carriage-context--apply-profile-defaults carriage-doc-context-profile)
+  ;; UI warning/notice on profile switch
+  (when (eq carriage-doc-context-profile 'p3)
+    (message "Context profile switched to P3-debug (extended budget; may impact cost/quality)"))
+  (when (eq carriage-doc-context-profile 'p1)
+    (message "Context profile switched to P1-core"))
+  ;; UI refresh: reset caches if available
+  (when (fboundp 'carriage-ui--reset-context-cache)
+    (ignore-errors (carriage-ui--reset-context-cache)))
+  (when (fboundp 'carriage-ui--invalidate-ml-cache)
+    (ignore-errors (carriage-ui--invalidate-ml-cache)))
+  (force-mode-line-update)
+  ;; Persist on next save; optionally update doc-state immediately when available
+  (when (fboundp 'carriage-doc-state-write)
+    (ignore-errors
+      (carriage-doc-state-write
+       (list :CAR_CONTEXT_PROFILE (if (eq carriage-doc-context-profile 'p3) "P3" "P1")))))
+  (when (eq profile 'p3)
+    (message "Context profile: P3-debug (extended budget may impact cost/quality)"))
+  (when (eq profile 'p1)
+    (message "Context profile: P1-core"))
+  carriage-doc-context-profile)
+
+;;;###autoload
+(defun carriage-toggle-context-profile ()
+  "Toggle context profile between P1 and P3 in the current buffer."
+  (interactive)
+  (carriage-context-profile-set (if (eq carriage-doc-context-profile 'p3) 'p1 'p3)))
 
 (provide 'carriage-context)
 ;;; carriage-context.el ends here

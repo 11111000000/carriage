@@ -1,0 +1,197 @@
+#+title: Implementation Plan — Document Branching and Templates v1
+#+author: Carriage Team <dev@carriage>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Plan-ID: carriage/plans/document-branching-and-templates/v1
+- Version: v1.0
+- Status: draft
+- Links:
+  - Spec: spec/document-branching-and-templates-v1.org
+  - UI: spec/ui-v2.org
+  - Context: spec/context-integration-v2.org
+  - Security: spec/security-v2.org
+  - Tool Contracts: spec/tool-contracts-v2.org
+
+Overview
+- Goal: Deliver v1 functionality defined in carriage/docs/document-branching-and-templates/v1 with minimal risk and fast user value.
+- Strategy: 4 phases, each shippable; enforce determinism (no I/O/eval in templates); schema-locked Assist; visible provenance (CAR_TEMPLATE_*).
+
+Scope (this plan)
+- Code: templates registry and renderer, branching transient, context profiles P1/P3 with inheritance, fixed action palette, Assist surface (suggest/context-delta).
+- Specs: refine and cross-link existing specs where needed; add acceptance criteria.
+- Tests: unit snapshot determinism, guards, integration for transient/palette, Assist schema validation.
+
+Phase 1 — Core templates and rendering (week 1)
+- New module: lisp/carriage-templates.el
+  - defgroup/defcustom: carriage-templates (registry)
+  - Placeholder engine: {{name|filter}} with whitelist filters: quote, slug, trim, upper, lower
+  - Pure render guard: forbid I/O/network/TRAMP/eval in :render and filters; error TEMPLATE_E_IO_ATTEMPT
+  - API:
+    - carriage-templates-render TEMPLATE-ID CTX → string
+    - Built-in templates; resolution order (project → user → built-in) may be added in v1.1 if needed
+- Built-in templates (minimal set):
+  - task/default, task/decomposition, task/implementation-step
+  - test/plan, debug/protocol, design/adr, bug/incident
+- Tests:
+  - Snapshot determinism for built-ins
+  - Placeholder whitelist; unknown placeholder/filter → error
+  - Guards block I/O/eval during render
+- Deliverable: deterministic rendering and registry with minimal library
+
+Phase 2 — Branching transient, profiles, inheritance (week 2)
+- lisp/carriage-task.el
+  - carriage-task-create-from-template TEMPLATE-ID OPTS
+  - begin_context insertion by profile (P1 default; P3 opt-in)
+  - Dedup inheritance: merge parent begin_context paths uniquely; annotate “inherited N paths”
+  - Write CAR_TEMPLATE_ID/VER, CAR_CONTEXT_PROFILE, CAR_INHERITED in #+begin_carriage
+- lisp/carriage-ui.el
+  - Transient: Template, Profile (P1/P3), Inheritance toggles
+  - Badge [Ctx:N] with tooltip; overflow warnings; align with spec/ui-v2
+- lisp/carriage-context.el
+  - Helpers for profile sizing and path normalization; profile budgets and warnings
+- Tests:
+  - P1 default, P3 opt-in; warnings on overflow
+  - Provenance fields set; inheritance marking; dedup paths
+  - Time-to-skeleton ≤ 60s (smoke)
+- Specs:
+  - Ensure spec/document-branching-and-templates-v1.org XREFs align (UI, context)
+
+Phase 3 — Action palette and Assist surface (week 3)
+- lisp/carriage-keyspec.el
+  - Palette actions: Insert[Plan|Step|Test|Retro], Toggle[P1↔P3]
+  - Visibility by doc state (has:plan/tests/ok-patches, ctx-profile)
+- lisp/transports/carriage-transport-gptel.el (or adapter)
+  - Assist Suggest → list {:id :label :reason :weight}
+  - Assist Context-Delta → {:add [] :remove [] :why}
+  - Schema validation; invalid → ASSIST_E_SCHEMA; no buffer writes
+- lisp/carriage-ui.el
+  - Palette UI; optional Assist ranking; single-undo inserts
+  - Context-delta diff UI; apply on confirmation
+- Tests:
+  - Schema-locked responses; invalid does not modify buffers
+  - Visibility rules; single-undo integrity
+- Specs:
+  - Align PRM/TOOL sections; cross-reference spec/tool-contracts-v2.org
+
+Phase 4 — Polishing, metrics, optional library growth (week 4)
+- lisp/carriage-logging.el / lisp/carriage-traffic-batch.el
+  - carriage-metrics-note: time-to-skeleton, avg patch size, success-apply, template reuse, context budget
+- Optional: begin_map (local-only, manual refresh) behind defcustom; target v1.1
+- Tests:
+  - Metric emission smoke tests
+  - Golden flows for common user paths
+- Docs:
+  - “1 minute” and “10 minute” guides; examples per template
+
+Acceptance Criteria (maps to CHK in the spec)
+- AC-1: Deterministic renders; no I/O/network; placeholder whitelist (CHK-branch-001).
+- AC-2: P1 default; P3 opt-in; [Ctx:N] visible; overflow warning (CHK-branch-002).
+- AC-3: Provenance recorded; inherited paths deduped and annotated (CHK-branch-003).
+- AC-4: Assist schema validation; invalid response → no writes (CHK-branch-004).
+- AC-5: Palette fixed actions; visibility by state; single-undo insert (CHK-branch-005).
+- AC-6: Time-to-skeleton ≤ 60s (CHK-branch-006).
+
+Risks and Mitigations
+- Template creep → governance: ids/versions, linter, add-by-signal only.
+- Context explosion → strict P1 default, caps, warnings; delta-oriented operations.
+- Hidden magic → enforce pure renders; provenance; single-undo groups; optional Diff.
+
+Rollout
+- Default-enable Phase 1–2; Phase 3 (Assist) behind opt-in defcustom until stabilized.
+- Telemetry opt-in; anonymized metrics for improvement loop.
+
+Next Steps — QA and hardening
+- Add integration tests for branching transient (provenance CAR_TEMPLATE_*; begin_context creation/inheritance with dedup).
+- Verify single-undo-group integrity for Insert[Plan|Step|Test|Retro] and for Assist context-delta applies.
+- Ensure Assist schema guards: invalid responses never modify buffers; visible warning is shown in UI.
+- Small UX polish: expose Insert/Assist transient in menu and which-key; ensure [Ctx:N] tooltip lists sources and warnings.
+
+#+begin_context
+lisp/carriage-announce.el
+lisp/carriage-apply.el
+lisp/carriage-block-fold.el
+lisp/carriage-clean.el
+lisp/carriage-context.el
+lisp/carriage-doc-state.el
+lisp/carriage-errors.el
+lisp/carriage-format-registry.el
+lisp/carriage-git-history.el
+lisp/carriage-git.el
+lisp/carriage-global-mode.el
+lisp/carriage-i18n.el
+lisp/carriage-intent-registry.el
+lisp/carriage-iteration.el
+lisp/carriage-keyspec.el
+lisp/carriage-llm-registry.el
+lisp/carriage-logging.el
+lisp/carriage-mode.el
+lisp/carriage-parser.el
+lisp/carriage-report.el
+lisp/carriage-sre-core.el
+lisp/carriage-suite.el
+lisp/carriage-task.el
+lisp/carriage-traffic-batch.el
+lisp/carriage-ui.el
+lisp/carriage-utils.el
+lisp/carriage.el
+lisp/engines/carriage-apply-engine.el
+lisp/engines/carriage-engine-emacs.el
+lisp/engines/carriage-engine-git.el
+lisp/ops/carriage-op-aibo.el
+lisp/ops/carriage-op-file.el
+lisp/ops/carriage-op-patch.el
+lisp/ops/carriage-op-sre.el
+lisp/profile-carriage.el
+lisp/transports/carriage-transport-echo.el
+lisp/transports/carriage-transport-gptel.el
+lisp/transports/carriage-transport.el
+spec/aibo-v2.org
+spec/apply-engines-v2.org
+spec/apply-pipeline-v2.org
+spec/async-workflow-v2.org
+spec/carriage-mode-v2.org
+spec/cleanup-tools-v2.org
+spec/code-style-v2.org
+spec/compliance-checklist-v2.org
+spec/context-integration-v2.org
+spec/data-structures-v2.org
+spec/doc-state-v2.org
+spec/document-branching-and-templates-v1.org
+spec/engines-ui-v2.org
+spec/errors-v2.org
+spec/extensibility-points-v2.org
+spec/file-header-format-v2.org
+spec/file-ops-v2.org
+spec/git-history-v2.org
+spec/git-integration-v2.org
+spec/golden-fixtures-v2.org
+spec/i18n-v2.org
+spec/index.org
+spec/iteration-markers-placement-v2.org
+spec/iteration-markers-v2.org
+spec/keyspec-v2.org
+spec/llm-registry-v2.org
+spec/llm-transport-v2.org
+spec/logging-v2.org
+spec/observability-v2.org
+spec/pack-recipes-v2.org
+spec/parser-impl-v2.org
+spec/parser-registry-v2.org
+spec/patch-unified-diff-v2.org
+spec/preloader-v2.org
+spec/project-overview-v2.org
+spec/prompt-profiles-v2.org
+spec/rag-indexing-v2.org
+spec/readme-v2.org
+spec/security-v2.org
+spec/spec-on-specs.org
+spec/spec.conf
+spec/sre-v2.org
+spec/tasks-v2.org
+spec/testing-v2.org
+spec/tool-contracts-v2.org
+spec/ui-v2.org
+#+end_context

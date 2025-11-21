@@ -385,5 +385,374 @@ Behavior:
               :desc-key :task-new)))))
   (when (fboundp 'carriage-keys-apply-known-keymaps) (ignore-errors (carriage-keys-apply-known-keymaps))))
 
+;; Branching via templates (v1)
+
+(defcustom carriage-task-default-template-id 'task/default
+  "Default template id used by `carriage-task-create-doc-from-template'."
+  :type 'symbol :group 'carriage-task)
+
+(defcustom carriage-task-branch-default-profile 'p1
+  "Default context profile for new documents: 'p1 or 'p3."
+  :type '(choice (const p1) (const p3)) :group 'carriage-task)
+
+(defcustom carriage-task-inherit-begin-context t
+  "When non-nil, inherit begin_context paths from the origin document."
+  :type 'boolean :group 'carriage-task)
+
+(defcustom carriage-task-inherit-car-flags t
+  "When non-nil, mark CAR_* inheritance in the new document."
+  :type 'boolean :group 'carriage-task)
+
+(defun carriage-task--read-parent-context (origin-file)
+  "Return list of context paths from ORIGIN-FILE using carriage-context."
+  (when (and origin-file (file-exists-p origin-file))
+    (condition-case _e
+        (with-current-buffer (find-file-noselect origin-file)
+          (require 'carriage-context nil t)
+          (ignore-errors (carriage-context--doc-paths (current-buffer))))
+      (error nil))))
+
+(defun carriage-task--dedup-paths (paths)
+  "Deduplicate PATHS, preserving order."
+  (let ((seen (make-hash-table :test 'equal))
+        (out '()))
+    (dolist (p paths (nreverse out))
+      (unless (or (null p) (string-empty-p p) (gethash p seen))
+        (puthash p t seen)
+        (push p out)))))
+
+(defun carriage-task--insert-begin-context-in-buffer (buf paths)
+  "Insert a #+begin_context … #+end_context block into BUF after a '* Context' section if present, else at end."
+  (when (and (buffer-live-p buf) paths)
+    (with-current-buffer buf
+      (save-excursion
+        (let ((case-fold-search t)
+              (block (concat "#+begin_context\n"
+                             (mapconcat #'identity paths "\n")
+                             "\n#+end_context\n")))
+          (goto-char (point-min))
+          (if (re-search-forward "^\\*+ +Context\\b" nil t)
+              (progn
+                (forward-line 1)
+                (insert block "\n"))
+            (goto-char (point-max))
+            (unless (bolp) (insert "\n"))
+            (insert block "\n")))))))
+
+(defun carriage-task--write-carriage-provenance (buf template-id template-ver profile inherited)
+  "Write a fresh #+begin_carriage block with provenance into BUF, replacing an existing one if found."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (save-excursion
+        (let ((case-fold-search t)
+              (beg nil) (end nil))
+          (goto-char (point-min))
+          (when (re-search-forward "^[ \t]*#\\+begin_carriage\\b" nil t)
+            (setq beg (match-beginning 0))
+            (when (re-search-forward "^[ \t]*#\\+end_carriage\\b" nil t)
+              (setq end (match-end 0))))
+          (let* ((block (format "#+begin_carriage\nCARRIAGE_TEMPLATE_ID %s\nCARRIAGE_TEMPLATE_VER %s\nCARRIAGE_CONTEXT_PROFILE %s\nCARRIAGE_INHERITED %s\n#+end_carriage\n"
+                                (or (and (symbolp template-id) (symbol-name template-id)) (format "%s" template-id))
+                                (or template-ver "1.0")
+                                (upcase (if (eq profile 'p3) "P3" "P1"))
+                                (cond
+                                 ((and (plist-get inherited :begin) (plist-get inherited :flags)) "BOTH")
+                                 ((plist-get inherited :begin) "BEGIN")
+                                 ((plist-get inherited :flags) "FLAGS")
+                                 (t "NONE")))))
+            (cond
+             ((and beg end) (delete-region beg end) (goto-char beg) (insert block))
+             (t (goto-char (point-min)) (insert block "\n")))))))))
+
+;;;###autoload
+(defun carriage-task-create-doc-from-template (&optional template-id profile inherit-begin inherit-flags)
+  "Create a task document from TEMPLATE-ID into project docs directory.
+
+PROFILE is 'p1 or 'p3 (default from `carriage-task-branch-default-profile').
+When INHERIT-BEGIN is non-nil, copy parent begin_context paths into the new doc.
+When INHERIT-FLAGS is non-nil, mark CAR_* inheritance."
+  (interactive)
+  (require 'carriage-templates)
+  (let* ((root (carriage-task--project-root))
+         (origin-file (and (derived-mode-p 'org-mode) buffer-file-name))
+         (origin-buf (current-buffer))
+         (title0 (or (carriage-task--org-heading-at-point)
+                     (read-string "Task title: ")))
+         (title (string-trim title0))
+         (docs-dir (carriage-task--origin-doc-dir root origin-file))
+         (ordinal (carriage-task--next-ordinal docs-dir))
+         (slug (funcall carriage-task-slugify-fn title))
+         (filename (format carriage-task-filename-format ordinal slug))
+         (abs (expand-file-name filename docs-dir))
+         (rel-from-root (carriage-task--relative root abs))
+         (todo (carriage-task--find-todo-in-root root))
+         (rel-to-todo   (carriage-task--relative docs-dir (or todo (expand-file-name "TODO.org" root))))
+         (todo-link (format "[[file:%s::*%s][перейти]]" rel-to-todo title))
+         (subtree (or (carriage-task--org-subtree-text) ""))
+         (tpl (or template-id carriage-task-default-template-id))
+         (prof (or profile carriage-task-branch-default-profile))
+         (inh-begin (if (called-interactively-p 'any)
+                        (and carriage-task-inherit-begin-context)
+                      (or inherit-begin carriage-task-inherit-begin-context)))
+         (inh-flags (if (called-interactively-p 'any)
+                        (and carriage-task-inherit-car-flags)
+                      (or inherit-flags carriage-task-inherit-car-flags)))
+         (ctx (list :title title
+                    :today (format-time-string "%Y-%m-%d")
+                    :project (file-name-nondirectory (directory-file-name root))
+                    :origin-file (and origin-file (file-relative-name origin-file root))
+                    :origin-heading title
+                    :subtree subtree
+                    :ctx-profile prof
+                    :parent-context (and inh-begin (carriage-task--read-parent-context origin-file))
+                    :inherited (list :begin-context inh-begin :car-flags inh-flags)))
+         (rendered (carriage-templates-render tpl ctx))
+         (buf (find-file-noselect abs)))
+    (with-current-buffer buf
+      (erase-buffer)
+      (insert rendered)
+      (goto-char (point-min))
+      (org-mode)
+      (ignore-errors (carriage-mode 1))
+      (when (boundp 'carriage-mode-intent)
+        (setq-local carriage-mode-intent 'Ask))
+      ;; Insert backlink to TODO heading section (templates include title; avoid duplication)
+      (save-excursion
+        (goto-char (point-min))
+        (insert (format "See TODO: %s\n\n" todo-link)))
+      ;; Insert begin_context: inherited or empty per profile
+      (if inh-begin
+          (let ((paths (carriage-task--dedup-paths (plist-get ctx :parent-context))))
+            (when paths (carriage-task--insert-begin-context-in-buffer (current-buffer) paths)))
+        (save-excursion
+          (goto-char (point-min))
+          (let ((case-fold-search t))
+            (if (re-search-forward "^\\*+ +Context\\b" nil t)
+                (progn
+                  (forward-line 1)
+                  (insert "#+begin_context\n#+end_context\n\n"))
+              (goto-char (point-max))
+              (unless (bolp) (insert "\n"))
+              (insert "#+begin_context\n#+end_context\n\n")))))
+      ;; Ensure CAR_* provenance reflects chosen profile/inheritance
+      (carriage-task--write-carriage-provenance
+       (current-buffer) tpl "1.0" prof (list :begin inh-begin :flags inh-flags))
+      (save-buffer)
+      (switch-to-buffer buf))
+    ;; Backlinks in origin/TODO
+    (when todo
+      (carriage-task--maybe-insert-backlink-into-todo todo title rel-from-root))
+    (when (and origin-file (file-exists-p origin-file))
+      (let* ((origin-dir (file-name-directory origin-file))
+             (rel-from-origin (carriage-task--relative origin-dir abs)))
+        (carriage-task--insert-backlink-into-origin
+         origin-file title rel-from-origin carriage-task-move-subtree-content t)))
+    (when (and (buffer-live-p origin-buf) (buffer-modified-p origin-buf))
+      (with-current-buffer origin-buf (save-buffer)))))
+
+;; -------------------------------------------------------------------
+;; Branching transient (template/profile/inheritance) — minimal v1
+
+(defvar carriage-branching--sel-template nil
+  "Selected template id for branching transient (symbol).")
+(defvar carriage-branching--sel-profile nil
+  "Selected context profile for branching transient ('p1 or 'p3).")
+(defvar carriage-branching--sel-inherit-begin nil
+  "Selected flag: inherit begin_context paths in branching transient.")
+(defvar carriage-branching--sel-inherit-flags nil
+  "Selected flag: inherit CAR_* flags in branching transient.")
+
+(defun carriage-branching--templates ()
+  "Return list of templates as (ID . LABEL) pairs."
+  (require 'carriage-templates)
+  (let ((reg (and (boundp 'carriage-templates) carriage-templates)))
+    (or (mapcar (lambda (pl)
+                  (cons (plist-get pl :id)
+                        (or (plist-get pl :label)
+                            (symbol-name (plist-get pl :id)))))
+                reg)
+        '())))
+
+(defun carriage-branching--init-selections ()
+  "Initialize transient selections from defcustoms."
+  (setq carriage-branching--sel-template
+        (or carriage-branching--sel-template carriage-task-default-template-id))
+  (setq carriage-branching--sel-profile
+        (or carriage-branching--sel-profile carriage-task-branch-default-profile))
+  (setq carriage-branching--sel-inherit-begin
+        (if (null carriage-branching--sel-inherit-begin)
+            (and carriage-task-inherit-begin-context) carriage-branching--sel-inherit-begin))
+  (setq carriage-branching--sel-inherit-flags
+        (if (null carriage-branching--sel-inherit-flags)
+            (and carriage-task-inherit-car-flags) carriage-branching--sel-inherit-flags)))
+
+(defun carriage-branching--pick-template ()
+  "Interactive picker for template id."
+  (interactive)
+  (let* ((cands (carriage-branching--templates))
+         (display (mapcar (lambda (pr)
+                            (cons (format "%s — %s" (car pr) (cdr pr)) (car pr)))
+                          cands))
+         (choice (completing-read "Template: " (mapcar #'car display) nil t)))
+    (when (and (stringp choice) (not (string-empty-p choice)))
+      (setq carriage-branching--sel-template (cdr (assoc choice display))))))
+
+(defun carriage-branching--toggle-profile ()
+  "Toggle context profile between 'p1 and 'p3."
+  (interactive)
+  (setq carriage-branching--sel-profile
+        (if (eq carriage-branching--sel-profile 'p3) 'p1 'p3)))
+
+(defun carriage-branching--toggle-inherit-begin ()
+  "Toggle inherit begin_context flag."
+  (interactive)
+  (setq carriage-branching--sel-inherit-begin (not carriage-branching--sel-inherit-begin)))
+
+(defun carriage-branching--toggle-inherit-flags ()
+  "Toggle inherit CAR_* flags."
+  (interactive)
+  (setq carriage-branching--sel-inherit-flags (not carriage-branching--sel-inherit-flags)))
+
+(defun carriage-branching--create ()
+  "Create a task document using current branching selections."
+  (interactive)
+  (carriage-task-create-doc-from-template
+   carriage-branching--sel-template
+   carriage-branching--sel-profile
+   carriage-branching--sel-inherit-begin
+   carriage-branching--sel-inherit-flags))
+
+(defun carriage-branching--desc-template ()
+  "Dynamic label for template line in transient."
+  (format "Template: %s"
+          (or (and (symbolp carriage-branching--sel-template)
+                   (symbol-name carriage-branching--sel-template))
+              (format "%s" carriage-branching--sel-template)
+              "-")))
+
+(defun carriage-branching--desc-profile ()
+  "Dynamic label for profile line in transient."
+  (format "Profile: %s" (if (eq carriage-branching--sel-profile 'p3) "P3-debug" "P1-core")))
+
+(defun carriage-branching--desc-inherit-begin ()
+  "Dynamic label for inherit begin_context line in transient."
+  (format "Inherit begin_context: %s" (if carriage-branching--sel-inherit-begin "on" "off")))
+
+(defun carriage-branching--desc-inherit-flags ()
+  "Dynamic label for inherit CAR_* flags line in transient."
+  (format "Inherit CAR_* flags: %s" (if carriage-branching--sel-inherit-flags "on" "off")))
+
+;;;###autoload
+(defun carriage-branching-transient ()
+  "Open Branching UI: choose template, context profile and inheritance, then create a document.
+
+Requires transient; if unavailable, falls back to simple prompts."
+  (interactive)
+  (carriage-branching--init-selections)
+  (if (not (require 'transient nil t))
+      ;; Fallback prompts
+      (let* ((tpl (progn (carriage-branching--pick-template)
+                         carriage-branching--sel-template))
+             (prof (if (y-or-n-p (format "Use P3-debug profile? (default=%s) "
+                                         (if (eq carriage-branching--sel-profile 'p3) "P3" "P1")))
+                       'p3 'p1))
+             (inh-b (y-or-n-p (format "Inherit begin_context? (default=%s) "
+                                      (if carriage-branching--sel-inherit-begin "on" "off"))))
+             (inh-f (y-or-n-p (format "Inherit CAR_* flags? (default=%s) "
+                                      (if carriage-branching--sel-inherit-flags "on" "off")))))
+        (setq carriage-branching--sel-profile prof
+              carriage-branching--sel-inherit-begin inh-b
+              carriage-branching--sel-inherit-flags inh-f)
+        (carriage-branching--create))
+    ;; Transient UI
+    (transient-define-prefix carriage-branching--ui ()
+      "Branching (Template • Profile • Inheritance)"
+      [["Selections"
+        ("t" carriage-branching--desc-template  carriage-branching--pick-template)
+        ("p" carriage-branching--desc-profile   carriage-branching--toggle-profile)
+        ("b" carriage-branching--desc-inherit-begin  carriage-branching--toggle-inherit-begin)
+        ("f" carriage-branching--desc-inherit-flags  carriage-branching--toggle-inherit-flags)]
+       ["Actions"
+        ("RET" "Create" carriage-branching--create)
+        ("c"   "Create" carriage-branching--create)]])
+    (carriage-branching--ui)))
+
+;; -------------------------------------------------------------------
+;; Minimal insert commands (palette actions v1)
+
+(defun carriage-task--insert-section (title &optional body)
+  "Insert an Org section at point with TITLE and optional BODY.
+Performs a single undoable change. BODY may be a string or nil."
+  (interactive)
+  (let ((text (concat (if (bolp) "" "\n")
+                      (format "* %s\n" (or title ""))
+                      (or body ""))))
+    (atomic-change-group
+      (insert text)
+      (when (derived-mode-p 'org-mode)
+        (save-excursion
+          (forward-line 0)
+          (org-back-to-heading t)
+          (org-show-subtree))))))
+
+;;;###autoload
+(defun carriage-insert-plan-section ()
+  "Insert a minimal Plan section (3–5 steps)."
+  (interactive)
+  (carriage-task--insert-section
+   "Plan (3–5 steps)"
+   "1. \n2. \n3. \n"))
+
+;;;###autoload
+(defun carriage-insert-step-section ()
+  "Insert a minimal Step section (one micro step: hypothesis/mini-plan/check/result/next)."
+  (interactive)
+  (carriage-task--insert-section
+   "Step — Hypothesis / Mini-Plan / Check / Result / Next"
+   "- Hypothesis:\n- Mini-Plan (≤3):\n  1. \n  2. \n  3. \n- Check:\n- Result:\n- Next:\n"))
+
+;;;###autoload
+(defun carriage-insert-test-section ()
+  "Insert a minimal Tests / Checks section."
+  (interactive)
+  (carriage-task--insert-section
+   "Tests / Checks"
+   "- Scenario:\n- Inputs:\n- Expected:\n- Edge cases:\n"))
+
+;;;###autoload
+(defun carriage-insert-retro-section ()
+  "Insert a minimal Retrospective section."
+  (interactive)
+  (carriage-task--insert-section
+   "Retrospective"
+   "- Better:\n- Worse:\n- Idea:\n- Action:\n"))
+
+;; -------------------------------------------------------------------
+;; Transient menu for Insert/Assist actions (optional)
+;;;###autoload
+(defun carriage-insert-transient ()
+  "Open a small transient for Insert/Assist actions (Plan/Step/Test/Retro/Context-Delta).
+Falls back to a simple completing-read when transient is unavailable."
+  (interactive)
+  (if (not (require 'transient nil t))
+      (let* ((actions '(("Insert Plan" . carriage-insert-plan-section)
+                        ("Insert Step" . carriage-insert-step-section)
+                        ("Insert Test" . carriage-insert-test-section)
+                        ("Insert Retro" . carriage-insert-retro-section)
+                        ("Assist Context Delta" . carriage-ui-context-delta-assist)))
+             (choice (completing-read "Action: " (mapcar #'car actions) nil t)))
+        (let ((cmd (cdr (assoc choice actions))))
+          (when (commandp cmd) (call-interactively cmd))))
+    (transient-define-prefix carriage-insert--ui ()
+      "Insert / Assist"
+      [["Insert"
+        ("p" "Plan"  carriage-insert-plan-section)
+        ("s" "Step"  carriage-insert-step-section)
+        ("t" "Test"  carriage-insert-test-section)
+        ("r" "Retro" carriage-insert-retro-section)]
+       ["Assist"
+        ("c" "Context Delta" carriage-ui-context-delta-assist)]])
+    (carriage-insert--ui)))
+
 (provide 'carriage-task)
 ;;; carriage-task.el ends here
