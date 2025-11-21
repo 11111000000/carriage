@@ -74,6 +74,30 @@ This helps avoid self-duplication and reduces noise/budget usage."
   :type 'boolean
   :group 'carriage-context)
 
+(defcustom carriage-doc-context-scope 'all
+  "Scope for document (# +begin_context) collection: 'all or 'last.
+When 'all, collect paths from all #+begin_context blocks in the buffer.
+When 'last, collect paths only from the nearest preceding block relative to point,
+or the last block in the buffer if none precedes point."
+  :type '(choice (const all) (const last))
+  :group 'carriage-context)
+(make-variable-buffer-local 'carriage-doc-context-scope)
+
+;; Commands to switch scope (used by UI/keyspec)
+;;;###autoload
+(defun carriage-select-doc-context-all ()
+  "Use all #+begin_context blocks for document context in this buffer."
+  (interactive)
+  (setq-local carriage-doc-context-scope 'all)
+  (force-mode-line-update))
+
+;;;###autoload
+(defun carriage-select-doc-context-last ()
+  "Use only the last/nearest #+begin_context block for document context in this buffer."
+  (interactive)
+  (setq-local carriage-doc-context-scope 'last)
+  (force-mode-line-update))
+
 (defvar carriage-context--normalize-cache (make-hash-table :test 'equal)
   "Memo table for carriage-context--normalize-path keyed by (ROOT . PATH).")
 
@@ -211,39 +235,55 @@ Uses a small cache with TTL and invalidation by file size/mtime."
                     res))))))
 
 (defun carriage-context--doc-paths (buffer)
-  "Collect paths from #+begin_context block nearest to point in BUFFER.
-For org-mode: search current heading; if not found, climb parents.
-Fallback: search whole buffer."
+  "Collect paths from #+begin_context blocks in BUFFER per `carriage-doc-context-scope'.
+
+Scope rules:
+- 'all  (default): collect paths from all #+begin_context blocks in the buffer.
+- 'last: collect paths only from the last block above point; if none above,
+         use the last block in the buffer."
   (with-current-buffer buffer
     (save-excursion
-      (let ((paths nil))
-        (if (derived-mode-p 'org-mode)
-            (progn
-              (require 'org)
-              (ignore-errors (org-back-to-heading t))
-              (let* ((level 0)
-                     (found nil))
-                (while (and (not found) (<= level 50))
-                  (let* ((beg (save-excursion
-                                (ignore-errors (org-back-to-heading t))
-                                (point)))
-                         (end (save-excursion
-                                (ignore-errors (org-end-of-subtree t t))
-                                (point)))
-                         (ps (carriage-context--find-context-block-in-region beg end)))
-                    (when (and ps (> (length ps) 0))
-                      (setq paths ps
-                            found t))
-                    ;; climb up
-                    (setq level (1+ level))
-                    (unless (org-up-heading-safe)
-                      (setq level 100)))))
-              (unless paths
-                ;; fallback: whole buffer
-                (setq paths (carriage-context--find-context-block-in-region (point-min) (point-max)))))
-          ;; not org-mode: scan whole buffer
-          (setq paths (carriage-context--find-context-block-in-region (point-min) (point-max))))
-        (delete-dups (delq nil paths))))))
+      (let* ((scope (or (and (boundp 'carriage-doc-context-scope)
+                             carriage-doc-context-scope)
+                        'all)))
+        (pcase scope
+          ('all
+           (delete-dups
+            (delq nil
+                  (carriage-context--find-context-block-in-region (point-min) (point-max)))))
+          (_
+           ;; Find all block ranges, pick the nearest one starting before point.
+           (let* ((pt (point))
+                  (ranges
+                   (save-excursion
+                     (goto-char (point-min))
+                     (let ((acc '())
+                           (case-fold-search t))
+                       (while (re-search-forward "^[ \t]*#\\+begin_context\\b" nil t)
+                         (let ((beg (match-beginning 0)))
+                           (if (re-search-forward "^[ \t]*#\\+end_context\\b" nil t)
+                               (let ((end (line-beginning-position)))
+                                 (push (cons beg end) acc))
+                             (push (cons beg (point-max)) acc))))
+                       (nreverse acc))))
+                  (choice
+                   (or
+                    ;; Best candidate: last range whose beg <= point
+                    (let ((best nil)
+                          (best-beg nil))
+                      (dolist (rg ranges)
+                        (when (<= (car rg) pt)
+                          (when (or (null best-beg) (> (car rg) best-beg))
+                            (setq best-beg (car rg))
+                            (setq best rg))))
+                      best)
+                    ;; Fallback: last block in the buffer
+                    (car (last ranges)))))
+             (if (consp choice)
+                 (delete-dups
+                  (delq nil
+                        (carriage-context--find-context-block-in-region (car choice) (cdr choice))))
+               '()))))))))
 
 (defun carriage-context--maybe-gptel-files ()
   "Collect absolute file paths from gptel context (best-effort).
@@ -311,10 +351,12 @@ Defaults: gptel/doc ON when variables are unbound; visible OFF by default."
                     (* 1024 1024)))))
 
 (defun carriage-context--gather-candidates (buf include-doc include-gptel)
-  "Gather and deduplicate candidate paths from BUF according to toggles."
+  "Gather and deduplicate candidate paths from BUF according to toggles.
+Order of preference MUST be doc > gptel. Visible is handled separately."
   (let* ((doc (when include-doc (carriage-context--doc-paths buf)))
          (gpf (when include-gptel (carriage-context--maybe-gptel-files)))
-         (cands (delete-dups (append (or gpf '()) (or doc '())))))
+         ;; Prefer doc first, then gptel to align with INV-ctx-001 (doc > visible > gptel).
+         (cands (delete-dups (append (or doc '()) (or gpf '())))))
     (carriage-context--dbg "collect: doc-paths=%s gptel-files=%s candidates=%s"
                            (and doc (length doc)) (and gpf (length gpf)) (length cands))
     cands))
@@ -489,13 +531,15 @@ Return updated STATE."
          (include-visible (plist-get config :include-visible))
          (max-files (plist-get config :max-files))
          (max-bytes (plist-get config :max-bytes))
-         (state (carriage-context--collect-init-state config))
-         (candidates (carriage-context--gather-candidates buf include-doc include-gptel)))
+         (state (carriage-context--collect-init-state config)))
     (carriage-context--dbg "collect: root=%s include{gptel=%s,doc=%s,vis=%s} limits{files=%s,bytes=%s}"
                            root include-gptel include-doc include-visible max-files max-bytes)
-    ;; Doc/GPT candidates
-    (setq state (carriage-context--collect-iterate candidates state))
-    ;; Visible buffers (files + non-file buffers)
+    ;; 1) DOC candidates first (highest preference)
+    (when (and include-doc (carriage-context--state-under-file-limit-p state))
+      (let ((doc-cands (ignore-errors (carriage-context--doc-paths buf))))
+        (when doc-cands
+          (setq state (carriage-context--collect-iterate doc-cands state)))))
+    ;; 2) Visible buffers (files + non-file buffers) second
     (when (and include-visible (carriage-context--state-under-file-limit-p state))
       (let ((seen (make-hash-table :test 'eq))
             (ignored-modes (and (boundp 'carriage-visible-ignore-modes) carriage-visible-ignore-modes))
@@ -562,6 +606,11 @@ Return updated STATE."
                                (setq state (plist-put state :total-bytes (+ total sz)))
                                (setq state (plist-put state :included (1+ (plist-get state :included))))))))))))))))
          nil (selected-frame))))
+    ;; 3) GPTEL candidates last (lowest preference)
+    (when (and include-gptel (carriage-context--state-under-file-limit-p state))
+      (let ((gpt-cands (ignore-errors (carriage-context--maybe-gptel-files))))
+        (when gpt-cands
+          (setq state (carriage-context--collect-iterate gpt-cands state)))))
     (carriage-context--collect-finalize state)))
 
 (defun carriage-context-collect (&optional buffer root)
