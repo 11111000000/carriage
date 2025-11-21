@@ -8,9 +8,9 @@
 ;; Keywords: org, persistence, convenience
 ;;
 ;; Specifications:
-;;   spec/doc-state-v1.org
-;;   spec/ui-v1.org
-;;   spec/project-overview-v1.org
+;;   spec/doc-state-v2.org
+;;   spec/ui-v2.org
+;;   spec/project-overview-v2.org
 ;;
 ;;; Commentary:
 ;; Store and restore Carriage parameters in the Org document itself.
