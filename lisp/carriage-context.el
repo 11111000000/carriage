@@ -131,6 +131,19 @@ or the last block in the buffer if none precedes point."
   (setq-local carriage-doc-context-scope 'last)
   (force-mode-line-update))
 
+;;;###autoload
+(defun carriage-toggle-doc-context-scope ()
+  "Toggle document context scope between 'all and 'last for this buffer."
+  (interactive)
+  (setq-local carriage-doc-context-scope
+              (if (eq carriage-doc-context-scope 'last) 'all 'last))
+  (when (fboundp 'carriage-ui--reset-context-cache)
+    (ignore-errors (carriage-ui--reset-context-cache)))
+  (when (fboundp 'carriage-ui--invalidate-ml-cache)
+    (ignore-errors (carriage-ui--invalidate-ml-cache)))
+  (force-mode-line-update)
+  (message "Doc context scope: %s" (if (eq carriage-doc-context-scope 'last) "last" "all")))
+
 (defvar carriage-context--normalize-cache (make-hash-table :test 'equal)
   "Memo table for carriage-context--normalize-path keyed by (ROOT . PATH).")
 
@@ -1006,8 +1019,6 @@ Writes CAR_CONTEXT_PROFILE on save via doc-state."
     (ignore-errors
       (carriage-metrics-note 'ctx-profile
                              (if (eq carriage-doc-context-profile 'p3) "P3" "P1"))))
-    (when (eq profile 'p1)
-    (message "Context profile: P1-core"))
   carriage-doc-context-profile)
 
 ;;;###autoload

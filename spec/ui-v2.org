@@ -50,6 +50,8 @@ Normative Requirements
 - REQ-ui-001: UI MUST not block on async work; updates via main-thread hooks.
 - REQ-ui-002: Tooltips MUST summarize last report (ok/skip/fail/total).
 - REQ-ui-003: Badges MUST reflect Suite/Engine/Model; clicks open selectors.
+- REQ-ui-004: Menu item labels MUST be non-empty after i18n/label fallbacks; no postfix bracketed key hints in labels (transient shows keys before labels).
+- REQ-ui-005: Context controls MUST be rendered in a dedicated “Context” column; its header SHOULD provide help-echo guiding two-stroke usage (“press t, then letter”).
 
 Invariants
 - Anchor: INV
@@ -155,6 +157,8 @@ Cross-References and Anchors
 - Normative: t
 - Stability: stable
 - Pack-Priority: P3
+- Related:
+  - spec/context-menu-keys-v2.org
 - Code:
   - lisp/carriage-ui.el
   - lisp/carriage-announce.el

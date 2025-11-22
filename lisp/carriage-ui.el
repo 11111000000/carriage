@@ -16,8 +16,6 @@
 ;;   spec/keyspec-v2.org
 ;;   spec/i18n-v2.org
 ;;   spec/logging-v2.org
-;;   spec/context-integration-v2.org
-;;   spec/document-branching-and-templates-v1.org
 ;;
 ;;; Commentary:
 ;; Header-line, mode-line and transient/menu UI helpers.

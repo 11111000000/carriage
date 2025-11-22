@@ -49,7 +49,11 @@ Testing and Conformance
 - TST-test-007: Pack-Profiles budgets — P0/P1 recipes fit token caps; summarization ratios applied.
 - TST-test-008: Error mapping — ERR codes resolved to condition symbols with message templates.
 - TST-test-009: UI/Mode contracts — required commands and state transitions present; help-echo/tooltips stable.
-- TST-test-010: Observability — pid, elapsed-ms, model-id/token-usage, and traffic summaries (head/tail/bytes) present.
+ - TST-test-010: Observability — pid, elapsed-ms, model-id/token-usage, and traffic summaries (head/tail/bytes) present.
+ - TST-test-011: Transient menu invariants — (a) no single-key "t" if any "t x" is present; (b) two-stroke "t x" keys are unique; (c) no empty/nil labels after i18n/label fallback.
+ - TST-ui-012: Context group rendered as a dedicated Transient column; its title provides help-echo explaining two-stroke usage ("Press t, then letter: g,f,p,v, a,l,s,P").
+ - TST-keys-013: Lint function (carriage-keys-lint-menu) reports no duplicate menu keys, no single-key "t" when any "t x" exists, and no empty labels.
+ - TST-keys-015: which-key alias coverage — toggles "t g/f/p/v/a/l/s/P" are registered for the base prefix and for all alias prefixes.
 
 Traceability Map (template)
 - REQ-<topic>-NNN → TST-<topic>-NNN[, …] → PRM-<topic>-NNN (if LLM) → code: lisp/<path>.el#<fn-or-glob>

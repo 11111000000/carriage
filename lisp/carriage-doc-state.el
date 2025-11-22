@@ -526,11 +526,6 @@ Returns nil when no block is present."
 ;; Hook into existing API:
 ;; - Override read/write to use file-level properties.
 ;; - After hide, also hide file-level property lines.
-(ignore-errors
-  (advice-add 'carriage-doc-state-read :override #'carriage-doc-state--read-preferring-file)
-  (advice-add 'carriage-doc-state-write :override #'carriage-doc-state--write-to-file-properties)
-  (advice-add 'carriage-doc-state-hide :after (lambda (&rest _)
-                                                (ignore-errors (carriage-doc-state--hide-file-properties)))))
 
 (defun carriage-doc-state--show-file-properties ()
   "Remove invisibility from #+PROPERTY: CARRIAGE_* lines in the current buffer."

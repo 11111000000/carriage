@@ -190,3 +190,7 @@ Appendix (catalog snapshot)
   - carriage/formats/sre/v2 → spec/sre-v2.org (P0, draft)
   - carriage/formats/aibo/v2 → spec/aibo-v2.org (P0, draft)
   - carriage/formats/file-ops/v2 → spec/file-ops-v2.org (P0, draft)
+- UI/Keys (selected):
+  - carriage/ui/general/v2 → spec/ui-v2.org (P3, draft)
+  - carriage/ui/keyspec/v2 → spec/keyspec-v2.org (P3, draft)
+  - carriage/ui/context-menu-keys/v2 → spec/context-menu-keys-v2.org (P2, draft)

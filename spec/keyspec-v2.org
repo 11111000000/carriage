@@ -56,6 +56,8 @@ Normative Requirements
 - REQ-keys-004: Which-key labels and transient menu entries MUST reflect the keyspec.
 - REQ-keys-005: Context precedence MUST be deterministic; later contexts override earlier.
 - REQ-keys-006: Global mode MUST install only the prefix invoker by default (menu or prefix-map).
+- REQ-keys-007: Menu builder MUST support multi-stroke menu keys (e.g., "t g") and reserve the leading key (‘t’) when any "t x" sequences are present (no single-key "t" item).
+- REQ-keys-008: Which-key registrations for toggle sequences ("t g/f/p/v/a/l/s/P") MUST be installed for the base prefix and duplicated for all configured prefix aliases.
 
 Invariants
 - Anchor: INV
@@ -195,9 +197,13 @@ Testing and Conformance
 - Pack-Priority: P2
 - CHK-keys-001: All actions valid per schema; collisions lint clean or resolved by policy.
 - CHK-keys-002: Which-key registrations present for base prefix and toggles.
+- CHK-keys-003: When any "t x" multi-stroke is present, no single-key "t" item exists in the same menu.
 - TST-keys-001: collisions lint passes; menu opens
 - TST-keys-002: fallback menu works without transient; grouping matches :section
 - TST-keys-003: aliases (prefix-alias) invoke the same menu
+- TST-keys-004: multi-stroke "t x" menu keys are rendered; "t" is not bound as a single key.
+- TST-keys-005: no empty or "nil" labels appear in menus after fallbacks.
+- TST-keys-006: which-key duplicates are installed for aliases for "t g/f/p/v/a/l/s/P".
 
 Cross-References and Anchors
 - Anchor: XREF
@@ -205,7 +211,7 @@ Cross-References and Anchors
 - Stability: stable
 - Pack-Priority: P2
 - Source of Truth: spec/spec-on-specs.org#IFC
-- Related: spec/ui-v2.org, spec/i18n-v2.org
+- Related: spec/ui-v2.org, spec/i18n-v2.org, spec/context-menu-keys-v2.org
 - Code:
   - lisp/carriage-keyspec.el
 

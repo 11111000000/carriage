@@ -51,6 +51,7 @@
     (:session-title      . ((ru . "Сессия/Git")         (en . "Session/Git")))
     (:tools-title        . ((ru . "Инструменты")        (en . "Tools")))
     (:logs-title         . ((ru . "Логи/Отчёты")        (en . "Logs/Reports")))
+    (:context-title      . ((ru . "Контекст")           (en . "Context")))
 
     ;; Model tooltip + common labels
     (:model-tooltip      . ((ru . "Модель: %s")         (en . "Model: %s")))
@@ -104,6 +105,9 @@
     (:doc-scope-last     . ((ru . "Последний begin_context")    (en . "Last begin_context")))
     (:doc-scope-all-tip  . ((ru . "Собирать из всех блоков begin_context") (en . "Use all begin_context blocks")))
     (:doc-scope-last-tip . ((ru . "Собирать только из ближайшего/последнего") (en . "Use last/nearest begin_context block")))
+    (:doc-scope-cycle    . ((ru . "Переключить Scope (All/Last)") (en . "Cycle Scope (All/Last)")))
+    (:doc-scope-cycle-tip . ((ru . "Переключить режим begin_context: All ↔ Last") (en . "Cycle begin_context scope: All ↔ Last")))
+    (:context-help       . ((ru . "Нажмите t, затем букву (g,f,p,v,a,l,s,P)") (en . "Press t, then letter (g,f,p,v,a,l,s,P)")))
     (:flash-enabled      . ((ru . "Мигание патчей по завершении") (en . "Flash patches on completion")))
     (:audio-enabled      . ((ru . "Звуковое уведомление")      (en . "Audio notification")))
     (:task-new           . ((ru . "Создать задачу из этого") (en . "New task from that")))
@@ -121,6 +125,12 @@
                             (en . "Dry-run: ok=%d, skip=%d, fail=%d (total %d)")))
     ;; Visible toggle (source 'visible)
     (:visible-tooltip    . ((ru . "Переключить видимые буферы") (en . "Toggle visible buffers")))
+    ;; Additional keys for menus and which-key
+    (:toggle-profile     . ((ru . "Переключить профиль P1/P3")    (en . "Toggle P1/P3")))
+    (:insert-assist      . ((ru . "Вставка/Assist")               (en . "Insert/Assist")))
+    (:insert-assist-menu . ((ru . "Меню вставки/Assist")          (en . "Insert/Assist Menu")))
+    (:file-chat          . ((ru . "Чат по файлу")                 (en . "File chat")))
+    (:branch-doc         . ((ru . "Ветвление из шаблона")         (en . "Branch from template")))
     )
   "Translation table: KEY → ((ru . STR) (en . STR)).")
 

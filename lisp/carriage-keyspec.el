@@ -19,6 +19,7 @@
 ;;
 ;;; Commentary:
 ;; Centralized keyspec for Carriage commands and transient/menu generation.
+;; Context column uses two-stroke keys ("t x") and reserves 't' when present.
 ;;
 ;;; Code:
 
@@ -77,12 +78,14 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
   '(
     ;; Tools/model/context
     (:id model-select :cmd carriage-select-model :keys ("m") :contexts (carriage) :section tools :desc-key :model-select)
-    (:id toggle-ctx   :cmd carriage-toggle-include-gptel-context :keys ("tc") :contexts (carriage) :section tools :desc-key :toggle-ctx)
-    (:id toggle-doc   :cmd carriage-toggle-include-doc-context   :keys ("tf") :contexts (carriage) :section tools :desc-key :toggle-doc)
-    (:id toggle-patched :cmd carriage-toggle-include-patched-files :keys ("tp") :contexts (carriage) :section tools :desc-key :toggle-patched)
-    (:id doc-scope-all  :cmd carriage-select-doc-context-all       :keys ("ta") :contexts (carriage) :section tools :desc-key :doc-scope-all)
-    (:id doc-scope-last :cmd carriage-select-doc-context-last      :keys ("tl") :contexts (carriage) :section tools :desc-key :doc-scope-last)
-    (:id toggle-profile :cmd carriage-toggle-context-profile        :keys ("tP") :contexts (carriage) :section tools :desc-key :toggle-profile :label "Toggle P1/P3")
+    (:id toggle-ctx   :cmd carriage-toggle-include-gptel-context :keys ("tc") :menu-key "t g" :contexts (carriage) :section context :desc-key :toggle-ctx)
+    (:id toggle-doc   :cmd carriage-toggle-include-doc-context   :keys ("tf") :menu-key "t f" :contexts (carriage) :section context :desc-key :toggle-doc)
+    (:id toggle-patched :cmd carriage-toggle-include-patched-files :keys ("tp") :menu-key "t p" :contexts (carriage) :section context :desc-key :toggle-patched)
+    (:id toggle-visible :cmd carriage-toggle-include-visible-context :keys ("tv") :menu-key "t v" :contexts (carriage) :section context :desc-key :visible-tooltip)
+    (:id doc-scope-all  :cmd carriage-select-doc-context-all       :keys ("ta") :menu-key "t a" :contexts (carriage) :section context :desc-key :doc-scope-all)
+    (:id doc-scope-last :cmd carriage-select-doc-context-last      :keys ("tl") :menu-key "t l" :contexts (carriage) :section context :desc-key :doc-scope-last)
+    (:id doc-scope-cycle :cmd carriage-toggle-doc-context-scope    :keys ("ts") :menu-key "t s" :contexts (carriage) :section context :desc-key :doc-scope-cycle :label "Cycle Doc Scope")
+    (:id toggle-profile :cmd carriage-toggle-context-profile        :keys ("tP") :menu-key "t P" :contexts (carriage) :section context :desc-key :toggle-profile :label "Toggle P1/P3")
     ;; Suite/Intent (tools)
     (:id select-suite :cmd carriage-select-suite                 :keys ("s")   :contexts (carriage) :section tools :desc-key :select-suite)
     (:id toggle-intent :cmd carriage-toggle-intent               :keys ("i")   :contexts (carriage) :section tools :desc-key :toggle-intent)
@@ -317,6 +320,81 @@ Installs bindings for the primary prefix and any aliases in Carriage and auxilia
              when (> (length v) 1)
              collect (cons k (nreverse v)))))
 
+
+(defun carriage-keys-lint-menu ()
+  "Lint transient-menu invariants.
+
+Returns a plist:
+  :duplicate-menu-keys ((KEY . (ID1 ID2 ...)) ...)
+  :has-single-t-when-t-prefix BOOL
+  :empty-label-ids (ID ...)
+
+Menu-keys are derived similarly to `carriage-keys-open-menu':
+- explicit :menu-key wins;
+- \"tc\" form becomes \"t c\";
+- keys with spaces are kept as-is;
+- otherwise last token of full binding is used.
+
+Labels are computed as: i18n(:desc-key) → :label → symbol-name(:cmd) → symbol-name(:id)."
+  (let* ((dups (make-hash-table :test 'equal))
+         (seen (make-hash-table :test 'equal))
+         (empty-label-ids '())
+         (has-t-prefix nil)
+         (has-single-t nil)
+         (_ (require 'carriage-i18n nil t)))
+    (dolist (pl carriage-keys--spec)
+      (let* ((id (plist-get pl :id))
+             (cmd (plist-get pl :cmd))
+             (k   (car (plist-get pl :keys)))
+             (mkey (plist-get pl :menu-key))
+             (desc (and (stringp k)
+                        (ignore-errors
+                          (key-description (carriage-keys--ensure-kbd k)))))
+             (lasttok (and (stringp desc)
+                           (car (last (split-string desc " " t)))))
+             (menu-key
+              (let ((mk (and (stringp mkey) (string-trim mkey))))
+                (if (and mk (> (length mk) 0))
+                    mk
+                  (cond
+                   ((and (stringp k)
+                         (string-match-p "\\`t[[:alnum:]]\\'" k))
+                    (format "t %s" (substring k 1 2)))
+                   ((and (stringp k) (string-match-p " " k))
+                    (string-trim k))
+                   (t lasttok)))))
+             (desc-key (plist-get pl :desc-key))
+             (raw-label (or (and (fboundp 'carriage-i18n) (carriage-i18n desc-key))
+                            (plist-get pl :label)
+                            (and (symbolp cmd) (symbol-name cmd))
+                            (and (symbolp id) (symbol-name id))
+                            (format "%s" id)))
+             (lbl (if (and (stringp raw-label)
+                           (string-match-p "\\`[ \t]*\\'" raw-label))
+                      (symbol-name id)
+                    raw-label)))
+        (when (and (stringp menu-key) (string-prefix-p "t " menu-key))
+          (setq has-t-prefix t))
+        (when (and (stringp menu-key) (string= menu-key "t"))
+          (setq has-single-t t))
+        (when (or (null lbl)
+                  (and (stringp lbl)
+                       (string-match-p "\\`[ \t]*\\'" lbl)))
+          (push id empty-label-ids))
+        (when (stringp menu-key)
+          (let ((cur (gethash menu-key seen)))
+            (if cur
+                (puthash menu-key (cons id cur) dups)
+              (puthash menu-key (list id) seen))))))
+    (let ((dup-list
+           (cl-loop for k being the hash-keys of dups
+                    for v = (gethash k dups)
+                    when (> (length v) 1)
+                    collect (cons k (nreverse v)))))
+      (list :duplicate-menu-keys dup-list
+            :has-single-t-when-t-prefix (and has-t-prefix has-single-t)
+            :empty-label-ids (nreverse (delete-dups empty-label-ids))))))
+
 ;;;###autoload
 (defun carriage-keys-open-menu ()
   "Open Carriage action menu from keyspec.
@@ -334,10 +412,10 @@ Fallback: completing-read (group prefix in labels)."
                              carriage-ui-enable-assist-ranking
                              (fboundp 'carriage-ui-rank-actions-with-assist))
                     (setq acts (carriage-ui-rank-actions-with-assist acts)))))
-         (sections '(navigate act session tools logs)))
+         (sections '(navigate act context session tools logs)))
     (if (and (require 'transient nil t) (fboundp 'transient-define-prefix))
         (let* ((_ (require 'carriage-i18n nil t))
-               ;; Build data per section: each element -> (base-key label cmd id section)
+               ;; Build data per section: each element -> (menu-key label cmd id section)
                (per-sec
                 (cl-loop for sec in sections
                          collect
@@ -348,33 +426,66 @@ Fallback: completing-read (group prefix in labels)."
                                   (let* ((cmd (plist-get pl :cmd))
                                          (id  (plist-get pl :id))
                                          (k   (car (plist-get pl :keys)))
-                                         ;; Derive a single-keystroke base for transient:
-                                         ;; - Use key-description of the full binding (with prefix), then take the last token.
-                                         ;; - This converts \"tc\" and \"t c\" to \"c\", avoiding non-prefix errors on \"t\".
+                                         (mkey (plist-get pl :menu-key))
+                                         ;; Compute menu key:
+                                         ;; 1) Respect explicit :menu-key when provided (e.g., "t g").
+                                         ;; 2) For two-stroke like "tc"/"tf"/..., show "t c"/"t f"/...
+                                         ;; 3) If K already contains a space, keep as-is.
+                                         ;; 4) Else fall back to the last token of full binding.
                                          (desc (and (stringp k)
                                                     (ignore-errors
                                                       (key-description (carriage-keys--ensure-kbd k)))))
-                                         (key0 (and (stringp desc)
-                                                    (car (last (split-string desc " " t)))))
+                                         (lasttok (and (stringp desc)
+                                                       (car (last (split-string desc " " t)))))
+                                         (menu-key
+                                          (let ((mk (and (stringp mkey) (string-trim mkey))))
+                                            (if (and mk (> (length mk) 0))
+                                                mk
+                                              (cond
+                                               ((and (stringp k)
+                                                     (string-match-p "\\`t[[:alnum:]]\\'" k))
+                                                (format "t %s" (substring k 1 2)))
+                                               ((and (stringp k) (string-match-p " " k))
+                                                (string-trim k))
+                                               (t lasttok)))))
                                          (desc-key (plist-get pl :desc-key))
                                          (fallback-label (plist-get pl :label))
-                                         (lbl (or (and (fboundp 'carriage-i18n) (carriage-i18n desc-key))
-                                                  fallback-label
-                                                  (and (symbolp cmd) (symbol-name cmd))
-                                                  (format "%s" id))))
-                                    (list key0 lbl cmd id sec)))))
-               ;; Flatten to resolve unique keys globally
+                                         (raw-label (or (and (fboundp 'carriage-i18n) (carriage-i18n desc-key))
+                                                        fallback-label
+                                                        (and (symbolp cmd) (symbol-name cmd))
+                                                        (format "%s" id)))
+                                         (lbl (if (and (stringp raw-label)
+                                                       (string-match-p "\\`[ \t]*\\'" raw-label))
+                                                  (symbol-name id)
+                                                raw-label)))
+                                    (list menu-key lbl cmd id sec)))))
+               ;; Flatten to resolve unique keys globally; uniqueness by full sequence ("t c" vs "c")
                (flat (apply #'append per-sec))
                (used (make-hash-table :test 'equal))
+               ;; Reserve plain "t" if any multi-stroke key starts with "t ".
+               ;; This prevents assigning single-key 't' to an item which would shadow
+               ;; sequences like "t c"/"t f"/… inside the transient keymap.
+               (_ (when (cl-some (lambda (it)
+                                   (let ((b (nth 0 it)))
+                                     (and (stringp b)
+                                          (string-prefix-p "t " b))))
+                                 flat)
+                    (puthash "t" t used)))
                (unique
                 (cl-loop for it in flat
-                         for base = (nth 0 it)
+                         for base = (nth 0 it)          ;; may be "t c" or "c"
                          for lbl  = (nth 1 it)
                          for cmd  = (nth 2 it)
                          for id   = (nth 3 it)
                          for sec  = (nth 4 it)
                          for idc  = (substring (symbol-name id) 0 1)
-                         for cand = (delq nil (list base (and base (upcase base)) idc "1" "2" "3" "4" "5" "6" "7" "8" "9"))
+                         ;; Fallback candidates:
+                         ;; 1) full sequence ("t c"), 2) last token ("c"),
+                         ;; 3) UPPER(last token), 4..) digits.
+                         for lastonly = (and (stringp base)
+                                             (car (last (split-string base " " t))))
+                         for cand = (delq nil (list base lastonly (and lastonly (upcase lastonly))
+                                                    idc "1" "2" "3" "4" "5" "6" "7" "8" "9"))
                          for final = (cl-loop for c in cand
                                               when (and (stringp c) (not (gethash c used)))
                                               return c)
@@ -386,10 +497,17 @@ Fallback: completing-read (group prefix in labels)."
                   (let* ((title (pcase sec
                                   ('navigate (if (fboundp 'carriage-i18n) (carriage-i18n :navigate-title) "Navigate"))
                                   ('act      (if (fboundp 'carriage-i18n) (carriage-i18n :act-title) "Actions"))
+                                  ('context  (if (fboundp 'carriage-i18n) (carriage-i18n :context-title) "Context"))
                                   ('session  (if (fboundp 'carriage-i18n) (carriage-i18n :session-title) "Session/Git"))
                                   ('tools    (if (fboundp 'carriage-i18n) (carriage-i18n :tools-title) "Tools"))
                                   ('logs     (if (fboundp 'carriage-i18n) (carriage-i18n :logs-title) "Logs"))
                                   (_ "Carriage")))
+                         ;; Add a small help-echo for the Context column to explain two-stroke keys.
+                         (title* (if (eq sec 'context)
+                                     (propertize title 'help-echo (if (fboundp 'carriage-i18n)
+                                                                       (carriage-i18n :context-help)
+                                                                     "Press t, then letter (g,f,p,v,a,l,s,P)"))
+                                   title))
                          (items (cl-loop for it in unique
                                          for ukey = (nth 0 it)
                                          for lbl  = (nth 1 it)
@@ -397,7 +515,7 @@ Fallback: completing-read (group prefix in labels)."
                                          for s    = (nth 4 it)
                                          when (and (eq s sec) (commandp cmd))
                                          collect `(,ukey ,lbl ,cmd))))
-                    (vconcat (list title) items))))
+                    (vconcat (list title*) items))))
                (cols (cl-loop for sec in sections
                               for col = (funcall build-col sec)
                               when (> (length col) 1)
@@ -468,6 +586,36 @@ Fallback: completing-read (group prefix in labels)."
       (when base
         (which-key-add-key-based-replacements base menu)
         (which-key-add-key-based-replacements (concat base " t") toggles)
+        ;; Two-stroke toggles inside the transient/menu
+        ;; Mnemonic alias inside transient/group: t g — gptel-context
+        (which-key-add-key-based-replacements (concat base " t g")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :ctx-tooltip) "Toggle gptel-context")
+            "Toggle gptel-context"))
+        (which-key-add-key-based-replacements (concat base " t f")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :files-tooltip) "Toggle document files")
+            "Toggle document files"))
+        (which-key-add-key-based-replacements (concat base " t p")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :patched-tooltip) "Applied patch files")
+            "Applied patch files"))
+        (which-key-add-key-based-replacements (concat base " t v")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :visible-tooltip) "Toggle visible buffers")
+            "Toggle visible buffers"))
+        (which-key-add-key-based-replacements (concat base " t a")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :doc-scope-all-tip) "Use all begin_context blocks")
+            "Use all begin_context blocks"))
+        (which-key-add-key-based-replacements (concat base " t l")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :doc-scope-last-tip) "Use last/nearest begin_context block")
+            "Use last/nearest begin_context block"))
+        (which-key-add-key-based-replacements (concat base " t s")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :doc-scope-cycle-tip) "Cycle doc scope")
+            "Cycle doc scope"))
         (which-key-add-key-based-replacements (concat base " t P")
           (if (fboundp 'carriage-i18n)
               (or (carriage-i18n :toggle-profile) "Toggle P1/P3")
@@ -478,7 +626,48 @@ Fallback: completing-read (group prefix in labels)."
         (which-key-add-key-based-replacements (concat base " x") insert)
         (which-key-add-key-based-replacements (concat base " x x") insert-menu))
       (dolist (alias aliases)
-        (which-key-add-key-based-replacements alias menu))
+        (which-key-add-key-based-replacements alias menu)
+        (which-key-add-key-based-replacements (concat alias " t") toggles)
+        ;; Two-stroke toggles inside the transient/menu for alias prefixes
+        ;; Mnemonic alias inside transient/group: t g — gptel-context
+        (which-key-add-key-based-replacements (concat alias " t g")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :ctx-tooltip) "Toggle gptel-context")
+            "Toggle gptel-context"))
+        (which-key-add-key-based-replacements (concat alias " t f")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :files-tooltip) "Toggle document files")
+            "Toggle document files"))
+        (which-key-add-key-based-replacements (concat alias " t p")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :patched-tooltip) "Applied patch files")
+            "Applied patch files"))
+        (which-key-add-key-based-replacements (concat alias " t v")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :visible-tooltip) "Toggle visible buffers")
+            "Toggle visible buffers"))
+        (which-key-add-key-based-replacements (concat alias " t a")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :doc-scope-all-tip) "Use all begin_context blocks")
+            "Use all begin_context blocks"))
+        (which-key-add-key-based-replacements (concat alias " t l")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :doc-scope-last-tip) "Use last/nearest begin_context block")
+            "Use last/nearest begin_context block"))
+        (which-key-add-key-based-replacements (concat alias " t s")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :doc-scope-cycle-tip) "Cycle doc scope")
+            "Cycle doc scope"))
+        (which-key-add-key-based-replacements (concat alias " t P")
+          (if (fboundp 'carriage-i18n)
+              (or (carriage-i18n :toggle-profile) "Toggle P1/P3")
+            "Toggle P1/P3"))
+        ;; Additional common entries under alias prefixes
+        (which-key-add-key-based-replacements (concat alias " n") task)
+        (which-key-add-key-based-replacements (concat alias " f") filechat)
+        ;; Insert/Assist group and menu for alias
+        (which-key-add-key-based-replacements (concat alias " x") insert)
+        (which-key-add-key-based-replacements (concat alias " x x") insert-menu))
       t)))
 
 (defun carriage-keys-which-key-unregister ()
@@ -490,12 +679,35 @@ Fallback: completing-read (group prefix in labels)."
            (aliases (cdr prefixes)))
       (when (and base (fboundp 'which-key-remove-key-based-replacements))
         (ignore-errors (which-key-remove-key-based-replacements base))
+        ;; Base toggle group and individual two-stroke entries
         (ignore-errors (which-key-remove-key-based-replacements (concat base " t")))
+        (ignore-errors (which-key-remove-key-based-replacements (concat base " t g")))
+        (ignore-errors (which-key-remove-key-based-replacements (concat base " t f")))
+        (ignore-errors (which-key-remove-key-based-replacements (concat base " t p")))
+        (ignore-errors (which-key-remove-key-based-replacements (concat base " t v")))
+        (ignore-errors (which-key-remove-key-based-replacements (concat base " t a")))
+        (ignore-errors (which-key-remove-key-based-replacements (concat base " t l")))
+        (ignore-errors (which-key-remove-key-based-replacements (concat base " t s")))
+        (ignore-errors (which-key-remove-key-based-replacements (concat base " t P")))
+        ;; Other common entries
         (ignore-errors (which-key-remove-key-based-replacements (concat base " n")))
         (ignore-errors (which-key-remove-key-based-replacements (concat base " f"))))
       (dolist (alias aliases)
         (when (fboundp 'which-key-remove-key-based-replacements)
-          (ignore-errors (which-key-remove-key-based-replacements alias))))
+          (ignore-errors (which-key-remove-key-based-replacements alias))
+          ;; Toggle group and entries for each alias
+          (ignore-errors (which-key-remove-key-based-replacements (concat alias " t")))
+          (ignore-errors (which-key-remove-key-based-replacements (concat alias " t g")))
+          (ignore-errors (which-key-remove-key-based-replacements (concat alias " t f")))
+          (ignore-errors (which-key-remove-key-based-replacements (concat alias " t p")))
+          (ignore-errors (which-key-remove-key-based-replacements (concat alias " t v")))
+          (ignore-errors (which-key-remove-key-based-replacements (concat alias " t a")))
+          (ignore-errors (which-key-remove-key-based-replacements (concat alias " t l")))
+          (ignore-errors (which-key-remove-key-based-replacements (concat alias " t s")))
+          (ignore-errors (which-key-remove-key-based-replacements (concat alias " t P")))
+          ;; Other common entries under alias
+          (ignore-errors (which-key-remove-key-based-replacements (concat alias " n")))
+          (ignore-errors (which-key-remove-key-based-replacements (concat alias " f")))))
       t)))
 
 (provide 'carriage-keyspec)

@@ -748,11 +748,11 @@ Falls back to a simple completing-read when transient is unavailable."
       "Insert / Assist"
       [["Insert"
         ("p" "Plan"  carriage-insert-plan-section)
-        ("s" nil  carriage-insert-step-section)
+        ("s" "Step"  carriage-insert-step-section)
         ("t" "Test"  carriage-insert-test-section)
         ("r" "Retro" carriage-insert-retro-section)]
        ["Assist"
-        ("c" "Context Delta" carriage-ui-context-delta-assist)
+        ("d" "Context Delta" carriage-ui-context-delta-assist)
         ("P" "Toggle P1↔P3" carriage-toggle-context-profile)]])
     (carriage-insert--ui)))
 
