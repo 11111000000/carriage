@@ -455,7 +455,10 @@ Consults engine capabilities; safe when registry is not yet loaded."
   "Disable Carriage mode in the current buffer (internal)."
   ;; Optionally reflect mode off in the document (soft; no autosave).
   (when (require 'carriage-doc-state nil t)
-    (ignore-errors (carriage-doc-state-write '(:CAR_MODE "nil"))))
+    (ignore-errors
+      (let* ((pl (carriage-doc-state-read))
+             (pl2 (plist-put (or pl '()) :CAR_MODE "nil")))
+        (carriage-doc-state-write pl2))))
   ;; Disable: restore header-line and remove modeline segment (buffer-local)
   (unless (bound-and-true-p noninteractive)
     (when (local-variable-p 'header-line-format)
@@ -2194,6 +2197,13 @@ If no begin_context is present, insert a minimal header and block at point-max."
                 carriage-select-apply-engine
                 carriage-toggle-include-gptel-context
                 carriage-toggle-include-doc-context
+                carriage-toggle-include-visible-context
+                carriage-toggle-include-patched-files
+                carriage-toggle-context-profile
+                carriage-context-profile-set
+                carriage-select-doc-context-all
+                carriage-select-doc-context-last
+                carriage-toggle-doc-context-scope
                 carriage-toggle-auto-open-report))
     (when (fboundp fn)
       (advice-add fn :after #'carriage--doc-state-write-safe))))

@@ -2298,86 +2298,73 @@ Return cons (BODY-BEG . BODY-END) of its body."
           (cons (+ start (length "#+begin_context\n"))
                 (+ start (length "#+begin_context\n"))))))))
 
+(defun carriage-ui--context-normalize-path (s root)
+  "Normalize S against ROOT; return repo-relative path or nil."
+  (cond
+   ;; Quick remote check
+   ((and (stringp s) (file-remote-p s)) nil)
+   ;; Use context normalizer when available
+   ((and (featurep 'carriage-context) (fboundp 'carriage-context--normalize-path))
+    (let* ((res (carriage-context--normalize-path s root)))
+      (when (and (consp res) (car res))
+        (let ((rel (cadr res)))
+          ;; Inside root → rel is repo-relative; Outside → absolute truename (reject)
+          (when (and (stringp rel)
+                     (not (file-name-absolute-p rel))
+                     (not (string-empty-p rel)))
+            rel)))))
+   ;; Fallback: accept only repo-relative strings
+   ((and (stringp s)
+         (not (file-name-absolute-p s))
+         (not (file-remote-p s))
+         (not (string-empty-p s)))
+    s)
+   (t nil)))
+
+(defun carriage-ui--context-prepare-delta (delta root)
+  "Prepare cleaned delta lists for begin_context block. Return plist :adds :rem :dropped."
+  (let* ((adds-raw (cl-remove-if #'string-empty-p (copy-sequence (or (plist-get delta :add) '()))))
+         (rem-raw  (cl-remove-if #'string-empty-p (copy-sequence (or (plist-get delta :remove) '()))))
+         (adds (delq nil (mapcar (lambda (s) (carriage-ui--context-normalize-path s root)) adds-raw)))
+         (rem  (delq nil (mapcar (lambda (s) (carriage-ui--context-normalize-path s root)) rem-raw)))
+         (dropped (- (+ (length adds-raw) (length rem-raw))
+                     (+ (length adds)    (length rem)))))
+    (list :adds adds :rem rem :dropped dropped)))
+
+(defun carriage-ui--context-write-lines (rg lines)
+  "Rewrite begin_context body denoted by RG with LINES list."
+  (when (consp rg)
+    (save-excursion
+      (save-restriction
+        (narrow-to-region (car rg) (cdr rg))
+        (delete-region (point-min) (point-max))
+        (when lines
+          (insert (mapconcat #'identity lines "\n") "\n")))))
+  t)
+
 (defun carriage-ui--apply-context-delta (delta)
   "Apply DELTA {:add list :remove list} to the last (or ensured) begin_context block.
 Paths are normalized and validated:
 - Only project-root-relative, local file paths are accepted.
 - TRAMP/remote, absolute, or out-of-root paths are ignored with a warning.
 All edits occur within a single undo group."
-  (require 'cl-lib)
   (require 'carriage-context nil t)
-  (let* ((adds-raw (cl-remove-if #'string-empty-p (copy-sequence (or (plist-get delta :add) '()))))
-         (rem-raw  (cl-remove-if #'string-empty-p (copy-sequence (or (plist-get delta :remove) '()))))
-         (rg       (or (carriage-ui--context-block-range)
-                       (carriage-ui--ensure-context-block)))
-         (root     (or (and (fboundp 'carriage-project-root) (carriage-project-root))
-                       default-directory))
-         (normalize
-          (lambda (s)
-            ;; Accept only local, inside-root paths, return repo-relative path.
-            (cond
-             ;; Quick remote check
-             ((and (stringp s) (file-remote-p s)) nil)
-             ;; Use context normalizer when available
-             ((and (featurep 'carriage-context) (fboundp 'carriage-context--normalize-path))
-              (let* ((res (carriage-context--normalize-path s root)))
-                (when (and (consp res) (car res))
-                  (let* ((rel (cadr res)))
-                    ;; Inside root → rel is repo-relative; Outside → absolute truename (reject)
-                    (when (and (stringp rel)
-                               (not (file-name-absolute-p rel))
-                               (not (string-empty-p rel)))
-                      rel)))))
-             ;; Fallback: accept only repo-relative strings
-             ((and (stringp s)
-                   (not (file-name-absolute-p s))
-                   (not (file-remote-p s))
-                   (not (string-empty-p s)))
-              s)
-             (t nil))))
-         (adds (delq nil (mapcar normalize adds-raw)))
-         (rem  (delq nil (mapcar normalize rem-raw)))
-         (dropped (- (+ (length adds-raw) (length rem-raw))
-                     (+ (length adds)    (length rem)))))
+  (let* ((rg   (or (carriage-ui--context-block-range)
+                   (carriage-ui--ensure-context-block)))
+         (root (or (and (fboundp 'carriage-project-root) (carriage-project-root))
+                   default-directory))
+         (prep (carriage-ui--context-prepare-delta delta root))
+         (adds (plist-get prep :adds))
+         (rem  (plist-get prep :rem))
+         (dropped (plist-get prep :dropped)))
     (atomic-change-group
-      (save-excursion
-        (save-restriction
-          (narrow-to-region (car rg) (cdr rg))
-          ;; Read current lines
-          (goto-char (point-min))
-          (let ((cur '()))
-            (while (not (eobp))
-              (let ((ln (string-trim (buffer-substring-no-properties (line-beginning-position)
-                                                                     (line-end-position)))))
-                (unless (or (string-empty-p ln)
-                            (string-prefix-p "#" ln)
-                            (string-prefix-p ";" ln))
-                  (push ln cur)))
-              (forward-line 1))
-            (setq cur (nreverse (delete-dups cur)))
-            ;; Remove requested
-            (let* ((cur2 (if rem (cl-remove-if (lambda (s) (member s rem)) cur) cur))
-                   ;; Add new unique at the end
-                   (final (append cur2 (cl-remove-if (lambda (s) (member s cur2)) adds))))
-              ;; Rewrite block body
-              (delete-region (point-min) (point-max))
-              (when final
-                (insert (mapconcat #'identity final "\n") "\n")))))))
-    (when (> dropped 0)
+      (let* ((cur (carriage-ui--context-read-lines))
+             (cur2 (if rem (cl-remove-if (lambda (s) (member s rem)) cur) cur))
+             ;; Add new unique lines (append at end)
+             (final (append cur2 (cl-remove-if (lambda (s) (member s cur2)) adds))))
+        (carriage-ui--context-write-lines rg final)))
+    (when (> (or dropped 0) 0)
       (message "Context-delta: skipped %d invalid path(s) (remote/absolute/out-of-root)" dropped))
-    t))
-    (when (consp rg)
-      (atomic-change-group
-        (let* ((cur (carriage-ui--context-read-lines))
-               ;; remove requested lines
-               (cur2 (cl-remove-if (lambda (s) (member s rem)) cur))
-               ;; add new unique lines (append at end)
-               (final (append cur2 (cl-remove-if (lambda (s) (member s cur2)) adds))))
-          (save-excursion
-            (delete-region (car rg) (cdr rg))
-            (goto-char (car rg))
-            (when final
-              (insert (mapconcat #'identity final "\n") "\n"))))))
     t))
 
 ;;;###autoload

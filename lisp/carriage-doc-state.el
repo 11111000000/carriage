@@ -196,7 +196,8 @@ those fields."
          (base (cl-remove-if-not
                 #'identity
                 (list
-                 (cons "CAR_MODE" (carriage-doc-state--bool->str t))
+                 (cons "CAR_MODE" (carriage-doc-state--bool->str
+                                   (and (boundp 'carriage-mode) carriage-mode)))
                  (and intent (cons "CAR_INTENT" (format "%s" intent)))
                  (and suite  (cons "CAR_SUITE"  (format "%s" suite)))
                  (and full-id (cons "CAR_MODEL_ID" full-id))
@@ -212,25 +213,25 @@ those fields."
                  (and stage (cons "CAR_STAGE_POLICY" (format "%s" stage)))
                  (cons "CAR_ICONS"        (carriage-doc-state--bool->str icons))
                  (cons "CAR_FLASH"        (carriage-doc-state--bool->str flash))
-                 (cons "CAR_AUDIO_NOTIFY" (carriage-doc-state--bool->str audio))))))
-    ;; Provenance extras already present in the buffer (from branching)
-    (existing-pl (ignore-errors (carriage-doc-state-read (current-buffer)))))
-  (let ((alist base))
-    ;; Merge provenance keys from the existing begin_carriage block to avoid losing them.
-    (when (listp existing-pl)
-      (let ((pl existing-pl))
-        (while pl
-          (let* ((k (car pl))
-                 (v (cadr pl)))
-            (when (and (keywordp k))
-              (let* ((ks (symbol-name k))         ; e.g., ":CAR_TEMPLATE_ID"
-                     (plain (upcase (string-remove-prefix ":" ks))))
-                (when (or (string-prefix-p "CAR_TEMPLATE_" plain)
-                          (member plain '("CAR_CONTEXT_PROFILE" "CAR_INHERITED")))
-                  (unless (assoc plain alist)
-                    (push (cons plain (format "%s" v)) alist))))))
-          (setq pl (cddr pl)))))
-    alist))
+                 (cons "CAR_AUDIO_NOTIFY" (carriage-doc-state--bool->str audio)))))
+         ;; Provenance extras already present in the buffer (from branching)
+         (existing-pl (ignore-errors (carriage-doc-state-read (current-buffer)))))
+    (let ((alist base))
+      ;; Merge provenance keys from the existing begin_carriage block to avoid losing them.
+      (when (listp existing-pl)
+        (let ((pl existing-pl))
+          (while pl
+            (let* ((k (car pl))
+                   (v (cadr pl)))
+              (when (and (keywordp k))
+                (let* ((ks (symbol-name k))         ; e.g., ":CAR_TEMPLATE_ID"
+                       (plain (upcase (string-remove-prefix ":" ks))))
+                  (when (or (string-prefix-p "CAR_TEMPLATE_" plain)
+                            (member plain '("CAR_CONTEXT_PROFILE" "CAR_INHERITED")))
+                    (unless (assoc plain alist)
+                      (push (cons plain (format "%s" v)) alist))))))
+            (setq pl (cddr pl)))))
+      alist)))
 
 (defun carriage-doc-state-write (data &optional buffer)
   "Write DATA into the canonical Carriage storage (begin_carriage) of BUFFER (or current).
@@ -243,7 +244,11 @@ Returns t on success."
 (defun carriage-doc-state-write-current (&optional buffer)
   "Write current buffer Carriage parameters into the document and fold the block."
   (with-current-buffer (or buffer (current-buffer))
-    (carriage-doc-state-write (carriage-doc-state--collect-current) (current-buffer))
+    (let* ((alist (carriage-doc-state--collect-current))
+           (res   (carriage-doc-state-write alist (current-buffer)))
+           (rg1   (carriage-doc-state--carriage-block-range)))
+      (carriage-log "doc-state: write-current keys=%d res=%s block-after=%s"
+                    (length alist) (if res "t" "nil") (if rg1 "present" "absent")))
     (ignore-errors (carriage-doc-state-hide (current-buffer)))))
 
 (defun carriage-doc-state-restore (&optional buffer)
@@ -312,19 +317,26 @@ Gracefully ignores missing keys."
       (ignore-errors (carriage-doc-state--ensure-carriage-block-hidden (current-buffer))))))
 
 (defun carriage-doc-state-auto-enable ()
-  "Find-file hook: auto-enable carriage-mode when CAR_MODE=t in the document.
+  "Find-file hook: auto-enable carriage-mode when CAR_MODE=t or a begin_carriage block is present.
 Requires an Org buffer and a recognizable project root."
   (when (derived-mode-p 'org-mode)
     (condition-case _e
         (let* ((pl (carriage-doc-state-read (current-buffer)))
                (m  (plist-get pl :CAR_MODE))
-               (on (carriage-doc-state--str->bool (or m ""))))
-          (when on
-            (when (and (fboundp 'carriage-project-root)
-                       (carriage-project-root))
-              (require 'carriage-mode)
-              (carriage-mode 1))))
+               (on (carriage-doc-state--str->bool (or m "")))
+               (has-block (ignore-errors (carriage-doc-state--carriage-block-range))))
+          (when (and (fboundp 'carriage-project-root)
+                     (carriage-project-root)
+                     (or on has-block))
+            (require 'carriage-mode)
+            (carriage-mode 1)))
       (error nil))))
+
+(defun carriage-doc-state--maybe-auto-enable ()
+  "Auto-enable carriage-mode on visit when carriage-global-mode is active.
+Calls `carriage-doc-state-auto-enable' only if global mode is on."
+  (when (bound-and-true-p carriage-global-mode)
+    (ignore-errors (carriage-doc-state-auto-enable))))
 
 ;; -------------------------------------------------------------------
 ;; v1.1+: Prefer file-level #+PROPERTY: CARRIAGE_* storage
@@ -410,17 +422,64 @@ Falls back to drawer-based heading when file-level properties are absent."
 (defun carriage-doc-state--on-before-save ()
   "Before-save: apply state from begin_carriage (if present), then persist normalized block and fold."
   (when (derived-mode-p 'org-mode)
-    (condition-case _e
+    (carriage-log "doc-state: before-save (buf=%s modified=%s)"
+                  (buffer-name) (buffer-modified-p))
+    (condition-case e
         (progn
           ;; Apply user-edited state first (if valid), then normalize/write and fold.
           (ignore-errors (carriage-doc-state-restore (current-buffer)))
           (ignore-errors (carriage-doc-state-write-current (current-buffer)))
-          (ignore-errors (carriage-doc-state--fold-carriage-block-now (current-buffer))))
-      (error nil))))
+          (let ((present (and (carriage-doc-state--carriage-block-range) t)))
+            (unless present
+              ;; Fallback: write block directly if alias chain failed
+              (let* ((alist (carriage-doc-state--collect-current))
+                     (ok (carriage-doc-state--write-carriage-block alist)))
+                (carriage-log "doc-state: before-save fallback write-carriage-block=%s"
+                              (if ok "t" "nil")))))
+          (ignore-errors (carriage-doc-state--fold-carriage-block-now (current-buffer)))
+          (carriage-log "doc-state: before-save done (block=%s)"
+                        (if (carriage-doc-state--carriage-block-range) "present" "absent"))
+          t)
+      (error
+       (carriage-log "doc-state: before-save error: %s" (error-message-string e))
+       nil))))
 
 (defun carriage-doc-state-install-save-hook ()
-  "Install before-save hook to apply and persist document state, buffer-locally."
-  (add-hook 'before-save-hook #'carriage-doc-state--on-before-save nil t))
+  "Install buffer-local hooks to persist Carriage state on save.
+
+Adds both:
+- before-save-hook (runs for modified buffers)
+- write-contents-functions (runs even on 'clean' saves).
+
+Both handlers are safe and never block normal saving."
+  (when (derived-mode-p 'org-mode)
+    (carriage-log "doc-state: installing save hooks in %s" (buffer-name))
+    (add-hook 'before-save-hook #'carriage-doc-state--on-before-save nil t)
+    (add-hook 'write-contents-functions #'carriage-doc-state--on-write-contents nil t)))
+
+(defun carriage-doc-state--on-write-contents ()
+  "Persist begin_carriage on 'clean' saves; always return nil to continue normal save."
+  (when (derived-mode-p 'org-mode)
+    (carriage-log "doc-state: write-contents fired (buf=%s modified=%s)"
+                  (buffer-name) (buffer-modified-p))
+    (condition-case e
+        (progn
+          (ignore-errors (carriage-doc-state-restore (current-buffer)))
+          (ignore-errors (carriage-doc-state-write-current (current-buffer)))
+          (let ((present (and (carriage-doc-state--carriage-block-range) t)))
+            (unless present
+              ;; Fallback: write block directly if alias chain failed
+              (let* ((alist (carriage-doc-state--collect-current))
+                     (ok (carriage-doc-state--write-carriage-block alist)))
+                (carriage-log "doc-state: write-contents fallback write-carriage-block=%s"
+                              (if ok "t" "nil")))))
+          (ignore-errors (carriage-doc-state--fold-carriage-block-now (current-buffer)))
+          (carriage-log "doc-state: write-contents done (block=%s)"
+                        (if (carriage-doc-state--carriage-block-range) "present" "absent")))
+      (error
+       (carriage-log "doc-state: write-contents error: %s" (error-message-string e)))))
+  ;; Return nil to let Emacs proceed with normal saving
+  nil)
 
 (defun carriage-doc-state-remove-save-hook ()
   "Remove before-save hook for applying and persisting document state."
@@ -689,7 +748,13 @@ DATA may be a plist (:CAR_* …) or an alist of (\"CAR_*\" . VAL)."
              ;; alist
              ((and (listp data) (consp (car data))) data)
              (t (user-error "Unsupported DATA format for carriage-doc-state-write")))))
-      (carriage-doc-state--write-carriage-block alist))))
+      (carriage-log "doc-state: write-carriage-block keys=%d buf=%s"
+                    (length alist) (buffer-name))
+      (let ((ok (carriage-doc-state--write-carriage-block alist)))
+        (carriage-log "doc-state: write-carriage-block result=%s block=%s"
+                      (if ok "t" "nil")
+                      (if (carriage-doc-state--carriage-block-range) "present" "absent"))
+        ok))))
 
 ;; Also fold the new block on hide
 (ignore-errors
@@ -744,9 +809,10 @@ This delegates to the reusable carriage-block-fold module."
     (ignore-errors (carriage-doc-state-install-save-hook))))
 
 (add-hook 'find-file-hook #'carriage-doc-state--fold-on-visit)
+(add-hook 'find-file-hook #'carriage-doc-state--maybe-auto-enable)
 (add-hook 'after-change-major-mode-hook #'carriage-doc-state--fold-on-visit)
 (add-hook 'org-mode-hook #'carriage-doc-state--fold-carriage-block-now)
-(add-hook 'org-mode-hook #'carriage-doc-state--maybe-install-save-hook)
+(add-hook 'org-mode-hook #'carriage-doc-state-install-save-hook)
 (add-hook 'after-revert-hook #'carriage-doc-state--fold-carriage-block-now)
 
 ;; -------------------------------------------------------------------
