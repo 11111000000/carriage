@@ -78,14 +78,14 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
   '(
     ;; Tools/model/context
     (:id model-select :cmd carriage-select-model :keys ("m") :contexts (carriage) :section tools :desc-key :model-select)
-    (:id toggle-ctx   :cmd carriage-toggle-include-gptel-context :keys ("tc") :menu-key "t g" :contexts (carriage) :section context :desc-key :toggle-ctx)
-    (:id toggle-doc   :cmd carriage-toggle-include-doc-context   :keys ("tf") :menu-key "t f" :contexts (carriage) :section context :desc-key :toggle-doc)
-    (:id toggle-patched :cmd carriage-toggle-include-patched-files :keys ("tp") :menu-key "t p" :contexts (carriage) :section context :desc-key :toggle-patched)
-    (:id toggle-visible :cmd carriage-toggle-include-visible-context :keys ("tv") :menu-key "t v" :contexts (carriage) :section context :desc-key :visible-tooltip)
-    (:id doc-scope-all  :cmd carriage-select-doc-context-all       :keys ("ta") :menu-key "t a" :contexts (carriage) :section context :desc-key :doc-scope-all)
-    (:id doc-scope-last :cmd carriage-select-doc-context-last      :keys ("tl") :menu-key "t l" :contexts (carriage) :section context :desc-key :doc-scope-last)
-    (:id doc-scope-cycle :cmd carriage-toggle-doc-context-scope    :keys ("ts") :menu-key "t s" :contexts (carriage) :section context :desc-key :doc-scope-cycle :label "Cycle Doc Scope")
-    (:id toggle-profile :cmd carriage-toggle-context-profile        :keys ("tP") :menu-key "t P" :contexts (carriage) :section context :desc-key :toggle-profile :label "Toggle P1/P3")
+    (:id toggle-ctx   :cmd carriage-toggle-include-gptel-context :keys ("t c") :menu-key "t g" :contexts (carriage) :section context :desc-key :toggle-ctx)
+    (:id toggle-doc   :cmd carriage-toggle-include-doc-context   :keys ("t f") :menu-key "t f" :contexts (carriage) :section context :desc-key :toggle-doc)
+    (:id toggle-patched :cmd carriage-toggle-include-patched-files :keys ("t p") :menu-key "t p" :contexts (carriage) :section context :desc-key :toggle-patched)
+    (:id toggle-visible :cmd carriage-toggle-include-visible-context :keys ("t v") :menu-key "t v" :contexts (carriage) :section context :desc-key :visible-tooltip)
+    (:id doc-scope-all  :cmd carriage-select-doc-context-all       :keys ("t a") :menu-key "t a" :contexts (carriage) :section context :desc-key :doc-scope-all)
+    (:id doc-scope-last :cmd carriage-select-doc-context-last      :keys ("t l") :menu-key "t l" :contexts (carriage) :section context :desc-key :doc-scope-last)
+    (:id doc-scope-cycle :cmd carriage-toggle-doc-context-scope    :keys ("t s") :menu-key "t s" :contexts (carriage) :section context :desc-key :doc-scope-cycle :label "Cycle Doc Scope")
+    (:id toggle-profile :cmd carriage-toggle-context-profile        :keys ("t P") :menu-key "t P" :contexts (carriage) :section context :desc-key :toggle-profile :label "Toggle P1/P3")
     ;; Suite/Intent (tools)
     (:id select-suite :cmd carriage-select-suite                 :keys ("s")   :contexts (carriage) :section tools :desc-key :select-suite)
     (:id toggle-intent :cmd carriage-toggle-intent               :keys ("i")   :contexts (carriage) :section tools :desc-key :toggle-intent)
@@ -94,8 +94,8 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
     (:id apply        :cmd carriage-apply-at-point-or-region :keys ("a")     :contexts (carriage) :section act :desc-key :apply)
     (:id apply-all    :cmd carriage-apply-last-iteration    :keys ("A")     :contexts (carriage) :section act :desc-key :apply-all)
     (:id abort        :cmd carriage-abort-current           :keys ("k")     :contexts (carriage) :section act :desc-key :abort)
-    (:id send-buffer  :cmd carriage-send-buffer             :keys ("RET")   :contexts (carriage) :section act :desc-key :send-buffer)
-    (:id send-subtree :cmd carriage-send-subtree            :keys ("M-RET") :contexts (carriage) :section act :desc-key :send-subtree)
+    (:id send-buffer  :cmd carriage-send-buffer             :keys ("RET")   :menu-key "RET" :contexts (carriage) :section act :desc-key :send-buffer)
+    (:id send-subtree :cmd carriage-send-subtree            :keys ("M-RET") :menu-key "M-RET" :contexts (carriage) :section act :desc-key :send-subtree)
     (:id report       :cmd carriage-report-open             :keys ("r")     :contexts (carriage) :section tools :desc-key :report)
     (:id clean        :cmd carriage-clear-patch-blocks     :keys ("D")     :contexts (carriage) :section act :desc-key :clean)
     ;; Report context actions (available in report buffers under the configured prefix)
@@ -111,17 +111,17 @@ Each value is a plist with :add and/or :remove lists of (:id ID :keys (..)).")
     (:id show-log     :cmd carriage-show-log                :keys ("L")     :contexts (carriage report global) :section logs :desc-key :show-log)
     (:id show-traffic :cmd carriage-show-traffic            :keys ("T")     :contexts (carriage report global) :section logs :desc-key :show-traffic)
     (:id aux-quit     :cmd quit-window                      :keys ("q")     :contexts (report log traffic)     :section navigate :desc-key :quit)
-    (:id open-buffer  :cmd carriage-open-buffer             :keys ("e")     :contexts (global)   :section session :desc-key :open-buffer)
+    (:id open-buffer  :cmd carriage-open-buffer             :keys ("e")     :contexts (global)                 :section session :desc-key :open-buffer)
     (:id task-new     :cmd carriage-create-task-doc         :keys ("n")     :contexts (carriage org global) :section tools :desc-key :task-new :label "Create task doc")
     (:id branch-doc   :cmd carriage-branching-transient     :keys ("N")     :contexts (carriage org global) :section tools :desc-key :branch-doc :label "Branch from template")
     (:id file-chat    :cmd carriage-open-file-chat          :keys ("f")     :contexts (carriage org global) :section tools :desc-key :file-chat :label "File chat")
     ;; Palette insert actions (minimal v1)
-    (:id insert-plan  :cmd carriage-insert-plan-section     :keys ("xp")   :contexts (carriage org) :section act :label "Insert Plan")
-    (:id insert-step  :cmd carriage-insert-step-section     :keys ("xs")   :contexts (carriage org) :section act :label "Insert Step")
-    (:id insert-test  :cmd carriage-insert-test-section     :keys ("xt")   :contexts (carriage org) :section act :label "Insert Test")
-    (:id insert-retro :cmd carriage-insert-retro-section    :keys ("xr")   :contexts (carriage org) :section act :label "Insert Retro")
-    (:id assist-context-delta :cmd carriage-ui-context-delta-assist :keys ("xc") :contexts (carriage org) :section act :label "Assist Context Delta")
-    (:id insert-menu  :cmd carriage-insert-transient        :keys ("xx")   :contexts (carriage org) :section act :label "Insert/Assist Menu")
+    (:id insert-plan  :cmd carriage-insert-plan-section     :keys ("x p")   :contexts (carriage org) :section act :desc-key :insert-plan)
+    (:id insert-step  :cmd carriage-insert-step-section     :keys ("x s")   :contexts (carriage org) :section act :desc-key :insert-step)
+    (:id insert-test  :cmd carriage-insert-test-section     :keys ("x t")   :contexts (carriage org) :section act :desc-key :insert-test)
+    (:id insert-retro :cmd carriage-insert-retro-section    :keys ("x r")   :contexts (carriage org) :section act :desc-key :insert-retro)
+    (:id assist-context-delta :cmd carriage-ui-context-delta-assist :keys ("x c") :contexts (carriage org) :section act :desc-key :assist-context-delta)
+    (:id insert-menu  :cmd carriage-insert-transient        :keys ("x x")   :contexts (carriage org) :section act :desc-key :insert-assist-menu)
     ;; Engine
     (:id engine       :cmd carriage-select-apply-engine     :keys ("E")  :contexts (carriage) :section tools :desc-key :engine))
   "Keyspec: list of action plists with :id :cmd :keys :contexts :section :desc-key.
@@ -454,10 +454,15 @@ Fallback: completing-read (group prefix in labels)."
                                                         fallback-label
                                                         (and (symbolp cmd) (symbol-name cmd))
                                                         (format "%s" id)))
-                                         (lbl (if (and (stringp raw-label)
-                                                       (string-match-p "\\`[ \t]*\\'" raw-label))
-                                                  (symbol-name id)
-                                                raw-label)))
+                                         (lbl (let ((s (if (and (stringp raw-label)
+                                                                (not (string-match-p "\\`[ \t]*\\'" raw-label)))
+                                                           raw-label
+                                                         (if (symbolp id) (symbol-name id) (format "%s" id)))))
+                                                (if (or (null s)
+                                                        (and (stringp s)
+                                                             (string-match-p "\\`[ \t]*\\'" s)))
+                                                    (if (symbolp id) (symbol-name id) (format "%s" id))
+                                                  s))))
                                     (list menu-key lbl cmd id sec)))))
                ;; Flatten to resolve unique keys globally; uniqueness by full sequence ("t c" vs "c")
                (flat (apply #'append per-sec))
@@ -473,7 +478,7 @@ Fallback: completing-read (group prefix in labels)."
                     (puthash "t" t used)))
                (unique
                 (cl-loop for it in flat
-                         for base = (nth 0 it)          ;; may be "t c" or "c"
+                         for base = (nth 0 it)          ;; may be "t c" or "c" or "RET"
                          for lbl  = (nth 1 it)
                          for cmd  = (nth 2 it)
                          for id   = (nth 3 it)
@@ -482,13 +487,19 @@ Fallback: completing-read (group prefix in labels)."
                          ;; Fallback candidates:
                          ;; 1) full sequence ("t c"), 2) last token ("c"),
                          ;; 3) UPPER(last token), 4..) digits.
+                         ;; Special keys (RET, M-RET, TAB, SPC, DEL, BACKSPACE) are preserved as-is.
                          for lastonly = (and (stringp base)
                                              (car (last (split-string base " " t))))
-                         for cand = (delq nil (list base lastonly (and lastonly (upcase lastonly))
-                                                    idc "1" "2" "3" "4" "5" "6" "7" "8" "9"))
-                         for final = (cl-loop for c in cand
-                                              when (and (stringp c) (not (gethash c used)))
-                                              return c)
+                         for special-keys = '("RET" "M-RET" "TAB" "SPC" "DEL" "BACKSPACE")
+                         for cand = (if (and (stringp base) (member base special-keys))
+                                        (list base)
+                                      (delq nil (list base lastonly (and lastonly (upcase lastonly))
+                                                      idc "1" "2" "3" "4" "5" "6" "7" "8" "9")))
+                         for final = (if (and (stringp base) (member base special-keys))
+                                         base
+                                       (cl-loop for c in cand
+                                                when (and (stringp c) (not (gethash c used)))
+                                                return c))
                          do (puthash (or final base "x") t used)
                          collect (list (or final base "x") lbl cmd id sec)))
                ;; Build transient spec: a vector per section (column) with i18n title
@@ -505,8 +516,8 @@ Fallback: completing-read (group prefix in labels)."
                          ;; Add a small help-echo for the Context column to explain two-stroke keys.
                          (title* (if (eq sec 'context)
                                      (propertize title 'help-echo (if (fboundp 'carriage-i18n)
-                                                                       (carriage-i18n :context-help)
-                                                                     "Press t, then letter (g,f,p,v,a,l,s,P)"))
+                                                                      (carriage-i18n :context-help)
+                                                                    "Press t, then letter (g,f,p,v,a,l,s,P)"))
                                    title))
                          (items (cl-loop for it in unique
                                          for ukey = (nth 0 it)

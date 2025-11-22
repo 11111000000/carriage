@@ -395,7 +395,7 @@ Consults engine capabilities; safe when registry is not yet loaded."
   (unless (bound-and-true-p noninteractive)
     (when carriage-mode-show-header-line
       (setq carriage--mode-prev-header-line-format header-line-format)
-      (setq-local header-line-format '(:eval (carriage-ui--header-line)))
+      (setq-local header-line-format '(:eval (carriage-ui--header-line-for (selected-window))))
       (add-hook 'post-command-hook #'carriage-ui--headerline-post-command nil t)
       (add-hook 'window-scroll-functions #'carriage-ui--headerline-window-scroll nil t))
     (when carriage-mode-show-mode-line-ui

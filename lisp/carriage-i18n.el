@@ -131,6 +131,12 @@
     (:insert-assist-menu . ((ru . "Меню вставки/Assist")          (en . "Insert/Assist Menu")))
     (:file-chat          . ((ru . "Чат по файлу")                 (en . "File chat")))
     (:branch-doc         . ((ru . "Ветвление из шаблона")         (en . "Branch from template")))
+    ;; Insert/Assist actions
+    (:insert-plan        . ((ru . "Вставить план")                (en . "Insert Plan")))
+    (:insert-step        . ((ru . "Вставить шаг")                 (en . "Insert Step")))
+    (:insert-test        . ((ru . "Вставить тест")                (en . "Insert Test")))
+    (:insert-retro       . ((ru . "Вставить ретро")               (en . "Insert Retro")))
+    (:assist-context-delta . ((ru . "Assist: дельта контекста")   (en . "Assist Context Delta")))
     )
   "Translation table: KEY → ((ru . STR) (en . STR)).")
 

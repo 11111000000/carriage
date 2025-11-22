@@ -257,6 +257,40 @@ Update only when BUF is visible; avoid forcing window repaints."
   ;; Local refresh only; avoid repainting all windows.
   (force-mode-line-update))
 
+(defun carriage-ui-reset-timers ()
+  "Cancel Carriage UI timers/overlays in this buffer and refresh the modeline.
+Useful when input feels frozen (e.g., during rapid cursor movement)."
+  (interactive)
+  (condition-case _e
+      (progn
+        ;; Context refresh timer (buffer-local)
+        (when (timerp carriage-ui--ctx-refresh-timer)
+          (cancel-timer carriage-ui--ctx-refresh-timer))
+        (setq carriage-ui--ctx-refresh-timer nil)
+        ;; Spinner timer (buffer-local)
+        (when (timerp carriage--ui-spinner-timer)
+          (cancel-timer carriage--ui-spinner-timer))
+        (setq carriage--ui-spinner-timer nil
+              carriage--ui-spinner-index 0)
+        ;; Header-line idle timer (buffer-local)
+        (when (and (boundp 'carriage-ui--headerline-idle-timer)
+                   (timerp carriage-ui--headerline-idle-timer))
+          (cancel-timer carriage-ui--headerline-idle-timer))
+        (setq carriage-ui--headerline-idle-timer nil)
+        ;; Preloader timer/overlay from carriage-mode (if present)
+        (when (boundp 'carriage--preloader-timer)
+          (when (timerp carriage--preloader-timer)
+            (cancel-timer carriage--preloader-timer))
+          (setq carriage--preloader-timer nil))
+        (when (and (boundp 'carriage--preloader-overlay)
+                   (overlayp carriage--preloader-overlay))
+          (delete-overlay carriage--preloader-overlay)
+          (setq carriage--preloader-overlay nil))
+        (carriage-ui--invalidate-ml-cache)
+        (force-mode-line-update t)
+        t)
+    (error nil)))
+
 (defun carriage-ui-set-state (state &optional tooltip)
   "Set UI STATE symbol for mode-line visuals and manage spinner.
 
@@ -631,20 +665,20 @@ Keys: :doc :gpt :vis :patched :scope"
            (tk  tick)
            (dl  (max 0.0 (or delay 0.05))))
       (setq carriage-ui--ctx-refresh-timer
-            (run-at-time dl nil
-                         (lambda ()
-                           (when (buffer-live-p buf)
-                             (with-current-buffer buf)
-                             (condition-case _e
-                                 (let* ((val (carriage-ui--compute-context-badge doc gpt vis pt))
-                                        (t2 (float-time)))
-                                   (setq carriage-ui--ctx-cache
-                                         (carriage-ui--ctx-build-cache toggles tk t2 val))
-                                   (setq carriage-ui--ctx-placeholder-count 0
-                                         carriage-ui--ctx-last-placeholder-time 0))
-                               (error nil))
-                             (setq carriage-ui--ctx-refresh-timer nil)
-                             (force-mode-line-update))))))))
+            (run-with-idle-timer dl nil
+                                 (lambda ()
+                                   (when (buffer-live-p buf)
+                                     (with-current-buffer buf
+                                       (condition-case _e
+                                           (let* ((val (carriage-ui--compute-context-badge doc gpt vis pt))
+                                                  (t2 (float-time)))
+                                             (setq carriage-ui--ctx-cache
+                                                   (carriage-ui--ctx-build-cache toggles tk t2 val))
+                                             (setq carriage-ui--ctx-placeholder-count 0
+                                                   carriage-ui--ctx-last-placeholder-time 0))
+                                         (error nil))
+                                       (setq carriage-ui--ctx-refresh-timer nil)
+                                       (force-mode-line-update)))))))))
 
 (defun carriage-ui--ctx-force-sync (toggles tick time)
   "Synchronously recompute context badge for TOGGLES/TICK at TIME, update cache and return value."
@@ -965,6 +999,9 @@ Results are cached per-buffer and invalidated when theme or UI parameters change
 
 ;; Header-line helpers (split from carriage-ui--header-line)
 
+(defvar-local carriage-ui--rendering-window nil
+  "Window currently being rendered for header-line (:eval). Set by carriage-ui--header-line-for.")
+
 (defun carriage-ui--hl-sep ()
   "Separator used between header-line segments."
   " › ")
@@ -1026,6 +1063,11 @@ Truncation order: outline → buffer → project."
         (setq full (if show-outline (concat base sep oseg) base))))
     (list pseg bseg oseg)))
 
+(defun carriage-ui--header-line-for (win)
+  "Wrapper to render header-line for WIN, ensuring width calculations use WIN rather than the selected window."
+  (let ((carriage-ui--rendering-window (and (window-live-p win) win)))
+    (carriage-ui--header-line)))
+
 (defun carriage-ui--header-line ()
   "Build header-line: [icon] project › [icon] buffer › org-outline-path (no icon for heading).
 - Graceful degradation in TTY and narrow windows (hide outline).
@@ -1034,13 +1076,17 @@ Truncation order: outline → buffer → project."
 Optimized with caching to reduce allocations on redisplay."
   (let* ((project (carriage-ui--project-name))
          (bufname (buffer-name))
-         (outline (and carriage-mode-headerline-show-outline (or carriage-ui--last-outline-path-str "")))
+         (win (or carriage-ui--rendering-window (selected-window)))
+         (outline (and carriage-mode-headerline-show-outline
+                       (with-selected-window win (or (carriage-ui--org-outline-path) ""))))
          (use-icons (carriage-ui--icons-available-p))
          ;; Include icon env in cache key to handle theme/icon changes
          (icon-env (and use-icons (carriage-ui--icon-cache-env-current)))
          (sep (carriage-ui--hl-sep))
          ;; Window width and policy
-         (w (or (ignore-errors (window-total-width)) 80))
+         (w (or (ignore-errors
+                  (and (window-live-p win) (window-total-width win)))
+                80))
          (maxw (or (and (boundp 'carriage-mode-headerline-max-width)
                         carriage-mode-headerline-max-width)
                    w))
