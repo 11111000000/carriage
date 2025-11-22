@@ -72,7 +72,7 @@ Grammar/Schema
 - Stability: stable
 - Pack-Priority: P1
 - Directory layout:
-  - tests/golden/v2/<topic>/
+  - test/golden/v2/<topic>/
     - prompt/<id>.in.org          ; input prompt (system+user), Pack-Recipe ref
     - output/<id>.out.org         ; model output (strict PRM format), masked as needed
     - report/<id>.report.org      ; apply/dry-run report (plist-rendered/plain), masked
@@ -167,7 +167,7 @@ Cross-References and Anchors
   - spec/aibo-v2.org
   - spec/llm-transport-v2.org
 - Code:
-  - tests/golden/v2/**
+  - test/golden/v2/**
 
 Evolution
 - Anchor: EVO

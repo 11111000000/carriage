@@ -950,4 +950,8 @@ Optional DELAY in seconds; defaults to 0.1."
   (ignore-errors
     (advice-add 'carriage-mode :after #'carriage-doc-state--on-carriage-mode)))
 
+;; Canonicalize public API to v1.2 block-first reader/writer (remove legacy paths)
+(defalias 'carriage-doc-state-read  'carriage-doc-state--read-preferring-file)
+(defalias 'carriage-doc-state-write 'carriage-doc-state--write-to-file-properties)
+
 ;;; carriage-doc-state.el ends here

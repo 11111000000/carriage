@@ -1,0 +1,102 @@
+#+title: Templates on Disk v1 — Format, Lookup Order, and Linting
+#+author: Carriage Team <dev@carriage>
+#+language: en
+#+options: toc:2 num:t
+#+property: header-args :results silent
+
+Meta
+- Spec-ID: carriage/templates/on-disk/v1
+- Version: v1.0
+- Status: draft
+- Normativity: RFC 2119 applies
+- Ownership: templates
+- Precedence: Security > Errors > Formats > Interfaces > Algorithms > UI
+- RAG-Indexing: on
+
+Purpose
+- Define a minimal, deterministic file format for user/project templates on disk.
+- Fix the lookup order and low-risk loading rules (no I/O in :render).
+- Enable project overrides without breaking determinism or security guarantees.
+
+Scope
+- File format: required and optional fields.
+- Lookup order and merge/override precedence.
+- Linting rules for placeholders/filters and :render constraints.
+- Out of scope: advanced templating engines, dynamic includes, network/TRAMP sources.
+
+Terms
+- Built-in templates: compiled-in registry shipped with Carriage.
+- User templates: ~/.config/carriage/templates/…
+- Project templates: <project-root>/.carriage/templates/…
+- Placeholder: {{name|filter}}; filter whitelist enforced.
+
+Format (on disk)
+- Template is stored as a single .org or .tmpl file; UTF-8 text; no code execution.
+- Header (front matter) lines (REQUIRED):
+  - ID: <symbol>          ; e.g., task/default
+  - VERSION: <semver>     ; e.g., 1.0.0
+  - LABEL: <string>       ; human-readable
+  - CATEGORY: <symbol>    ; analysis|decomposition|testing|debug|design|bug|misc (optional)
+- Body: Org text or plain text with placeholders:
+  - Allowed placeholders: {{title}}, {{today}}, {{project}}, {{origin_file}}, {{origin_heading}}, {{subtree|quote}}, {{title|slug}}, {{ctx_profile}}, {{parent_context_count}}
+  - Allowed filters: quote, slug, trim, upper, lower
+- No embedded eval/Lisp/network calls are allowed in files.
+
+Examples
+- Header:
+  ID: task/default
+  VERSION: 1.0
+  LABEL: Analysis and Plan
+  CATEGORY: analysis
+
+  #+title: {{title}}
+  See TODO: [[file:{{origin_file}}::*{{origin_heading}}][go]]
+  * Goal
+  * Plan (3–5)
+  * Tests/Checks
+  * DoD
+  * Context
+  #+begin_context
+  #+end_context
+
+Lookup Order and Merge
+- Precedence (highest → lowest):
+  1) Project templates: .carriage/templates/*.org
+  2) User templates: ~/.config/carriage/templates/*.org
+  3) Built-in registry
+- Rule: The first match by ID wins; later locations do NOT merge fields; they override wholesale by ID.
+- Loading MUST be explicit (triggered by refresh/init); NEVER during :render.
+
+Determinism and Security Requirements
+- REQ-tmpl-file-001: :render MUST be pure; disk templates MUST NOT contain embedded I/O or eval directives.
+- REQ-tmpl-file-002: Unknown placeholders/filters MUST cause a lint error.
+- REQ-tmpl-file-003: TRAMP paths or network references in files MUST be refused.
+- REQ-tmpl-file-004: Loading MUST be fast and non-blocking; cache allowed; refresh on command.
+
+Linting
+- Lint checks:
+  - ID present and unique per final registry.
+  - VERSION present (semver-ish).
+  - LABEL present; CATEGORY optional.
+  - Placeholders/filters limited to whitelist.
+  - No external I/O instructions; no TRAMP references.
+- Lint failures MUST prevent registry activation for offending templates and surface a warning.
+
+Interfaces
+- carriage-templates-refresh: load project → user → built-in (override by ID).
+- carriage-templates-lint: run checks; return warnings/errors; refuse unknown placeholders/filters.
+- carriage-templates-render: render by ID using ctx; :render remains pure; no file reads during render.
+
+Testing and Conformance
+- CHK-tmpl-file-001: Lookup precedence: project overrides user overrides built-in by ID.
+- CHK-tmpl-file-002: Unknown placeholder/filter triggers lint error.
+- CHK-tmpl-file-003: No I/O/eval observed during :render; I/O guards fire if attempted in custom :render functions.
+- CHK-tmpl-file-004: Loading is explicit and cached; no background I/O during render.
+- CHK-tmpl-file-005: Deterministic snapshot for built-in and on-disk templates (same ctx → same text).
+
+Cross-References
+- spec/document-branching-and-templates-v1.org
+- spec/security-v2.org
+- spec/errors-v2.org
+- spec/testing-v2.org
+

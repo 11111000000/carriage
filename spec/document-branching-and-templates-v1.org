@@ -241,7 +241,7 @@ Cross-References and Anchors
   - lisp/carriage-task.el, lisp/carriage-ui.el, lisp/carriage-keyspec.el
   - lisp/carriage-context.el, lisp/carriage-doc-state.el
   - lisp/transports/carriage-transport-gptel.el (assist)
-  - tests/*
+  - test/*
 
 Evolution
 - Anchor: EVO

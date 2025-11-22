@@ -1001,9 +1001,13 @@ Writes CAR_CONTEXT_PROFILE on save via doc-state."
   (carriage-context--apply-profile-defaults carriage-doc-context-profile)
   ;; UI warning/notice on profile switch
   (when (eq carriage-doc-context-profile 'p3)
-    (message "Context profile switched to P3-debug (extended budget; may impact cost/quality)"))
+    (message "Context profile switched to P3-debug — files=%s bytes=%s (extended budget; may impact cost/quality)"
+             (or (and (boundp 'carriage-mode-context-max-files) carriage-mode-context-max-files) "-")
+             (or (and (boundp 'carriage-mode-context-max-total-bytes) carriage-mode-context-max-total-bytes) "-")))
   (when (eq carriage-doc-context-profile 'p1)
-    (message "Context profile switched to P1-core"))
+    (message "Context profile switched to P1-core — files=%s bytes=%s"
+             (or (and (boundp 'carriage-mode-context-max-files) carriage-mode-context-max-files) "-")
+             (or (and (boundp 'carriage-mode-context-max-total-bytes) carriage-mode-context-max-total-bytes) "-")))
   ;; UI refresh: reset caches if available
   (when (fboundp 'carriage-ui--reset-context-cache)
     (ignore-errors (carriage-ui--reset-context-cache)))

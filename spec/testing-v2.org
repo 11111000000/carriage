@@ -73,7 +73,7 @@ Cross-References and Anchors
 - Related:
   - spec/golden-fixtures-v2.org
 - Code:
-  - tests/**
+  - test/**
 
 Evolution
 - Anchor: EVO
