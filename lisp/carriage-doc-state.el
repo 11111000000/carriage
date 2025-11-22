@@ -152,18 +152,12 @@ Returns point at the heading line."
     pl))
 
 (defun carriage-doc-state-read (&optional buffer)
-  "Read Carriage State from BUFFER (or current) and return a plist with keys:
-:CAR_MODE :CAR_INTENT :CAR_SUITE :CAR_MODEL_ID :CAR_ENGINE :CAR_BRANCH_POLICY
-:CAR_CTX_GPTEL :CAR_CTX_DOC :CAR_REPORT_POLICY :CAR_STAGE_POLICY
-:CAR_ICONS :CAR_FLASH :CAR_AUDIO_NOTIFY
-
-Fallback to #+PROPERTY: CARRIAGE_* when the heading is absent."
-  (with-current-buffer (or buffer (current-buffer))
-    (let* ((dl (carriage-doc-state--read-drawer))
-           (pl (carriage-doc-state--alist->plist dl)))
-      (if (null pl)
-          (carriage-doc-state--alist->plist (carriage-doc-state--read-properties-lines))
-        pl))))
+  "Read Carriage State from BUFFER (or current) with priority:
+1) #+begin_carriage block,
+2) file-level #+PROPERTY: CARRIAGE_*,
+3) legacy \"Carriage State\" property drawer.
+Returns a plist with :CAR_* keys."
+  (carriage-doc-state--read-preferring-file buffer))
 
 (defun carriage-doc-state--set-prop (key val)
   "Set org property KEY to VAL in the Carriage State heading (create if missing)."
@@ -239,32 +233,12 @@ those fields."
     alist))
 
 (defun carriage-doc-state-write (data &optional buffer)
-  "Write DATA into the Carriage State drawer of BUFFER (or current).
+  "Write DATA into the canonical Carriage storage (begin_carriage) of BUFFER (or current).
 DATA may be:
-- a plist: (:CAR_INTENT \"Code\" :CAR_SUITE \"udiff\" …), or
-- an alist: ((\"CAR_INTENT\" . \"Code\") …).
-
+- a plist (:CAR_* …) or
+- an alist ((\"CAR_*\" . VAL) …).
 Returns t on success."
-  (with-current-buffer (or buffer (current-buffer))
-    (unless (derived-mode-p 'org-mode)
-      (user-error "carriage-doc-state-write: buffer is not in org-mode"))
-    (let* ((alist
-            (cond
-             ;; plist
-             ((and (listp data)
-                   (keywordp (car data)))
-              (let ((acc '()) (pl data))
-                (while pl
-                  (let ((k (car pl)) (v (cadr pl)))
-                    (setq acc (append acc (list (cons (upcase (string-remove-prefix ":" (format "%s" k)))) v))))
-                  (setq pl (cddr pl)))
-                acc))
-             ;; alist
-             ((and (listp data) (consp (car data))) data)
-             (t (user-error "Unsupported DATA format for carriage-doc-state-write")))))
-      (dolist (cell alist)
-        (carriage-doc-state--set-prop (car cell) (cdr cell)))
-      t)))
+  (carriage-doc-state--write-to-file-properties data buffer))
 
 (defun carriage-doc-state-write-current (&optional buffer)
   "Write current buffer Carriage parameters into the document and fold the block."

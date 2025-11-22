@@ -15,6 +15,7 @@
 ;;   spec/ui-v2.org
 ;;   spec/keyspec-v2.org
 ;;   spec/i18n-v2.org
+;;   spec/document-branching-and-templates-v1.org
 ;;   spec/logging-v2.org
 ;;
 ;;; Commentary:
@@ -579,14 +580,16 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
                         (cl-subseq items 0 (min n limit))
                       items))
              (more (max 0 (- n (length shown))))
-             (head-line (format "Контекст: файлов=%d — источники: doc=%s, gptel=%s, vis=%s, patched=%s, scope=%s"
+             (head-line (format "Контекст: файлов=%d — источники: doc=%s, gptel=%s, vis=%s, patched=%s, scope=%s, profile=%s"
                                 cnt
                                 (if inc-doc "on" "off")
                                 (if inc-gpt "on" "off")
                                 (if inc-vis "on" "off")
                                 (if inc-patched "on" "off")
                                 (let ((sc (and (boundp 'carriage-doc-context-scope) carriage-doc-context-scope)))
-                                  (if (eq sc 'last) "last" "all"))))
+                                  (if (eq sc 'last) "last" "all"))
+                                (let ((pr (and (boundp 'carriage-doc-context-profile) carriage-doc-context-profile)))
+                                  (if (eq pr 'p3) "P3" "P1"))))
              (warn-lines (when warns
                            (cons "Предупреждения:"
                                  (mapcar (lambda (w) (concat " - " w)) warns))))
@@ -603,6 +606,14 @@ LIMIT controls max number of items shown; nil or <=0 means no limit."
         (cons (format "[Ctx:%d]" cnt)
               (mapconcat #'identity
                          (delq nil (list head-line
+                                         ;; Profile/limits line with explicit warning for P3
+                                         (let* ((pr (and (boundp 'carriage-doc-context-profile) carriage-doc-context-profile))
+                                                (mf (and (boundp 'carriage-mode-context-max-files) carriage-mode-context-max-files))
+                                                (mb (and (boundp 'carriage-mode-context-max-total-bytes) carriage-mode-context-max-total-bytes)))
+                                           (format "Профиль: %s — лимиты: файлы=%s байты=%s%s"
+                                                   (if (eq pr 'p3) "P3-debug" "P1-core")
+                                                   (or mf "-") (or mb "-")
+                                                   (if (eq pr 'p3) " (внимание: расширенный бюджет — выше стоимость/шум)" "")))
                                          (and warn-lines (mapconcat #'identity warn-lines "\n"))
                                          (and item-lines (mapconcat #'identity item-lines "\n"))))
                          "\n"))))))
@@ -768,10 +779,10 @@ several placeholder frames or a time threshold."
 
 (defun carriage-ui--org-outline-path ()
   "Return org outline path (A › B › C) at point, or nil if not available.
-Do NOT use Org's outline path cache to avoid stale values while moving."
+Prefer using Org's cache (use-cache=t); our hooks keep the value fresh."
   (when (and (derived-mode-p 'org-mode)
              (fboundp 'org-get-outline-path))
-    ;; Use-cache=nil for instant updates when point moves across headings.
+    ;; Use cache=t for speed; we recompute on heading changes via our hook.
     (let* ((path (ignore-errors (org-get-outline-path t nil))))
       (when (and path (listp path) (> (length path) 0))
         (mapconcat (lambda (s) (if (stringp s) s (format "%s" s))) path " › ")))))
@@ -1038,9 +1049,9 @@ segment starts with a padded space. If no separator is found, mute whole string.
                 'help-echo "Перейти к заголовку (mouse-1)"
                 'local-map omap)))
 
-(defun carriage-ui--hl-show-outline-p (tty outline avail)
-  "Return non-nil when OUTLINE should be shown given TTY flag and AVAIL width."
-  (and carriage-mode-headerline-show-outline (not tty) outline (> avail 30)))
+(defun carriage-ui--hl-show-outline-p (tty avail)
+  "Return non-nil when outline should be shown given TTY flag and AVAIL width."
+  (and carriage-mode-headerline-show-outline (not tty) (> avail 30)))
 
 (defun carriage-ui--hl-fit (pseg bseg oseg show-outline avail sep)
   "Truncate segments to fit AVAIL width. Returns list (P B O).
@@ -1077,8 +1088,6 @@ Optimized with caching to reduce allocations on redisplay."
   (let* ((project (carriage-ui--project-name))
          (bufname (buffer-name))
          (win (or carriage-ui--rendering-window (selected-window)))
-         (outline (and carriage-mode-headerline-show-outline
-                       (with-selected-window win (or (carriage-ui--org-outline-path) ""))))
          (use-icons (carriage-ui--icons-available-p))
          ;; Include icon env in cache key to handle theme/icon changes
          (icon-env (and use-icons (carriage-ui--icon-cache-env-current)))
@@ -1093,7 +1102,8 @@ Optimized with caching to reduce allocations on redisplay."
          (reserve 10)
          (avail (max 0 (- maxw reserve)))
          (tty (not (display-graphic-p)))
-         (show-outline (carriage-ui--hl-show-outline-p tty outline avail))
+         (show-outline (carriage-ui--hl-show-outline-p tty avail))
+         (outline (and show-outline (or carriage-ui--last-outline-path-str "")))
          (cache-key (list avail show-outline project bufname outline use-icons icon-env)))
     (if (and (equal cache-key carriage-ui--hl-cache-key)
              (stringp carriage-ui--hl-cache))
@@ -1135,9 +1145,13 @@ Optimized with caching to reduce allocations on redisplay."
 (defvar-local carriage-ui--last-outline-level nil
   "Cached outline level at point for fast header-line refresh.")
 (defvar-local carriage-ui--last-outline-title nil
-  "Cached outline heading title at point for fast header-line refresh.")
+  "Cached outline heading title at point for the current buffer's header-line refresh.")
+
+(defvar-local carriage-ui--outline-dirty nil
+  "Non-nil when the org outline path string needs recomputation on idle.")
 
 (defvar-local carriage-ui--patch-count-cache nil
+
   "Cached count of #+begin_patch blocks in the current buffer.")
 (defvar-local carriage-ui--patch-count-tick nil
   "Buffer tick corresponding to `carriage-ui--patch-count-cache'.")
@@ -1357,20 +1371,19 @@ Detection strategy (optimized):
                                (lambda ()
                                  (when (buffer-live-p buf)
                                    (with-current-buffer buf
-                                     (force-mode-line-update t)
-                                     (setq carriage-ui--headerline-idle-timer nil)))))))
+                                     (carriage-ui--headerline-idle-refresh-run)))))))
   t)
 
 (defun carriage-ui--headerline-post-command ()
-  "Post-command hook: refresh header-line instantly when Org outline context changes.
-Updates on any change of outline path, heading level, or heading title."
+  "Post-command hook: mark outline as dirty on heading changes and refresh on idle.
+We only detect cheap changes (level/title). Full outline path is recomputed on idle."
   (when (and carriage-mode-headerline-show-outline
              (derived-mode-p 'org-mode)
              (get-buffer-window (current-buffer) t))
     (let* ((win (get-buffer-window (current-buffer) t))
            (w (ignore-errors (and (window-live-p win) (window-total-width win))))
            (wide (or (null w) (>= w 40)))
-           (cur-path (and wide (or (carriage-ui--org-outline-path) "")))
+           ;; Cheap change detector: level + title only
            (info (and wide
                       (ignore-errors
                         (save-excursion
@@ -1379,14 +1392,21 @@ Updates on any change of outline path, heading level, or heading title."
                                 (org-get-heading 'no-tags 'no-todo 'no-priority 'no-comment))))))
            (lvl (and info (car info)))
            (ttl (and info (cdr info))))
-      (when (and wide
-                 (or (not (equal cur-path carriage-ui--last-outline-path-str))
-                     (not (equal lvl carriage-ui--last-outline-level))
-                     (not (equal ttl carriage-ui--last-outline-title))))
-        (setq carriage-ui--last-outline-path-str cur-path)
-        (setq carriage-ui--last-outline-level lvl)
-        (setq carriage-ui--last-outline-title ttl)
-        (carriage-ui--headerline-queue-refresh)))))
+      (let ((updated nil))
+        ;; Initialize lazily when first needed: defer full path recomputation to idle
+        (when (and wide (null carriage-ui--last-outline-path-str))
+          (setq carriage-ui--outline-dirty t)
+          (setq updated t))
+        ;; Mark dirty only when heading context changes; recompute on idle
+        (when (and wide
+                   (or (not (equal lvl carriage-ui--last-outline-level))
+                       (not (equal ttl carriage-ui--last-outline-title))))
+          (setq carriage-ui--last-outline-level lvl)
+          (setq carriage-ui--last-outline-title ttl)
+          (setq carriage-ui--outline-dirty t)
+          (setq updated t))
+        (when updated
+          (carriage-ui--headerline-queue-refresh))))))
 
 (defun carriage-ui--headerline-window-scroll (_win _start)
   "Refresh header-line on window scroll for instant visual updates."
@@ -2341,6 +2361,26 @@ Return cons (BODY-BEG . BODY-END) of its body."
               t)
           (message "Context delta cancelled")
           nil)))))
+
+(defun carriage-ui--headerline-idle-refresh-run ()
+  "Idle worker to refresh outline path string (if dirty) and update the header-line.
+Avoids heavy org computations on redisplay path."
+  (unwind-protect
+      (progn
+        (when (and carriage-mode-headerline-show-outline
+                   (derived-mode-p 'org-mode))
+          (let* ((win (or (get-buffer-window (current-buffer) t)
+                          (selected-window)))
+                 (w (ignore-errors (and (window-live-p win) (window-total-width win))))
+                 (wide (or (null w) (>= w 40))))
+            (when (and wide
+                       (or carriage-ui--outline-dirty
+                           (null carriage-ui--last-outline-path-str)))
+              (setq carriage-ui--last-outline-path-str
+                    (or (carriage-ui--org-outline-path) ""))
+              (setq carriage-ui--outline-dirty nil))))
+        (force-mode-line-update t))
+    (setq carriage-ui--headerline-idle-timer nil)))
 
 (provide 'carriage-ui)
 ;;; carriage-ui.el ends here
